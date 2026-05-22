@@ -6,6 +6,12 @@ export interface LoginRequest {
   role?: UserRole;
 }
 
+export interface RegisterRequest {
+  username: string;
+  password: string;
+  role?: Exclude<UserRole, 'admin'>;
+}
+
 export interface AuthUser {
   id: string;
   username: string;

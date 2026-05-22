@@ -1,5 +1,5 @@
 import { apiRequest, clearAuthToken, setAuthToken } from './client';
-import type { CurrentUserResponse, LoginRequest, LoginResponse } from '../types/auth';
+import type { AuthUser, CurrentUserResponse, LoginRequest, LoginResponse, RegisterRequest } from '../types/auth';
 
 export const authApi = {
   async login(payload: LoginRequest): Promise<LoginResponse> {
@@ -25,5 +25,13 @@ export const authApi = {
 
   getCurrentUser(): Promise<CurrentUserResponse> {
     return apiRequest<CurrentUserResponse>('/auth/me');
+  },
+
+  register(payload: RegisterRequest): Promise<AuthUser> {
+    return apiRequest<AuthUser>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      skipAuth: true,
+    });
   },
 };

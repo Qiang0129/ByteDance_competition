@@ -2,6 +2,7 @@ package com.labelhub.backend.auth;
 
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -64,6 +65,33 @@ public class AuthService {
     return new CurrentUserResponse(toAuthUser(user, roles), permissions);
   }
 
+  public CurrentUserResponse getCurrentUser(Authentication authentication) {
+    AuthenticatedUser principal = requirePrincipal(authentication);
+    return new CurrentUserResponse(
+        new AuthUserResponse(
+            Long.toString(principal.id()),
+            principal.username(),
+            principal.displayName(),
+            principal.roles()),
+        principal.permissions());
+  }
+
+  public AuthUserResponse register(RegisterRequest request) {
+    String username = request.username().trim();
+    String role = normalizeRegisterRole(request.role());
+
+    if (authRepository.usernameExists(username)) {
+      throw new ApiException(HttpStatus.CONFLICT, "USERNAME_EXISTS", "username already exists");
+    }
+
+    UserAccount user = authRepository.createUser(
+        username,
+        username,
+        passwordEncoder.encode(request.password()),
+        role);
+    return toAuthUser(user, authRepository.findRoleCodes(user.id()));
+  }
+
   public void logout(String authorizationHeader) {
     tokenService.revoke(authorizationHeader);
   }
@@ -86,6 +114,20 @@ public class AuthService {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ROLE", "unsupported login role");
     }
     return normalizedRole;
+  }
+
+  private String normalizeRegisterRole(String role) {
+    if (role == null || role.isBlank()) {
+      return "labeler";
+    }
+    return normalizeRole(role);
+  }
+
+  private AuthenticatedUser requirePrincipal(Authentication authentication) {
+    if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedUser principal)) {
+      throw unauthorized("missing or invalid token");
+    }
+    return principal;
   }
 
   private ApiException unauthorized(String message) {

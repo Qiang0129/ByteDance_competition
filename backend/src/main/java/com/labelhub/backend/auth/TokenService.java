@@ -3,22 +3,23 @@ package com.labelhub.backend.auth;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
 public class TokenService {
 
   private static final int TOKEN_BYTES = 32;
+  private static final String TOKEN_PREFIX = "labelhub:auth:session:";
 
   private final SecureRandom secureRandom = new SecureRandom();
-  private final Map<String, SessionPrincipal> sessions = new ConcurrentHashMap<>();
   private final AuthProperties authProperties;
+  private final StringRedisTemplate redisTemplate;
 
-  public TokenService(AuthProperties authProperties) {
+  public TokenService(AuthProperties authProperties, StringRedisTemplate redisTemplate) {
     this.authProperties = authProperties;
+    this.redisTemplate = redisTemplate;
   }
 
   public SessionPrincipal issueToken(long userId) {
@@ -27,7 +28,10 @@ public class TokenService {
     String token = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
     Instant expiresAt = Instant.now().plusSeconds(authProperties.getTokenTtlSeconds());
     SessionPrincipal principal = new SessionPrincipal(token, userId, expiresAt);
-    sessions.put(token, principal);
+    redisTemplate.opsForValue().set(
+        buildTokenKey(token),
+        Long.toString(userId),
+        java.time.Duration.ofSeconds(authProperties.getTokenTtlSeconds()));
     return principal;
   }
 
@@ -37,26 +41,30 @@ public class TokenService {
       return Optional.empty();
     }
 
-    SessionPrincipal principal = sessions.get(token);
-    if (principal == null) {
-      return Optional.empty();
-    }
-    if (principal.expiresAt().isBefore(Instant.now())) {
-      sessions.remove(token);
+    String userIdValue = redisTemplate.opsForValue().get(buildTokenKey(token));
+    if (userIdValue == null || userIdValue.isBlank()) {
       return Optional.empty();
     }
 
-    return Optional.of(principal);
+    try {
+      return Optional.of(new SessionPrincipal(
+          token,
+          Long.parseLong(userIdValue),
+          Instant.now().plusSeconds(authProperties.getTokenTtlSeconds())));
+    } catch (NumberFormatException exception) {
+      redisTemplate.delete(buildTokenKey(token));
+      return Optional.empty();
+    }
   }
 
   public void revoke(String authorizationHeader) {
     String token = extractBearerToken(authorizationHeader);
     if (token != null) {
-      sessions.remove(token);
+      redisTemplate.delete(buildTokenKey(token));
     }
   }
 
-  private String extractBearerToken(String authorizationHeader) {
+  public String extractBearerToken(String authorizationHeader) {
     if (authorizationHeader == null || authorizationHeader.isBlank()) {
       return null;
     }
@@ -68,5 +76,9 @@ public class TokenService {
 
     String token = authorizationHeader.substring(prefix.length()).trim();
     return token.isEmpty() ? null : token;
+  }
+
+  private String buildTokenKey(String token) {
+    return TOKEN_PREFIX + token;
   }
 }

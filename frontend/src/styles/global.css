@@ -331,14 +331,29 @@ body {
 
 /* 侧栏底部版本号脚注 */
 .app-sider-footer {
+  position: relative;
   padding: 14px 16px;
   border-top: 1px solid #f0f2f7;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 56px;
   font-size: 12px;
   color: #94a3b8;
   user-select: none;
+}
+
+.app-sider-footer-full {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+  opacity: 1;
+  transform: translateZ(0);
+  transition: opacity 0.2s ease;
+  will-change: opacity;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .app-sider-version {
@@ -354,8 +369,14 @@ body {
 
 /* 折叠态:仅显示一个紧凑的版本徽标 */
 .app-shell .ant-layout-sider-collapsed .app-sider-footer {
+  justify-content: center;
   padding: 14px 0;
-  align-items: center;
+}
+
+.app-shell .ant-layout-sider-collapsed .app-sider-footer-full {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
 }
 
 .app-sider-version-mark {
@@ -366,6 +387,25 @@ body {
   padding: 2px 8px;
   border-radius: 999px;
   letter-spacing: 0.3px;
+  opacity: 0;
+  transform: translateZ(0);
+  transition: opacity 0.2s ease;
+  will-change: opacity;
+}
+
+.app-shell .ant-layout-sider-collapsed .app-sider-version-mark {
+  opacity: 1;
+}
+
+/* 展开态:把折叠徽标隐藏不占位 */
+.app-sider-footer .app-sider-version-mark {
+  position: absolute;
+  pointer-events: none;
+}
+
+.app-shell .ant-layout-sider-collapsed .app-sider-footer .app-sider-version-mark {
+  position: static;
+  pointer-events: auto;
 }
 
 .app-logo {
@@ -380,10 +420,34 @@ body {
   letter-spacing: 0.5px;
 }
 
-/* 侧栏折叠时让 logo 居中且无文字 */
+/* Logo 文字:始终渲染,通过透明度淡入淡出避免折叠/展开瞬间字体抖动 */
+.app-logo-text {
+  white-space: nowrap;
+  opacity: 1;
+  transform: translateZ(0);
+  transition: opacity 0.2s ease, width 0.2s ease;
+  will-change: opacity;
+  /* 字体平滑,避免宽度过渡时的亚像素糊化 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.app-shell .ant-layout-sider-collapsed .app-logo-text {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 侧栏折叠时让 logo 居中且无文字占位 */
 .app-shell .ant-layout-sider-collapsed .app-logo {
   justify-content: center;
   padding: 0;
+  gap: 0;
+}
+
+.app-shell .ant-layout-sider-collapsed .app-logo-text {
+  width: 0;
+  margin: 0;
+  overflow: hidden;
 }
 
 .app-logo-mark {
@@ -405,6 +469,12 @@ body {
   padding: 12px 12px;
   background: transparent;
   border-inline-end: none;
+}
+
+/* 折叠态:菜单容器去掉左右 padding,让菜单项与 Logo 共用同一条竖直中线 */
+.app-shell .ant-menu-light.ant-menu-inline-collapsed {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 /* 分组标题:小写字号 + 主色,呼应设计稿 "WORKSPACE / TASKS" */
@@ -438,17 +508,31 @@ body {
   vertical-align: middle;
 }
 
-/* 折叠态:菜单项内容强制居中,确保图标与 Logo 共用同一条竖直中线 */
+/* 折叠态:所有项目(Logo / 分组圆环 / 菜单图标)统一用 flex 居中,
+   覆盖 antd 默认对 menu-item / group-title / anticon 各自塞的内边距。 */
 .app-shell .ant-menu-inline-collapsed .ant-menu-item,
 .app-shell .ant-menu-inline-collapsed .ant-menu-item-group-title {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 44px !important;
+  min-width: 0 !important;
+  margin-inline: auto !important;
+  padding-inline: 0 !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
   text-align: center;
 }
 
-.app-shell .ant-menu-inline-collapsed .ant-menu-item .anticon {
+.app-shell .ant-menu-inline-collapsed .ant-menu-item .ant-menu-title-content {
+  display: none;
+}
+
+.app-shell .ant-menu-inline-collapsed .ant-menu-item .anticon,
+.app-shell .ant-menu-inline-collapsed .ant-menu-item .ant-menu-item-icon {
   margin: 0 !important;
-  font-size: 18px;
+  font-size: 18px !important;
+  line-height: 1;
 }
 
 /* 菜单项:浅色文字 + 圆角 */

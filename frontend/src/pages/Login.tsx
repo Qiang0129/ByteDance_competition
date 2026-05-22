@@ -8,14 +8,11 @@ import { App, Button, Form, Input, Select } from 'antd';
 import { useNavigate } from 'react-router-dom';
 
 import { authApi } from '../api/auth';
-import type { LoginRequest, UserRole } from '../types/auth';
+import type { LoginRequest, RegisterRequest, UserRole } from '../types/auth';
 
 type AuthMode = 'login' | 'signup';
 
-interface SignupFormValues {
-  username: string;
-  password: string;
-}
+type SignupFormValues = Pick<RegisterRequest, 'username' | 'password'>;
 
 const roleOptions: Array<{ label: string; value: UserRole }> = [
   { label: 'Owner', value: 'owner' },
@@ -54,10 +51,14 @@ export default function Login() {
     return roles.find((role) => role === 'owner' || role === 'labeler' || role === 'reviewer') ?? 'owner';
   };
 
-  const handleSignupFinish = (_values: SignupFormValues) => {
-    // 注册接口将在后续阶段补上,这里仅给一个占位反馈并翻回登录
-    message.success('Account created (placeholder). Please sign in.');
-    setMode('login');
+  const handleSignupFinish = async (values: SignupFormValues) => {
+    try {
+      await authApi.register({ ...values, role: 'labeler' });
+      message.success('Account created. Please sign in.');
+      setMode('login');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Sign up failed.');
+    }
   };
 
   return (

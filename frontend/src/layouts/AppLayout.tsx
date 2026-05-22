@@ -124,7 +124,9 @@ export default function AppLayout() {
         <div className="app-sider-inner">
           <div className="app-logo">
             <span className="app-logo-mark">LH</span>
-            {!collapsed && <span>LabelHub</span>}
+            <span className="app-logo-text" aria-hidden={collapsed}>
+              LabelHub
+            </span>
           </div>
           <Menu
             className="app-sider-menu"
@@ -135,14 +137,13 @@ export default function AppLayout() {
             onClick={({ key }) => navigate(key)}
           />
           <div className="app-sider-footer">
-            {collapsed ? (
-              <span className="app-sider-version-mark">v{APP_VERSION}</span>
-            ) : (
-              <>
-                <span className="app-sider-version">LabelHub v{APP_VERSION}</span>
-                <span className="app-sider-build">Phase 1 · MVP</span>
-              </>
-            )}
+            <span className="app-sider-footer-full" aria-hidden={collapsed}>
+              <span className="app-sider-version">LabelHub v{APP_VERSION}</span>
+              <span className="app-sider-build">Phase 1 · MVP</span>
+            </span>
+            <span className="app-sider-version-mark" aria-hidden={!collapsed}>
+              v{APP_VERSION}
+            </span>
           </div>
         </div>
       </Sider>

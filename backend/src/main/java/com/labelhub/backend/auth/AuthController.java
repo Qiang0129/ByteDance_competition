@@ -3,6 +3,7 @@ package com.labelhub.backend.auth;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,6 +26,11 @@ public class AuthController {
     return authService.login(request);
   }
 
+  @PostMapping("/register")
+  public AuthUserResponse register(@Valid @RequestBody RegisterRequest request) {
+    return authService.register(request);
+  }
+
   @PostMapping("/logout")
   public ResponseEntity<Void> logout(
       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
@@ -33,8 +39,7 @@ public class AuthController {
   }
 
   @GetMapping("/me")
-  public CurrentUserResponse me(
-      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
-    return authService.getCurrentUser(authorizationHeader);
+  public CurrentUserResponse me(Authentication authentication) {
+    return authService.getCurrentUser(authentication);
   }
 }

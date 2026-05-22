@@ -9,6 +9,12 @@ spring:
     username: ${LABELHUB_DB_USERNAME:root}
     password: ${LABELHUB_DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${LABELHUB_REDIS_HOST:127.0.0.1}
+      port: ${LABELHUB_REDIS_PORT:6379}
+      password: ${LABELHUB_REDIS_PASSWORD:}
+      timeout: ${LABELHUB_REDIS_TIMEOUT:3s}
 
 labelhub:
   auth:

@@ -83,11 +83,32 @@ public class AuthRepository {
     jdbcTemplate.update("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?", userId);
   }
 
+  public boolean usernameExists(String username) {
+    Integer count = jdbcTemplate.queryForObject(
+        "SELECT COUNT(*) FROM users WHERE username = ? AND deleted_at IS NULL",
+        Integer.class,
+        username);
+    return count != null && count > 0;
+  }
+
+  public UserAccount createUser(String username, String displayName, String passwordHash, String roleCode) {
+    long userId = insertUser(username, displayName, passwordHash);
+    jdbcTemplate.update(
+        """
+        INSERT INTO user_roles (user_id, role_id)
+        SELECT ?, id FROM roles WHERE role_code = ?
+        """,
+        userId,
+        roleCode);
+    return findUserById(userId)
+        .orElseThrow(() -> new IllegalStateException("failed to load created user"));
+  }
+
   public void upsertDemoUser(String username, String displayName, String passwordHash, String roleCode) {
     Optional<UserAccount> existingUser = findUserByUsername(username);
     long userId = existingUser
         .map(UserAccount::id)
-        .orElseGet(() -> insertDemoUser(username, displayName, passwordHash));
+        .orElseGet(() -> insertUser(username, displayName, passwordHash));
 
     if (existingUser.isPresent()) {
       jdbcTemplate.update(
@@ -110,7 +131,7 @@ public class AuthRepository {
         roleCode);
   }
 
-  private long insertDemoUser(String username, String displayName, String passwordHash) {
+  private long insertUser(String username, String displayName, String passwordHash) {
     KeyHolder keyHolder = new GeneratedKeyHolder();
     jdbcTemplate.update(connection -> {
       var statement = connection.prepareStatement(
