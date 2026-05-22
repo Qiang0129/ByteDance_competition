@@ -7,56 +7,31 @@ body,
 }
 
 body {
-  background: #f5f7fb;
+  background: #f3f5f8;
 }
 
 .app-shell {
   min-height: 100vh;
 }
 
-.app-logo {
-  height: 64px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 20px;
-  color: #ffffff;
-  font-weight: 700;
-  letter-spacing: 0.2px;
+/* 工作台入场动画:首次挂载时淡入并轻微上移,与登录页淡出对接 */
+@keyframes app-shell-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.app-logo-mark {
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  background: #1677ff;
-}
-
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 64px;
-  padding: 0 24px;
-  border-bottom: 1px solid #edf0f5;
-}
-
-.app-content {
-  padding: 24px;
+.app-shell-enter {
+  animation: app-shell-fade-in 0.5s ease both;
 }
 
 .page-stack {
   width: 100%;
-}
-
-.page-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
 }
 
 /* 登录页:对齐 bootstrapmb #15421 设计稿 */
@@ -69,6 +44,29 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  font-family: "Microsoft YaHei", "微软雅黑", -apple-system, BlinkMacSystemFont, sans-serif;
+  /* 离场动画:opacity 配合轻微缩放,与目标页淡入对接 */
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 0.42s ease,
+    transform 0.42s ease;
+}
+
+.login-page.is-leaving {
+  opacity: 0;
+  transform: scale(0.98);
+  pointer-events: none;
+}
+
+/* 让登录页内的 antd 组件也使用微软雅黑(覆盖 ConfigProvider 的全局字体) */
+.login-page .ant-input,
+.login-page .ant-input-affix-wrapper,
+.login-page .ant-select,
+.login-page .ant-btn,
+.login-page .ant-form-item,
+.login-page .ant-typography {
+  font-family: inherit;
 }
 
 /* 右上角两个蓝色装饰圆球 */
@@ -102,57 +100,104 @@ body {
   right: 0;
   bottom: 0;
   width: 100%;
-  height: 220px;
+  height: 300px;
   pointer-events: none;
 }
 
-/* 主要内容:左侧标题 + 右侧登录卡片 */
+/* 主要内容:卡片严格居中,左侧标题块用绝对定位独立放置 */
 .login-content {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 1080px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 120px;
-  flex-wrap: wrap;
 }
 
 .login-side {
+  position: absolute;
+  left: 5%;
+  top: 20%;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
   color: #1a2030;
+  pointer-events: none;
 }
 
 .login-side-icon {
-  width: 88px;
-  height: 88px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 48px;
   color: #2f7bff;
+  line-height: 1;
+}
+
+.login-side-icon svg {
+  width: 100px;
+  height: 100px;
+  fill: currentColor;
 }
 
 .login-side-title {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 2px;
+  font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 4px;
   color: #2a3140;
+  /* 文字阴影:深色长投影,贴近设计稿 */
+  text-shadow:
+    1px 1px 0 rgba(0, 0, 0, 0.25),
+    2px 2px 2px rgba(0, 0, 0, 0.18),
+    4px 6px 10px rgba(0, 0, 0, 0.18);
 }
 
-/* 登录卡片 */
+/* 登录卡 */
 .login-card {
   position: relative;
   width: 360px;
   padding: 64px 36px 28px;
   background: #ffffff;
   border-radius: 18px;
-  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.12);
+}
+
+/* 翻转容器:正反两面卡片切换。
+   用 CSS Grid 让两面共用同一格子,容器高度由更高那一面自然撑起,
+   避免用固定 min-height 强行裁切表单。 */
+.login-card-flip {
+  position: relative;
+  width: 360px;
+  perspective: 1500px;
+  filter: drop-shadow(0 18px 50px rgba(15, 23, 42, 0.12));
+}
+
+.login-card-inner {
+  position: relative;
+  display: grid;
+  /* 两面叠在同一格 */
+  grid-template-areas: "face";
+  width: 100%;
+  transition: transform 0.7s cubic-bezier(0.4, 0.2, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.login-card-flip.is-flipped .login-card-inner {
+  transform: rotateY(180deg);
+}
+
+.login-card-face {
+  grid-area: face;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.login-card-face--back {
+  transform: rotateY(180deg);
 }
 
 /* 卡片顶部悬挂头像 */
@@ -175,8 +220,13 @@ body {
 }
 
 .login-welcome {
+  margin: 8px 0 28px;
   text-align: center;
-  margin: 8px 0 28px !important;
+  font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 25.6px;
+  font-weight: 700;
+  color: #000000;
+  line-height: 1.4;
 }
 
 /* 胶囊输入框:覆盖 antd 默认外观 */
@@ -231,13 +281,207 @@ body {
   font-weight: 600;
 }
 
-/* 窄屏:左侧文字隐藏,只保留登录卡 */
-@media (max-width: 768px) {
+/* 窄屏:左侧文字隐藏,只保留居中的登录卡 */
+@media (max-width: 992px) {
   .login-side {
     display: none;
   }
+}
 
-  .login-content {
-    gap: 0;
-  }
+
+/* ========== 工作台外壳:与登录页主题对齐 ========== */
+.app-shell {
+  background: #f3f5f8;
+}
+
+/* 左侧深蓝渐变侧栏,呼应登录页主色 */
+.app-shell .ant-layout-sider {
+  background: linear-gradient(180deg, #1f2a44 0%, #131a2b 100%);
+}
+
+.app-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  padding: 0 24px;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 1px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.app-logo-mark {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6fb6ff 0%, #2f7bff 100%);
+  box-shadow: 0 6px 14px rgba(47, 123, 255, 0.4);
+  font-size: 14px;
+}
+
+/* 侧栏菜单:hover 与 selected 用主色低透叠加 */
+.app-shell .ant-menu-dark.ant-menu-inline {
+  padding: 12px 12px;
+  background: transparent;
+  border-inline-end: none;
+}
+
+.app-shell .ant-menu-dark .ant-menu-item {
+  border-radius: 10px;
+  margin: 4px 0;
+  color: rgba(255, 255, 255, 0.78);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.app-shell .ant-menu-dark .ant-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+.app-shell .ant-menu-dark .ant-menu-item-selected {
+  background: rgba(47, 123, 255, 0.22) !important;
+  color: #ffffff !important;
+  box-shadow: inset 3px 0 0 #2f7bff;
+}
+
+/* 顶部栏:白底 + 柔阴影,信息布局更舒展 */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 72px;
+  padding: 0 28px;
+  background: #ffffff;
+  border-bottom: 1px solid #eef0f5;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.app-header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-header-name {
+  font-size: 16px;
+  color: #1f2a44;
+}
+
+.app-header-sub {
+  font-size: 12px;
+}
+
+.app-header-phase {
+  border-radius: 999px;
+  padding: 2px 12px;
+  border: none;
+  background: rgba(47, 123, 255, 0.12);
+  color: #2f7bff;
+}
+
+.app-header-user {
+  color: #1f2a44;
+  font-weight: 500;
+}
+
+.app-content {
+  padding: 28px;
+}
+
+/* 内容区卡片:统一圆角 + 柔阴影,呼应登录卡 */
+.app-content .ant-card {
+  border: 1px solid #eef0f5;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.app-content .ant-card:hover {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.app-content .ant-card-head {
+  border-bottom: 1px solid #f0f2f7;
+  min-height: 52px;
+  padding: 0 20px;
+}
+
+.app-content .ant-card-head-title {
+  font-weight: 600;
+  color: #1f2a44;
+}
+
+.app-content .ant-card-body {
+  padding: 20px;
+}
+
+/* 统计卡片:数值更突出,主色点缀 */
+.app-content .ant-statistic-title {
+  color: #6b7280;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.app-content .ant-statistic-content {
+  color: #1f2a44;
+  font-weight: 600;
+  font-size: 28px;
+}
+
+.app-content .ant-statistic-content-prefix {
+  color: #2f7bff;
+  margin-inline-end: 8px;
+}
+
+/* 表头:浅蓝底,呼应登录页背景色调 */
+.app-content .ant-table-thead > tr > th {
+  background: #f5f8fd !important;
+  color: #1f2a44;
+  font-weight: 600;
+  border-bottom: 1px solid #eef0f5;
+}
+
+.app-content .ant-table-tbody > tr > td {
+  border-bottom: 1px solid #f3f5f8;
+}
+
+.app-content .ant-table-tbody > tr:hover > td {
+  background: #f8faff !important;
+}
+
+/* 列表项分隔线更轻 */
+.app-content .ant-list-item {
+  border-bottom: 1px solid #f3f5f8 !important;
+  padding: 16px 4px !important;
+}
+
+/* 页面标题区:与卡片留出呼吸空间 */
+.page-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 4px 0;
+}
+
+.page-title-row .ant-typography {
+  margin-bottom: 0 !important;
+}
+
+/* 主按钮:与登录按钮保持同款胶囊+蓝色阴影,但工作台用 8px 圆角 */
+.app-content .ant-btn-primary {
+  box-shadow: 0 6px 14px rgba(47, 123, 255, 0.25);
+}
+
+.app-content .ant-btn-primary:hover {
+  box-shadow: 0 8px 18px rgba(47, 123, 255, 0.32);
 }

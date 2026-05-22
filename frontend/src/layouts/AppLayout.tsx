@@ -45,7 +45,7 @@ export default function AppLayout() {
     routeKeys.find((routeKey) => location.pathname.startsWith(routeKey)) ?? '/owner';
 
   return (
-    <Layout className="app-shell">
+    <Layout className="app-shell app-shell-enter">
       <Sider width={232} theme="dark">
         <div className="app-logo">
           <span className="app-logo-mark">LH</span>
@@ -62,19 +62,21 @@ export default function AppLayout() {
 
       <Layout>
         <Header className="app-header">
-          <Space direction="vertical" size={0}>
-            <Typography.Text strong>{routeTitles[selectedKey]}</Typography.Text>
-            <Typography.Text type="secondary">
-              第一阶段 UI 框架已就绪，后续接入 Spring Boot 认证与 RBAC。
+          <div className="app-header-title">
+            <Typography.Text className="app-header-name" strong>
+              {routeTitles[selectedKey]}
             </Typography.Text>
-          </Space>
+            <Typography.Text type="secondary" className="app-header-sub">
+              第一阶段 UI 框架已就绪,后续接入 Spring Boot 认证与 RBAC。
+            </Typography.Text>
+          </div>
 
-          <Space size="middle">
-            <Tag icon={<CheckCircleOutlined />} color="processing">
+          <Space size="middle" className="app-header-actions">
+            <Tag icon={<CheckCircleOutlined />} color="processing" className="app-header-phase">
               Phase 1
             </Tag>
-            <Space>
-              <Avatar icon={<UserOutlined />} />
+            <Space size={8} className="app-header-user">
+              <Avatar icon={<UserOutlined />} style={{ background: '#2f7bff' }} />
               <span>演示用户</span>
             </Space>
             <Button icon={<LogoutOutlined />} onClick={() => navigate('/login')}>

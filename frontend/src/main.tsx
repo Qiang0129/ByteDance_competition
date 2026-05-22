@@ -14,7 +14,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#1677ff',
+          colorPrimary: '#2f7bff',
           borderRadius: 8,
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
@@ -22,7 +22,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         components: {
           Layout: {
             headerBg: '#ffffff',
-            bodyBg: '#f5f7fb',
+            bodyBg: '#f3f5f8',
+            siderBg: 'transparent',
+          },
+          Menu: {
+            darkItemBg: 'transparent',
+            darkSubMenuItemBg: 'transparent',
+            darkItemSelectedBg: 'rgba(47, 123, 255, 0.18)',
+            darkItemSelectedColor: '#ffffff',
           },
         },
       }}
