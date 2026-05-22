@@ -1,0 +1,82 @@
+const DEFAULT_API_BASE_URL = '/api';
+const AUTH_TOKEN_KEY = 'labelhub_access_token';
+
+export interface ApiRequestOptions extends RequestInit {
+  skipAuth?: boolean;
+  token?: string | null;
+}
+
+export class ApiError extends Error {
+  status: number;
+  payload: unknown;
+
+  constructor(status: number, statusText: string, payload: unknown) {
+    super(statusText || `API request failed with status ${status}`);
+    this.name = 'ApiError';
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+export function getAuthToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setAuthToken(token: string) {
+  window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+export function clearAuthToken() {
+  window.localStorage.removeItem(AUTH_TOKEN_KEY);
+}
+
+function buildApiUrl(path: string) {
+  const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(
+    /\/$/,
+    '',
+  );
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+
+  return `${apiBaseUrl}${normalizedPath}`;
+}
+
+export async function apiRequest<TResponse>(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<TResponse> {
+  const { skipAuth = false, token, headers: customHeaders, ...requestInit } = options;
+  const headers = new Headers(customHeaders);
+
+  if (requestInit.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const authToken = token ?? getAuthToken();
+  if (!skipAuth && authToken) {
+    headers.set('Authorization', `Bearer ${authToken}`);
+  }
+
+  const response = await fetch(buildApiUrl(path), {
+    ...requestInit,
+    headers,
+  });
+
+  const contentType = response.headers.get('content-type') ?? '';
+  const payload = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
+
+  if (!response.ok) {
+    throw new ApiError(response.status, response.statusText, payload);
+  }
+
+  if (response.status === 204) {
+    return undefined as TResponse;
+  }
+
+  return payload as TResponse;
+}
