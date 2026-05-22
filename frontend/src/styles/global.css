@@ -112,7 +112,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-}
+} 
 
 .login-side {
   position: absolute;
@@ -150,11 +150,6 @@ body {
   font-weight: 700;
   letter-spacing: 4px;
   color: #2a3140;
-  /* 文字阴影:深色长投影,贴近设计稿 */
-  text-shadow:
-    1px 1px 0 rgba(0, 0, 0, 0.25),
-    2px 2px 2px rgba(0, 0, 0, 0.18),
-    4px 6px 10px rgba(0, 0, 0, 0.18);
 }
 
 /* 登录卡 */
@@ -292,11 +287,85 @@ body {
 /* ========== 工作台外壳:与登录页主题对齐 ========== */
 .app-shell {
   background: #f3f5f8;
+  /* 整体留出 padding,让侧栏/顶栏/内容区都从背景上"浮"起来 */
+  padding: 16px;
+  gap: 16px;
 }
 
-/* 左侧深蓝渐变侧栏,呼应登录页主色 */
+.app-shell > .ant-layout {
+  background: transparent;
+  gap: 16px;
+}
+
+/* 左侧白色侧栏:圆角 + 阴影,呼吸感更足 */
 .app-shell .ant-layout-sider {
-  background: linear-gradient(180deg, #1f2a44 0%, #131a2b 100%);
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 12px 28px rgba(15, 23, 42, 0.08),
+    0 2px 6px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  height: calc(100vh - 32px);
+  position: sticky;
+  top: 16px;
+  border-right: none;
+}
+
+/* Sider 内层用 flex 把脚注推到底部 */
+.app-shell .ant-layout-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-sider-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-sider-menu {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+/* 侧栏底部版本号脚注 */
+.app-sider-footer {
+  padding: 14px 16px;
+  border-top: 1px solid #f0f2f7;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+  user-select: none;
+}
+
+.app-sider-version {
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0.4px;
+}
+
+.app-sider-build {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* 折叠态:仅显示一个紧凑的版本徽标 */
+.app-shell .ant-layout-sider-collapsed .app-sider-footer {
+  padding: 14px 0;
+  align-items: center;
+}
+
+.app-sider-version-mark {
+  font-size: 11px;
+  font-weight: 600;
+  color: #2f7bff;
+  background: rgba(47, 123, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
 }
 
 .app-logo {
@@ -304,12 +373,17 @@ body {
   align-items: center;
   gap: 12px;
   height: 64px;
-  padding: 0 24px;
-  color: #ffffff;
+  padding: 0 20px;
+  color: #1f2a44;
   font-weight: 700;
   font-size: 18px;
-  letter-spacing: 1px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  letter-spacing: 0.5px;
+}
+
+/* 侧栏折叠时让 logo 居中且无文字 */
+.app-shell .ant-layout-sider-collapsed .app-logo {
+  justify-content: center;
+  padding: 0;
 }
 
 .app-logo-mark {
@@ -320,81 +394,212 @@ body {
   justify-content: center;
   border-radius: 10px;
   background: linear-gradient(135deg, #6fb6ff 0%, #2f7bff 100%);
+  color: #ffffff;
   box-shadow: 0 6px 14px rgba(47, 123, 255, 0.4);
   font-size: 14px;
 }
 
-/* 侧栏菜单:hover 与 selected 用主色低透叠加 */
-.app-shell .ant-menu-dark.ant-menu-inline {
+/* 浅色侧栏菜单容器 */
+.app-shell .ant-menu-light.ant-menu-inline,
+.app-shell .ant-menu-light.ant-menu-inline-collapsed {
   padding: 12px 12px;
   background: transparent;
   border-inline-end: none;
 }
 
-.app-shell .ant-menu-dark .ant-menu-item {
-  border-radius: 10px;
+/* 分组标题:小写字号 + 主色,呼应设计稿 "WORKSPACE / TASKS" */
+.app-shell .ant-menu-light .ant-menu-item-group-title {
+  padding: 16px 12px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: #2f7bff;
+  text-transform: uppercase;
+}
+
+/* 折叠态:隐藏分组文字,用一个蓝色小圆圈作为分隔符 */
+.app-shell .ant-layout-sider-collapsed .ant-menu-item-group-title {
+  font-size: 0;
+  letter-spacing: 0;
+  padding: 12px 0;
+  text-align: center;
+  height: auto;
+  line-height: 0;
+}
+
+.app-shell .ant-layout-sider-collapsed .ant-menu-item-group-title::before {
+  content: '';
+  display: inline-block;
+  width: 17.59px;
+  height: 17.59px;
+  border-radius: 50%;
+  border: 2px solid #2f7bff;
+  background: transparent;
+  vertical-align: middle;
+}
+
+/* 折叠态:菜单项内容强制居中,确保图标与 Logo 共用同一条竖直中线 */
+.app-shell .ant-menu-inline-collapsed .ant-menu-item,
+.app-shell .ant-menu-inline-collapsed .ant-menu-item-group-title {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  text-align: center;
+}
+
+.app-shell .ant-menu-inline-collapsed .ant-menu-item .anticon {
+  margin: 0 !important;
+  font-size: 18px;
+}
+
+/* 菜单项:浅色文字 + 圆角 */
+.app-shell .ant-menu-light .ant-menu-item {
+  height: 44px;
+  line-height: 44px;
+  border-radius: 12px;
   margin: 4px 0;
-  color: rgba(255, 255, 255, 0.78);
-  transition: background 0.2s ease, color 0.2s ease;
+  color: #475569;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.app-shell .ant-menu-dark .ant-menu-item:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
+.app-shell .ant-menu-light .ant-menu-item:hover {
+  background: rgba(47, 123, 255, 0.06) !important;
+  color: #2f7bff !important;
+}
+
+/* 选中项:蓝色渐变胶囊 + 阴影 + 右侧箭头(用 ::after 绘制) */
+.app-shell .ant-menu-light .ant-menu-item-selected {
+  background: linear-gradient(135deg, #6fb6ff 0%, #2f7bff 100%) !important;
   color: #ffffff !important;
+  box-shadow: 0 8px 18px rgba(47, 123, 255, 0.28);
 }
 
-.app-shell .ant-menu-dark .ant-menu-item-selected {
-  background: rgba(47, 123, 255, 0.22) !important;
-  color: #ffffff !important;
-  box-shadow: inset 3px 0 0 #2f7bff;
+.app-shell .ant-menu-light .ant-menu-item-selected .anticon {
+  color: #ffffff;
 }
 
-/* 顶部栏:白底 + 柔阴影,信息布局更舒展 */
+/* 选中项右侧箭头 */
+.app-shell .ant-menu-light:not(.ant-menu-inline-collapsed) .ant-menu-item-selected::after {
+  content: '';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid #ffffff;
+  border-right: 2px solid #ffffff;
+  transform: translateY(-50%) rotate(45deg);
+  border-inline-end: none;
+  /* 覆盖 antd 默认右侧选中竖条 */
+}
+
+/* 屏蔽 antd 默认选中竖条(避免与渐变胶囊样式冲突) */
+.app-shell .ant-menu-light .ant-menu-item-selected::before {
+  display: none;
+}
+
+/* 顶部栏:三段式布局,左侧折叠+搜索,中间留白,右侧用户下拉。
+   圆角 + 阴影,让顶栏从背景上"浮"起来。 */
 .app-header {
   position: sticky;
-  top: 0;
+  top: 16px;
   z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 72px;
-  padding: 0 28px;
+  gap: 24px;
+  height: 64px;
+  padding: 0 20px;
   background: #ffffff;
-  border-bottom: 1px solid #eef0f5;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  border-radius: 18px;
+  border-bottom: none;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 12px 28px rgba(15, 23, 42, 0.08),
+    0 2px 6px rgba(15, 23, 42, 0.04);
 }
 
-.app-header-title {
+.app-header-left {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
-.app-header-name {
-  font-size: 16px;
-  color: #1f2a44;
+.app-header-toggle.ant-btn {
+  width: 36px;
+  height: 36px;
+  color: #64748b;
 }
 
-.app-header-sub {
-  font-size: 12px;
+.app-header-toggle.ant-btn:hover {
+  color: #2f7bff;
+  background: rgba(47, 123, 255, 0.08);
 }
 
-.app-header-phase {
+.app-header-search.ant-input-affix-wrapper {
   border-radius: 999px;
-  padding: 2px 12px;
-  border: none;
-  background: rgba(47, 123, 255, 0.12);
+  background: #f5f7fb;
+  border-color: #eef0f5;
+  max-width: 360px;
+  height: 36px;
+}
+
+.app-header-search.ant-input-affix-wrapper .anticon {
+  color: #94a3b8;
+}
+
+.app-header-middle {
+  flex: 0 1 auto;
+}
+
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.app-header-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.app-header-profile:hover .app-header-profile-role {
   color: #2f7bff;
 }
 
-.app-header-user {
-  color: #1f2a44;
-  font-weight: 500;
+.app-header-profile-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+}
+
+.app-header-profile-role {
+  font-size: 13px;
+  color: #475569;
+  transition: color 0.2s ease;
+}
+
+/* 窄屏:搜索框宽度收紧、用户文案隐藏 */
+@media (max-width: 880px) {
+  .app-header-search {
+    display: none;
+  }
+
+  .app-header-profile-text {
+    display: none;
+  }
 }
 
 .app-content {
-  padding: 28px;
+  padding: 24px;
+  background: transparent;
 }
 
 /* 内容区卡片:统一圆角 + 柔阴影,呼应登录卡 */

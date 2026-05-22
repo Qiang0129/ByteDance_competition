@@ -1,0 +1,38 @@
+package com.labelhub.backend.auth;
+
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+
+@Component
+public class DemoUserInitializer implements ApplicationRunner {
+
+  private final AuthProperties authProperties;
+  private final AuthRepository authRepository;
+  private final PasswordEncoder passwordEncoder;
+
+  public DemoUserInitializer(
+      AuthProperties authProperties,
+      AuthRepository authRepository,
+      PasswordEncoder passwordEncoder) {
+    this.authProperties = authProperties;
+    this.authRepository = authRepository;
+    this.passwordEncoder = passwordEncoder;
+  }
+
+  @Override
+  public void run(ApplicationArguments args) {
+    if (!authProperties.getDemoUsers().isEnabled()) {
+      return;
+    }
+
+    AuthProperties.DemoUsers demoUsers = authProperties.getDemoUsers();
+    authRepository.upsertDemoUser(
+        "owner", "Owner Demo", passwordEncoder.encode(demoUsers.getOwnerPassword()), "owner");
+    authRepository.upsertDemoUser(
+        "labeler", "Labeler Demo", passwordEncoder.encode(demoUsers.getLabelerPassword()), "labeler");
+    authRepository.upsertDemoUser(
+        "reviewer", "Reviewer Demo", passwordEncoder.encode(demoUsers.getReviewerPassword()), "reviewer");
+  }
+}

@@ -1,0 +1,20 @@
+server:
+  port: ${LABELHUB_BACKEND_PORT:8080}
+
+spring:
+  application:
+    name: labelhub-backend
+  datasource:
+    url: ${LABELHUB_DB_URL:jdbc:mysql://127.0.0.1:3306/labelhub?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${LABELHUB_DB_USERNAME:root}
+    password: ${LABELHUB_DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+labelhub:
+  auth:
+    token-ttl-seconds: ${LABELHUB_AUTH_TOKEN_TTL_SECONDS:7200}
+    demo-users:
+      enabled: ${LABELHUB_DEMO_USERS_ENABLED:true}
+      owner-password: ${LABELHUB_DEMO_OWNER_PASSWORD:owner123}
+      labeler-password: ${LABELHUB_DEMO_LABELER_PASSWORD:labeler123}
+      reviewer-password: ${LABELHUB_DEMO_REVIEWER_PASSWORD:reviewer123}

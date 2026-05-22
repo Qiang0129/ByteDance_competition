@@ -7,6 +7,7 @@ import {
 import { App, Button, Form, Input, Select } from 'antd';
 import { useNavigate } from 'react-router-dom';
 
+import { authApi } from '../api/auth';
 import type { LoginRequest, UserRole } from '../types/auth';
 
 type AuthMode = 'login' | 'signup';
@@ -30,14 +31,27 @@ export default function Login() {
   // 登录成功后的离场动画状态:开启后页面淡出,过渡结束再跳转
   const [leaving, setLeaving] = useState(false);
 
-  const handleLoginFinish = (values: LoginRequest) => {
-    const role = values.role ?? 'owner';
-    message.success('Signed in. Real auth API will be wired up later.');
-    setLeaving(true);
-    // 等离场动画跑完再跳转,避免直接 navigate 造成"闪一下"
-    window.setTimeout(() => {
-      navigate(`/${role}`);
-    }, 480);
+  const handleLoginFinish = async (values: LoginRequest) => {
+    try {
+      const response = await authApi.login(values);
+      const role = resolveLandingRole(response.user.roles, values.role);
+      message.success('Signed in successfully.');
+      setLeaving(true);
+      // 等离场动画跑完再跳转,避免直接 navigate 造成"闪一下"
+      window.setTimeout(() => {
+        navigate(`/${role}`);
+      }, 480);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'Sign in failed.');
+    }
+  };
+
+  const resolveLandingRole = (roles: UserRole[], selectedRole?: UserRole) => {
+    if (selectedRole && roles.includes(selectedRole)) {
+      return selectedRole;
+    }
+
+    return roles.find((role) => role === 'owner' || role === 'labeler' || role === 'reviewer') ?? 'owner';
   };
 
   const handleSignupFinish = (_values: SignupFormValues) => {
