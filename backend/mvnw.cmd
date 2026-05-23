@@ -1,6 +1,9 @@
 @echo off
 setlocal
 
+chcp 65001 >nul
+set MAVEN_OPTS=-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8 %MAVEN_OPTS%
+
 set MAVEN_VERSION=3.9.9
 set WRAPPER_BASE=%USERPROFILE%\.m2\wrapper\dists
 set MAVEN_HOME=%WRAPPER_BASE%\apache-maven-%MAVEN_VERSION%
