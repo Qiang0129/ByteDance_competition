@@ -85,6 +85,20 @@ reviewer   reviewer   reviewer123
 
 登录页会调用真实后端接口 `POST /api/auth/login`，登录成功后根据角色进入对应工作台。
 
+## API 文档
+
+后端启动后可访问 Swagger UI：
+
+```text
+http://127.0.0.1:8080/swagger-ui/index.html
+```
+
+OpenAPI JSON 地址：
+
+```text
+http://127.0.0.1:8080/v3/api-docs
+```
+
 ## 构建检查
 
 前端构建：
