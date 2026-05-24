@@ -714,10 +714,9 @@ function MarkdownPreview({ source }: { source: string }) {
   );
 }
 
-/** 行内解析:图片 ![alt](url) 与链接 [text](url),其余按文本输出 */
+/** 行内解析:图片 ![alt](url)、链接 [text](url),其中 url 是视频后缀时升级为 <video> */
 function renderInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  // 图片优先,链接次之;两者都用同一种 (...)(...) 结构,差别在前缀 !
   const pattern = /(!?)\[([^\]]*)\]\(([^)]+)\)/g;
   let cursor = 0;
   let key = 0;
@@ -728,8 +727,28 @@ function renderInline(text: string): React.ReactNode[] {
       nodes.push(...splitByNewline(seg, key++));
     }
     const [, bang, label, url] = match;
-    if (bang === '!') {
+    const isVideoUrl = /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(url);
+    const isImageUrl = /\.(png|jpe?g|gif|webp|svg|bmp)(\?.*)?$/i.test(url);
+    if (bang === '!' || (bang === '' && isImageUrl && !isVideoUrl)) {
       nodes.push(<img key={key++} src={url} alt={label} className="dataset-md-img" />);
+    } else if (isVideoUrl) {
+      // [文本](xxx.mp4) 形式视为视频:在视频上方保留文本作为标题
+      nodes.push(
+        <span key={key++} className="dataset-md-video-caption">
+          {label}
+        </span>,
+      );
+      nodes.push(
+        <video
+          key={key++}
+          controls
+          preload="metadata"
+          className="dataset-md-video"
+          src={url}
+        >
+          您的浏览器不支持 video 标签。
+        </video>,
+      );
     } else {
       nodes.push(
         <a key={key++} href={url} target="_blank" rel="noreferrer" className="dataset-md-link">

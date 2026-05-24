@@ -1735,6 +1735,14 @@ body {
   background: #000;
 }
 
+.dataset-md-video-caption {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: #475569;
+  font-weight: 500;
+}
+
 .dataset-md-link {
   color: #2f7bff;
   text-decoration: underline;
