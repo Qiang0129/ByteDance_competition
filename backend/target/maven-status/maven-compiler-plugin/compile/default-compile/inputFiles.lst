@@ -20,3 +20,13 @@ F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\jav
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\auth\TokenService.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\auth\UserAccount.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\LabelHubBackendApplication.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\CreateTaskRequest.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\MarketTaskResponse.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\OwnerTaskResponse.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\PageResponse.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\TaskController.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\TaskMetadata.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\TaskRecord.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\TaskRepository.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\TaskService.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\UpdateTaskStateRequest.java

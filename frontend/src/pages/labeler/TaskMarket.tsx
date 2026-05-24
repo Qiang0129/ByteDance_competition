@@ -1,44 +1,15 @@
+import { useEffect, useState } from 'react';
 import { ClockCircleOutlined, FireOutlined, SearchOutlined } from '@ant-design/icons';
-import { Button, Card, Col, Empty, Input, Row, Select, Space, Tag, Typography } from 'antd';
+import { App, Button, Card, Col, Empty, Input, Row, Select, Space, Tag, Typography } from 'antd';
+
+import { labelerApi } from '../../api/labeler';
+import type { MarketTask } from '../../types/labeler';
 
 /**
  * 任务市场。
  * 接口预留:GET /market/tasks(见 api/labeler.ts)。
- * 当前为 mock 卡片列表,后续阶段对接分页与筛选。
+ * 当前已接入后端 GET /market/tasks,Owner 发布中的任务会同步展示。
  */
-const mockMarketTasks = [
-  {
-    id: 't-q12',
-    title: 'QA 质量评估 · 批次 Q12',
-    type: 'QA Quality',
-    description: '判断模型回答的正确性、完整性,并标注潜在风险点。',
-    remaining: 24,
-    total: 50,
-    deadline: '06-05 24:00',
-    reward: 0.6,
-  },
-  {
-    id: 't-p07',
-    title: '偏好对比 A/B · 批次 P07',
-    type: 'Preference Compare',
-    description: '左右两段模型回答的偏好选择,标注强度与多维度标签。',
-    remaining: 18,
-    total: 30,
-    deadline: '06-08 24:00',
-    reward: 0.8,
-  },
-  {
-    id: 't-img-04',
-    title: '图像分类标注 · 交通标志 V4',
-    type: 'Image Classification',
-    description: '基于交通标志图像识别类别并补充模糊样本说明。',
-    remaining: 96,
-    total: 200,
-    deadline: '06-10 24:00',
-    reward: 0.3,
-  },
-];
-
 const typeOptions = [
   { label: '全部类型', value: '' },
   { label: 'QA Quality', value: 'qa_quality' },
@@ -47,6 +18,33 @@ const typeOptions = [
 ];
 
 export default function TaskMarket() {
+  const { message } = App.useApp();
+  const [keyword, setKeyword] = useState('');
+  const [taskType, setTaskType] = useState('');
+  const [tasks, setTasks] = useState<MarketTask[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    void loadMarketTasks();
+  }, []);
+
+  async function loadMarketTasks() {
+    setLoading(true);
+    try {
+      const response = await labelerApi.listMarketTasks({
+        keyword: keyword || undefined,
+        taskType: taskType || undefined,
+        page: 1,
+        pageSize: 20,
+      });
+      setTasks(response.items);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '任务市场加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <Space direction="vertical" size="large" className="page-stack">
       <div className="page-title-row">
@@ -65,25 +63,38 @@ export default function TaskMarket() {
             placeholder="搜索任务名称或关键词"
             prefix={<SearchOutlined />}
             style={{ width: 320 }}
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            onPressEnter={() => {
+              void loadMarketTasks();
+            }}
           />
-          <Select options={typeOptions} defaultValue="" style={{ width: 200 }} />
-          <Button type="primary">筛选</Button>
+          <Select
+            options={typeOptions}
+            value={taskType}
+            onChange={setTaskType}
+            style={{ width: 200 }}
+          />
+          <Button type="primary" loading={loading} onClick={() => void loadMarketTasks()}>
+            筛选
+          </Button>
         </Space>
       </Card>
 
       <Row gutter={[16, 16]}>
-        {mockMarketTasks.map((task) => (
-          <Col span={8} key={task.id}>
+        {tasks.map((task) => (
+          <Col span={8} key={task.taskId}>
             <Card
+              loading={loading}
               title={
                 <Space size={8}>
                   {task.title}
-                  <Tag color="blue">{task.type}</Tag>
+                  <Tag color="blue">{task.taskType}</Tag>
                 </Space>
               }
               extra={
                 <Tag icon={<FireOutlined />} color="volcano">
-                  ¥{task.reward.toFixed(2)} / 条
+                  {formatReward(task.rewardPerItem)}
                 </Tag>
               }
             >
@@ -93,10 +104,10 @@ export default function TaskMarket() {
               <Space direction="vertical" size={6} style={{ width: '100%' }}>
                 <Space size={16}>
                   <span>
-                    剩余配额:<strong>{task.remaining}</strong> / {task.total}
+                    剩余配额:<strong>{task.remainingQuota}</strong> / {task.totalQuota}
                   </span>
                   <span>
-                    <ClockCircleOutlined /> 截止 {task.deadline}
+                    <ClockCircleOutlined /> 截止 {task.deadline || '未设置'}
                   </span>
                 </Space>
                 <Button type="primary" block>
@@ -108,9 +119,13 @@ export default function TaskMarket() {
         ))}
       </Row>
 
-      {mockMarketTasks.length === 0 && (
+      {!loading && tasks.length === 0 && (
         <Empty description="暂无可认领的任务,请稍后再试。" />
       )}
     </Space>
   );
+}
+
+function formatReward(rewardPerItem?: number) {
+  return rewardPerItem == null ? '奖励待配置' : `¥${rewardPerItem.toFixed(2)} / 条`;
 }

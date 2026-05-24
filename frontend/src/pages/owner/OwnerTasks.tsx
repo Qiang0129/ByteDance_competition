@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRightOutlined,
   CheckCircleFilled,
@@ -10,6 +10,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import {
+  App,
   Button,
   Card,
   Col,
@@ -27,30 +28,19 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
+import { ownerApi } from '../../api/owner';
+import type { OwnerAssignStrategy, OwnerTask, OwnerTaskState } from '../../types/owner';
+
 /**
  * 任务管理页(Owner 端默认入口)。
  * 信息架构对齐《项目实施计划书》4.1 与 5.2:
  *   任务全生命周期:草稿 → 发布中 → 已暂停 → 已结束
  *   POST /tasks  PUT /tasks/{id}/state  GET /tasks
- * 当前为前端 mock + 抽屉表单,后续接入 Spring Boot 任务 CRUD。
+ * 当前已接入 Spring Boot 任务创建、列表查询和状态切换接口。
  */
 
-type TaskState = 'draft' | 'published' | 'paused' | 'ended';
-
-interface OwnerTaskRow {
-  key: string;
-  taskId: string;
-  title: string;
-  type: string;
-  schemaVersion: string;
-  owner: string;
-  state: TaskState;
-  /** 分发策略:先到先得 / 指派 / 配额抢单 */
-  assignStrategy: 'first-come' | 'assigned' | 'quota';
-  quotaUsed: number;
-  quotaTotal: number;
-  createdAt: string;
-}
+type TaskState = OwnerTaskState;
+type OwnerTaskRow = OwnerTask;
 
 const stateMeta: Record<TaskState, { label: string; color: string; icon: React.ReactNode }> = {
   draft: { label: '草稿', color: 'default', icon: <span className="state-dot dot-draft" /> },
@@ -59,66 +49,11 @@ const stateMeta: Record<TaskState, { label: string; color: string; icon: React.R
   ended: { label: '已结束', color: 'default', icon: <span className="state-dot dot-ended" /> },
 };
 
-const strategyLabel: Record<OwnerTaskRow['assignStrategy'], string> = {
+const strategyLabel: Record<OwnerAssignStrategy, string> = {
   'first-come': '先到先得',
   assigned: '指派',
   quota: '配额抢单',
 };
-
-const mockRows: OwnerTaskRow[] = [
-  {
-    key: 't-2041',
-    taskId: 'T-2041',
-    title: '商品标题清洗 v3 · 抖音电商',
-    type: 'QA Quality',
-    schemaVersion: 'r12',
-    owner: '张涛',
-    state: 'published',
-    assignStrategy: 'first-come',
-    quotaUsed: 2340,
-    quotaTotal: 5000,
-    createdAt: '2026-05-10',
-  },
-  {
-    key: 't-2039',
-    taskId: 'T-2039',
-    title: '短视频脚本对齐评测',
-    type: 'Preference Compare',
-    schemaVersion: 'r07',
-    owner: '张涛',
-    state: 'paused',
-    assignStrategy: 'assigned',
-    quotaUsed: 980,
-    quotaTotal: 2000,
-    createdAt: '2026-05-08',
-  },
-  {
-    key: 't-2042',
-    taskId: 'T-2042',
-    title: '直播话术安全审核 · 草稿',
-    type: 'Safety Tagging',
-    schemaVersion: 'r01',
-    owner: '张涛',
-    state: 'draft',
-    assignStrategy: 'first-come',
-    quotaUsed: 0,
-    quotaTotal: 1500,
-    createdAt: '2026-05-15',
-  },
-  {
-    key: 't-2031',
-    taskId: 'T-2031',
-    title: 'AIGC 图文质量打分',
-    type: 'QA Quality',
-    schemaVersion: 'r05',
-    owner: '王慕白',
-    state: 'ended',
-    assignStrategy: 'quota',
-    quotaUsed: 3000,
-    quotaTotal: 3000,
-    createdAt: '2026-04-22',
-  },
-];
 
 const stateFilterOptions = [
   { label: '全部状态', value: 'all' },
@@ -141,24 +76,37 @@ interface PublishFormValues {
   reward: string;
   quota: number;
   deadline: string;
-  strategy: OwnerTaskRow['assignStrategy'];
+  strategy: OwnerAssignStrategy;
   schema: string;
-  aiReviewEnabled: boolean;
 }
 
 export default function OwnerTasks() {
+  const { message } = App.useApp();
+  const [form] = Form.useForm<PublishFormValues>();
   const [stateFilter, setStateFilter] = useState<string>('all');
   const [strategyFilter, setStrategyFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<OwnerTaskRow | null>(null);
+  const [rows, setRows] = useState<OwnerTaskRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const submitStateRef = useRef<TaskState>('published');
 
-  const filteredRows = mockRows.filter((row) => {
+  useEffect(() => {
+    void loadTasks();
+  }, []);
+
+  const filteredRows = rows.filter((row) => {
     if (stateFilter !== 'all' && row.state !== stateFilter) return false;
     if (strategyFilter !== 'all' && row.assignStrategy !== strategyFilter) return false;
     if (keyword && !`${row.title} ${row.taskId} ${row.owner}`.includes(keyword)) return false;
     return true;
   });
+
+  const publishedCount = rows.filter((row) => row.state === 'published').length;
+  const draftCount = rows.filter((row) => row.state === 'draft').length;
+  const submittedCount = rows.reduce((sum, row) => sum + row.quotaUsed, 0);
 
   const columns: ColumnsType<OwnerTaskRow> = [
     {
@@ -188,14 +136,14 @@ export default function OwnerTasks() {
       title: '分发策略',
       dataIndex: 'assignStrategy',
       width: 120,
-      render: (strategy: OwnerTaskRow['assignStrategy']) => strategyLabel[strategy],
+      render: (strategy: OwnerAssignStrategy) => strategyLabel[strategy],
     },
     {
       title: '配额 / 进度',
       dataIndex: 'quotaUsed',
       width: 200,
       render: (_value, record) => {
-        const ratio = (record.quotaUsed / record.quotaTotal) * 100;
+        const ratio = record.quotaTotal > 0 ? (record.quotaUsed / record.quotaTotal) * 100 : 0;
         return (
           <div className="owner-task-quota">
             <div className="owner-task-quota-numbers">
@@ -221,17 +169,17 @@ export default function OwnerTasks() {
             </Button>
           )}
           {record.state === 'published' && (
-            <Button type="link" icon={<PauseCircleFilled />}>
+            <Button type="link" icon={<PauseCircleFilled />} onClick={() => handleStateChange(record, 'paused')}>
               暂停
             </Button>
           )}
           {record.state === 'paused' && (
-            <Button type="link" icon={<SyncOutlined />}>
+            <Button type="link" icon={<SyncOutlined />} onClick={() => handleStateChange(record, 'published')}>
               恢复
             </Button>
           )}
           {(record.state === 'published' || record.state === 'paused') && (
-            <Button type="link" danger icon={<StopFilled />}>
+            <Button type="link" danger icon={<StopFilled />} onClick={() => handleStateChange(record, 'ended')}>
               结束
             </Button>
           )}
@@ -245,7 +193,68 @@ export default function OwnerTasks() {
 
   function openDrawer(row?: OwnerTaskRow) {
     setActiveRow(row ?? null);
+    submitStateRef.current = row ? row.state : 'published';
+    form.setFieldsValue(toFormValues(row));
     setDrawerOpen(true);
+  }
+
+  function closeDrawer() {
+    setDrawerOpen(false);
+    setActiveRow(null);
+  }
+
+  async function loadTasks() {
+    setLoading(true);
+    try {
+      const response = await ownerApi.listTasks();
+      setRows(response.items);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '任务列表加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStateChange(row: OwnerTaskRow, state: TaskState) {
+    try {
+      await ownerApi.updateTaskState(row.taskId, state);
+      message.success('任务状态已更新');
+      await loadTasks();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '任务状态更新失败');
+    }
+  }
+
+  async function handlePublishFinish(values: PublishFormValues) {
+    const targetState = submitStateRef.current;
+    setSubmitting(true);
+    try {
+      if (activeRow) {
+        if (targetState !== activeRow.state) {
+          await ownerApi.updateTaskState(activeRow.taskId, targetState);
+          message.success('任务状态已更新');
+        }
+      } else {
+        await ownerApi.createTask({
+          title: values.title,
+          tags: values.tags,
+          reward: values.reward,
+          quota: values.quota,
+          deadline: values.deadline,
+          strategy: values.strategy,
+          schema: values.schema,
+          aiReviewEnabled: true,
+          status: targetState,
+        });
+        message.success(targetState === 'published' ? '任务已发布' : '任务草稿已保存');
+      }
+      closeDrawer();
+      await loadTasks();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '任务保存失败');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -268,7 +277,7 @@ export default function OwnerTasks() {
         <Col span={8}>
           <Card className="owner-stat-card">
             <div className="owner-stat-label">发布中任务</div>
-            <div className="owner-stat-value owner-stat-primary">12</div>
+            <div className="owner-stat-value owner-stat-primary">{publishedCount}</div>
             <Tag color="success" className="owner-stat-trend">
               <CheckCircleFilled /> 当前在线
             </Tag>
@@ -277,7 +286,7 @@ export default function OwnerTasks() {
         <Col span={8}>
           <Card className="owner-stat-card">
             <div className="owner-stat-label">草稿</div>
-            <div className="owner-stat-value">5</div>
+            <div className="owner-stat-value">{draftCount}</div>
             <Tag className="owner-stat-trend owner-stat-mute">
               待完善后发布
             </Tag>
@@ -286,7 +295,7 @@ export default function OwnerTasks() {
         <Col span={8}>
           <Card className="owner-stat-card">
             <div className="owner-stat-label">本周新增提交</div>
-            <div className="owner-stat-value owner-stat-primary">3,481</div>
+            <div className="owner-stat-value owner-stat-primary">{submittedCount.toLocaleString()}</div>
             <Tag color="processing" className="owner-stat-trend">
               <RobotOutlined /> AI 通过率 87%
             </Tag>
@@ -325,6 +334,8 @@ export default function OwnerTasks() {
         <Table<OwnerTaskRow>
           columns={columns}
           dataSource={filteredRows}
+          rowKey="taskId"
+          loading={loading}
           pagination={{ pageSize: 10, showSizeChanger: false }}
           rowClassName="owner-task-row"
         />
@@ -335,12 +346,28 @@ export default function OwnerTasks() {
         title={activeRow ? `发布任务 · ${activeRow.title}` : '新建标注任务'}
         width={520}
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={closeDrawer}
         closeIcon={<CloseOutlined />}
         footer={
           <Space className="owner-drawer-footer">
-            <Button onClick={() => setDrawerOpen(false)}>存为草稿</Button>
-            <Button type="primary" icon={<ArrowRightOutlined />}>
+            <Button
+              loading={submitting}
+              onClick={() => {
+                submitStateRef.current = 'draft';
+                form.submit();
+              }}
+            >
+              存为草稿
+            </Button>
+            <Button
+              type="primary"
+              icon={<ArrowRightOutlined />}
+              loading={submitting}
+              onClick={() => {
+                submitStateRef.current = 'published';
+                form.submit();
+              }}
+            >
               立即发布
             </Button>
           </Space>
@@ -351,18 +378,10 @@ export default function OwnerTasks() {
         </div>
 
         <Form<PublishFormValues>
+          form={form}
           layout="vertical"
           requiredMark={false}
-          initialValues={{
-            title: activeRow?.title ?? '',
-            tags: ['电商', '文本清洗', '中文'],
-            reward: '0.30 元 / 条 · 月度封顶 1500 元',
-            quota: activeRow?.quotaTotal ?? 5000,
-            deadline: '2026-06-01 23:59',
-            strategy: activeRow?.assignStrategy ?? 'first-come',
-            schema: `商品清洗 · v3 (Schema r${activeRow?.schemaVersion ?? '12'})`,
-            aiReviewEnabled: true,
-          }}
+          onFinish={handlePublishFinish}
         >
           <Form.Item label="任务标题" name="title" rules={[{ required: true }]}>
             <Input placeholder="例如:商品标题清洗 v3 · 抖音电商" />
@@ -407,7 +426,7 @@ export default function OwnerTasks() {
             />
           </Form.Item>
 
-          <Form.Item label="启用 AI 预审" name="aiReviewEnabled">
+          <Form.Item label="启用 AI 预审">
             <Space>
               <Tag color="success">已开启</Tag>
               <Typography.Text type="secondary">规则:电商相关性 v2</Typography.Text>
@@ -417,4 +436,16 @@ export default function OwnerTasks() {
       </Drawer>
     </Space>
   );
+}
+
+function toFormValues(row?: OwnerTaskRow): PublishFormValues {
+  return {
+    title: row?.title ?? '',
+    tags: row?.tags?.length ? row.tags : ['电商', '文本清洗', '中文'],
+    reward: row?.reward ?? '0.30 元 / 条 · 月度封顶 1500 元',
+    quota: row?.quotaTotal || 5000,
+    deadline: row?.deadline || '2026-06-01 23:59',
+    strategy: row?.assignStrategy ?? 'first-come',
+    schema: row ? `${row.title} (Schema ${row.schemaVersion})` : '商品清洗 · v3 (Schema r12)',
+  };
 }
