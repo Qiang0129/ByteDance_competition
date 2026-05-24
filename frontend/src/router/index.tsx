@@ -10,7 +10,15 @@ import {
   ReturnedItems,
   TaskMarket,
 } from '../pages/labeler';
-import OwnerHome from '../pages/owner';
+import {
+  OwnerAiReview,
+  OwnerDashboard,
+  OwnerDatasets,
+  OwnerExport,
+  OwnerReview,
+  OwnerTasks,
+  OwnerTemplates,
+} from '../pages/owner';
 import ReviewerHome from '../pages/reviewer';
 
 export function AppRoutes() {
@@ -20,9 +28,17 @@ export function AppRoutes() {
       <Route path="/login" element={<Login />} />
 
       <Route element={<AppLayout />}>
-        <Route path="/owner" element={<OwnerHome />} />
+        {/* Owner 端:计划书 4.1 / 4.2 / 4.4 / 4.5 / 4.6 */}
+        <Route path="/owner" element={<Navigate to="/owner/tasks" replace />} />
+        <Route path="/owner/tasks" element={<OwnerTasks />} />
+        <Route path="/owner/templates" element={<OwnerTemplates />} />
+        <Route path="/owner/datasets" element={<OwnerDatasets />} />
+        <Route path="/owner/ai-review" element={<OwnerAiReview />} />
+        <Route path="/owner/review" element={<OwnerReview />} />
+        <Route path="/owner/dashboard" element={<OwnerDashboard />} />
+        <Route path="/owner/export" element={<OwnerExport />} />
 
-        {/* Labeler 端工作台:对齐计划书 4.3 子页面 */}
+        {/* Labeler 端:计划书 4.3 */}
         <Route path="/labeler" element={<LabelerOverview />} />
         <Route path="/labeler/market" element={<TaskMarket />} />
         <Route path="/labeler/my-tasks" element={<MyTasks />} />

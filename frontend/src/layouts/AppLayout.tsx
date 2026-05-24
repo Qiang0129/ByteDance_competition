@@ -2,13 +2,18 @@ import { useState } from 'react';
 import {
   AppstoreOutlined,
   AuditOutlined,
+  DashboardOutlined,
+  DatabaseOutlined,
   EditOutlined,
   ExclamationCircleOutlined,
+  ExportOutlined,
   FileTextOutlined,
+  HomeOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ProjectOutlined,
+  RobotOutlined,
   SearchOutlined,
   ShopOutlined,
   UserOutlined,
@@ -16,6 +21,7 @@ import {
 import {
   Avatar,
   Badge,
+  Breadcrumb,
   Button,
   Dropdown,
   Input,
@@ -39,6 +45,61 @@ const sectionRoleLabel: Record<RoleSection, string> = {
   labeler: 'Labeler',
   reviewer: 'Reviewer',
 };
+
+/** 路径片段 -> 显示文案,顶部面包屑使用 */
+const segmentLabel: Record<string, string> = {
+  owner: '任务负责人后台',
+  labeler: '标注员',
+  reviewer: '审核员',
+  market: '任务市场',
+  'my-tasks': '我的任务',
+  drafts: '草稿箱',
+  returned: '打回项',
+  tasks: '任务管理',
+  templates: '模板搭建',
+  datasets: '数据集',
+  'ai-review': 'AI 预审规则',
+  review: '人工审核',
+  dashboard: '数据看板',
+  export: '导出中心',
+};
+
+/**
+ * Owner 端导航对齐计划书 4.1 / 4.2 / 4.4 / 4.5 / 4.6:
+ * - 数据生产组:任务管理 / 模板搭建 / 数据集
+ * - 审核与质检组:AI 预审规则 / 人工审核
+ * - 数据交付组:数据看板 / 导出中心
+ */
+const ownerMenuItems: MenuProps['items'] = [
+  {
+    type: 'group',
+    key: 'g-owner-produce',
+    label: '数据生产',
+    children: [
+      { key: '/owner/tasks', icon: <ProjectOutlined />, label: '任务管理' },
+      { key: '/owner/templates', icon: <AppstoreOutlined />, label: '模板搭建' },
+      { key: '/owner/datasets', icon: <DatabaseOutlined />, label: '数据集' },
+    ],
+  },
+  {
+    type: 'group',
+    key: 'g-owner-review',
+    label: '审核与质检',
+    children: [
+      { key: '/owner/ai-review', icon: <RobotOutlined />, label: 'AI 预审规则' },
+      { key: '/owner/review', icon: <AuditOutlined />, label: '人工审核' },
+    ],
+  },
+  {
+    type: 'group',
+    key: 'g-owner-deliver',
+    label: '数据交付',
+    children: [
+      { key: '/owner/dashboard', icon: <DashboardOutlined />, label: '数据看板' },
+      { key: '/owner/export', icon: <ExportOutlined />, label: '导出中心' },
+    ],
+  },
+];
 
 /**
  * Labeler 端导航对齐计划书 2.1 与 4.3,按"工作概览 / 任务"两组展示。
@@ -67,11 +128,7 @@ const labelerMenuItems: MenuProps['items'] = [
   },
 ];
 
-/** Owner / Reviewer 暂保留单项入口,后续阶段再展开 */
-const ownerMenuItems: MenuProps['items'] = [
-  { key: '/owner', icon: <ProjectOutlined />, label: '项目方工作台' },
-];
-
+/** Reviewer 暂保留单项入口,后续阶段再展开 */
 const reviewerMenuItems: MenuProps['items'] = [
   { key: '/reviewer', icon: <AuditOutlined />, label: '审核员工作台' },
 ];
@@ -83,10 +140,23 @@ function resolveSection(pathname: string): RoleSection {
 }
 
 function resolveSelectedKey(section: RoleSection, pathname: string): string {
-  if (section !== 'labeler') return `/${section}`;
-  // Labeler 选中态:精确匹配优先,根路径回落到 /labeler
-  const labelerKeys = ['/labeler/market', '/labeler/my-tasks', '/labeler/drafts', '/labeler/returned'];
-  return labelerKeys.find((key) => pathname.startsWith(key)) ?? '/labeler';
+  if (section === 'labeler') {
+    const labelerKeys = ['/labeler/market', '/labeler/my-tasks', '/labeler/drafts', '/labeler/returned'];
+    return labelerKeys.find((key) => pathname.startsWith(key)) ?? '/labeler';
+  }
+  if (section === 'owner') {
+    const ownerKeys = [
+      '/owner/tasks',
+      '/owner/templates',
+      '/owner/datasets',
+      '/owner/ai-review',
+      '/owner/review',
+      '/owner/dashboard',
+      '/owner/export',
+    ];
+    return ownerKeys.find((key) => pathname.startsWith(key)) ?? '/owner/tasks';
+  }
+  return `/${section}`;
 }
 
 export default function AppLayout() {
@@ -104,6 +174,56 @@ export default function AppLayout() {
       : section === 'reviewer'
         ? reviewerMenuItems
         : ownerMenuItems;
+
+  /**
+   * 根据 location.pathname 拆出面包屑节点。
+   * 顶层是 Home + 角色后台名称(任务负责人后台 / 标注员 / 审核员),
+   * 随后按路径片段累加,例如 /owner/tasks -> 任务负责人后台 / 任务管理。
+   * 父级片段可点跳转,末级为当前页只显示文字。
+   */
+  const breadcrumbItems = (() => {
+    const parts = location.pathname.split('/').filter(Boolean);
+    const rootLabel =
+      section === 'owner' ? '任务负责人后台' : section === 'labeler' ? '标注员后台' : '审核员后台';
+    const items: Array<{ title: React.ReactNode; href?: string }> = [
+      {
+        title: (
+          <span className="app-breadcrumb-root">
+            <HomeOutlined />
+            <span>{rootLabel}</span>
+          </span>
+        ),
+        href: `/${section}`,
+      },
+    ];
+    let acc = '';
+    parts.forEach((segment, idx) => {
+      acc += `/${segment}`;
+      // 跳过第一段(角色名)避免和 root 重复
+      if (idx === 0) return;
+      const label = segmentLabel[segment] ?? segment;
+      const isLast = idx === parts.length - 1;
+      items.push({
+        title: <span>{label}</span>,
+        href: isLast ? undefined : acc,
+      });
+    });
+    return items.map((item) => ({
+      title: item.href ? (
+        <a
+          href={item.href}
+          onClick={(event) => {
+            event.preventDefault();
+            navigate(item.href!);
+          }}
+        >
+          {item.title}
+        </a>
+      ) : (
+        item.title
+      ),
+    }));
+  })();
 
   // 用户头像下拉菜单:把"退出"收纳进去,符合现代后台习惯
   const userMenu: MenuProps['items'] = [
@@ -150,13 +270,18 @@ export default function AppLayout() {
 
       <Layout>
         <Header className="app-header">
-          {/* 左侧:折叠按钮 + 搜索框 */}
+          {/* 左侧:折叠按钮 + 面包屑路径 + 搜索框 */}
           <div className="app-header-left">
             <Button
               type="text"
               className="app-header-toggle"
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={() => setCollapsed((value) => !value)}
+            />
+            <Breadcrumb
+              className="app-header-breadcrumb"
+              separator="/"
+              items={breadcrumbItems}
             />
             <Input
               className="app-header-search"
@@ -167,7 +292,7 @@ export default function AppLayout() {
             />
           </div>
 
-          {/* 中间留白(后续可放面包屑或页面标题) */}
+          {/* 中间留白 */}
           <div className="app-header-middle" />
 
           {/* 右侧:用户下拉 */}
