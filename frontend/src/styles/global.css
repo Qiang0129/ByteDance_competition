@@ -1441,3 +1441,366 @@ body {
   gap: 8px;
   align-items: center;
 }
+
+
+/* ========== Owner · 数据集页 ========== */
+
+.dataset-list-card.ant-card .ant-card-body {
+  padding: 12px;
+}
+
+.dataset-list-item {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #eef0f5;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dataset-list-item:hover {
+  border-color: rgba(47, 123, 255, 0.4);
+  box-shadow: 0 6px 16px rgba(47, 123, 255, 0.08);
+}
+
+.dataset-list-item.is-active {
+  border-color: #2f7bff;
+  background: linear-gradient(135deg, rgba(47, 123, 255, 0.06) 0%, rgba(111, 182, 255, 0.06) 100%);
+  box-shadow: 0 8px 18px rgba(47, 123, 255, 0.12);
+}
+
+.dataset-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dataset-list-name {
+  font-weight: 600;
+  color: #1f2a44;
+}
+
+.dataset-list-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.dataset-list-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dataset-media-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+/* 元数据卡 */
+.dataset-meta-card .ant-card-body {
+  padding: 20px 22px;
+}
+
+.dataset-desc {
+  margin-bottom: 16px !important;
+  line-height: 1.7;
+}
+
+.dataset-meta-row {
+  margin-bottom: 16px;
+}
+
+.dataset-meta-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.dataset-meta-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2a44;
+  margin-top: 4px;
+}
+
+.dataset-fields-block {
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 16px;
+}
+
+.dataset-fields-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #1f2a44;
+}
+
+.dataset-fields-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+}
+
+.dataset-fields-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.dataset-fields-list code {
+  background: rgba(47, 123, 255, 0.08);
+  color: #2f7bff;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.dataset-fields-list span {
+  flex: 1 1 auto;
+  color: #64748b;
+}
+
+/* 预览表格 */
+.dataset-preview-card .ant-card-body {
+  padding: 8px 16px 16px;
+}
+
+.dataset-table-row {
+  cursor: pointer;
+}
+
+.dataset-id {
+  font-size: 12px;
+  color: #2f7bff;
+  background: rgba(47, 123, 255, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.dataset-id-large {
+  font-size: 13px;
+  color: #2f7bff;
+  background: rgba(47, 123, 255, 0.08);
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+
+.dataset-prompt {
+  color: #1f2a44;
+  font-weight: 500;
+}
+
+.dataset-answer {
+  color: #475569;
+}
+
+.dataset-media-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.dataset-dim-tag.ant-tag {
+  margin: 0;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 0 8px;
+  border: none;
+  background: rgba(100, 116, 139, 0.08);
+  color: #475569;
+}
+
+.dataset-pref-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dataset-model-tag.ant-tag {
+  margin: 0;
+  width: fit-content;
+  font-size: 11px;
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+  border: none;
+}
+
+.dataset-margin {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* 详情抽屉 */
+.dataset-detail-image {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #eef0f5;
+}
+
+.dataset-detail-video {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f5f7fb;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.dataset-detail-video .anticon {
+  font-size: 18px;
+  color: #2f7bff;
+}
+
+.dataset-detail-video-player {
+  width: 100%;
+  border-radius: 12px;
+  background: #000;
+  display: block;
+}
+
+.dataset-detail-markdown {
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+  border-radius: 10px;
+  padding: 16px 18px;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.dataset-md-h {
+  margin: 0 0 10px;
+  color: #1f2a44;
+  font-weight: 700;
+}
+
+.dataset-md-h1 {
+  font-size: 20px;
+}
+
+.dataset-md-h2 {
+  font-size: 17px;
+}
+
+.dataset-md-h3 {
+  font-size: 15px;
+}
+
+.dataset-md-p {
+  margin: 0 0 10px;
+}
+
+.dataset-md-p:last-child {
+  margin-bottom: 0;
+}
+
+.dataset-md-img {
+  display: block;
+  max-width: 100%;
+  margin: 8px 0;
+  border-radius: 10px;
+  border: 1px solid #eef0f5;
+}
+
+.dataset-md-video {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  border-radius: 10px;
+  background: #000;
+}
+
+.dataset-md-link {
+  color: #2f7bff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dataset-detail-block,
+.dataset-detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dataset-detail-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.dataset-detail-label {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.dataset-detail-value {
+  color: #1f2a44;
+  line-height: 1.7;
+  background: #fafbfd;
+  border-radius: 10px;
+  padding: 10px 14px;
+  border: 1px solid #eef0f5;
+  white-space: pre-wrap;
+}
+
+/* 偏好对比 A/B 块 */
+.dataset-pref-pair {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.dataset-pref-block {
+  border: 1px solid #eef0f5;
+  border-radius: 12px;
+  padding: 14px;
+  background: #fafbfd;
+}
+
+.dataset-pref-block.is-preferred {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.04);
+}
+
+.dataset-pref-block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.dataset-pref-block-body {
+  color: #1f2a44;
+  line-height: 1.7;
+}
