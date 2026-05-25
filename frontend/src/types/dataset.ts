@@ -7,6 +7,7 @@
 
 export type DatasetKind = 'qa_quality' | 'preference_compare';
 export type MediaType = 'text' | 'image' | 'video' | 'markdown';
+export type TextListLike = string[] | string;
 
 /** qa_quality 单条记录 */
 export interface QaQualityItem {
@@ -20,9 +21,9 @@ export interface QaQualityItem {
   prompt: string;
   model_answer: string;
   reference: string;
-  tags: string[];
+  tags: TextListLike;
   source: string;
-  expected_dimensions: string[];
+  expected_dimensions: TextListLike;
 }
 
 /** preference_compare 单条记录 */
@@ -37,8 +38,8 @@ export interface PreferenceCompareItem {
   model_b: string;
   preferred: 'A' | 'B' | 'TIE';
   margin: string;
-  dimensions: string[];
-  safety_flag: boolean;
+  dimensions: TextListLike;
+  safety_flag: boolean | string;
   annotator_note: string;
 }
 
@@ -47,6 +48,8 @@ export type DatasetItem = QaQualityItem | PreferenceCompareItem;
 /** 数据集元数据(列表卡用) */
 export interface DatasetMeta {
   id: string;
+  taskId?: string;
+  taskTitle?: string;
   name: string;
   kind: DatasetKind;
   description: string;
@@ -57,8 +60,21 @@ export interface DatasetMeta {
   importedAt: string;
   /** 主要 media_type 分布,便于渲染媒体能力标签 */
   mediaDistribution?: Partial<Record<MediaType, number>>;
-  /** 资源相对地址,前端从 public 拉取 */
-  resourceUrl: string;
+  /** 后端数据项接口地址 */
+  resourceUrl?: string;
   /** 版本 */
   version: string;
+  importStatus?: string;
+  errorCount?: number;
+  errorSummary?: string;
+}
+
+export interface CreateDatasetRequest {
+  taskId: string;
+  name: string;
+  kind: DatasetKind;
+}
+
+export interface ImportDatasetRequest extends CreateDatasetRequest {
+  file: File;
 }

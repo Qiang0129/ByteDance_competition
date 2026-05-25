@@ -9,6 +9,10 @@ spring:
     username: ${LABELHUB_DB_USERNAME:root}
     password: ${LABELHUB_DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 22MB
   data:
     redis:
       host: ${LABELHUB_REDIS_HOST:127.0.0.1}

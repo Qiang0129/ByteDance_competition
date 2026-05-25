@@ -1516,6 +1516,28 @@ body {
   padding: 20px 22px;
 }
 
+/* 左右两卡等高 */
+.dataset-row-equal {
+  align-items: stretch;
+}
+
+.dataset-row-equal > [class*="ant-col"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.dataset-row-equal .ant-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.dataset-row-equal .ant-card .ant-card-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .dataset-desc {
   margin-bottom: 16px !important;
   line-height: 1.7;
@@ -2127,4 +2149,19 @@ body {
 [class*="ant-drawer"] [class*="drawer-content"] {
   border-radius: 18px !important;
   overflow: hidden;
+}
+
+
+/* 数据集"查看全部"胶囊按钮 */
+.dataset-view-all-btn.ant-btn-link {
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: rgba(47, 123, 255, 0.08);
+  color: #2f7bff;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.dataset-view-all-btn.ant-btn-link:hover {
+  background: rgba(47, 123, 255, 0.14);
 }

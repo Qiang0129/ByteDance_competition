@@ -51,7 +51,10 @@ export async function apiRequest<TResponse>(
   const { skipAuth = false, token, headers: customHeaders, ...requestInit } = options;
   const headers = new Headers(customHeaders);
 
-  if (requestInit.body && !headers.has('Content-Type')) {
+  const isFormData =
+    typeof FormData !== 'undefined' && requestInit.body instanceof FormData;
+
+  if (requestInit.body && !isFormData && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 

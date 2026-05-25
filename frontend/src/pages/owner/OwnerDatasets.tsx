@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircleFilled,
   CloseOutlined,
   CloudUploadOutlined,
   DatabaseOutlined,
-  DownloadOutlined,
   FileTextOutlined,
   PictureOutlined,
   ReloadOutlined,
@@ -13,15 +12,19 @@ import {
   VideoCameraOutlined,
 } from '@ant-design/icons';
 import {
+  Alert,
   App as AntdApp,
   Button,
   Card,
   Col,
   Drawer,
   Empty,
+  Form,
   Input,
+  Modal,
   Row,
   Segmented,
+  Select,
   Space,
   Table,
   Tag,
@@ -29,6 +32,9 @@ import {
   Upload,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { UploadFile } from 'antd/es/upload/interface';
+import { datasetApi } from '../../api/dataset';
+import { ownerApi } from '../../api/owner';
 import type {
   DatasetItem,
   DatasetKind,
@@ -37,6 +43,7 @@ import type {
   PreferenceCompareItem,
   QaQualityItem,
 } from '../../types/dataset';
+import type { OwnerTask } from '../../types/owner';
 
 /**
  * 数据集页面(Owner 端)。
@@ -44,10 +51,10 @@ import type {
  *   - 支持 JSON / JSONL / Excel 导入
  *   - 识别 qa_quality / preference_compare 类型
  *   - 保留 raw_payload / media_type / media_url / content_markdown
- *   - 接口预留:POST /datasets/import、GET /datasets、GET /datasets/{id}/items
- *
- * 当前阶段直接读取 frontend/public/sample-datasets/ 下的真实样例文件,
- * 后端落地后只需把 fetch 改成 apiRequest('/datasets/...')。
+ *   - GET /datasets 从 MySQL 读取数据集列表
+ *   - GET /datasets/{id}/items 从 items.raw_payload 读取预览数据
+ *   - POST /datasets/import 上传并解析文件写入 MySQL
+ *   - POST /datasets 创建空数据集
  */
 
 interface MediaTypeMeta {
@@ -63,35 +70,11 @@ const mediaTypeMeta: Record<MediaType, MediaTypeMeta> = {
   markdown: { label: 'Markdown', color: '#f59e0b', icon: <TagsOutlined /> },
 };
 
-/** 内置数据集元数据。文件已复制到 frontend/public/sample-datasets/ */
-const builtInDatasets: DatasetMeta[] = [
-  {
-    id: 'qa_quality_v1',
-    name: '问答质量评估 · qa_quality',
-    kind: 'qa_quality',
-    description:
-      '模型答 vs 参考答的单条质量评估,覆盖知识问答、代码、摘要、翻译、创意写作、数学推理、多轮对话、安全合规与多模态条目。',
-    itemCount: 30,
-    size: 20739,
-    importedAt: '2026-05-22 17:26',
-    mediaDistribution: { text: 20, image: 4, video: 3, markdown: 3 },
-    resourceUrl: '/sample-datasets/qa_quality.json',
-    version: 'v1.0',
-  },
-  {
-    id: 'preference_compare_v1',
-    name: '偏好对比 A/B · preference_compare',
-    kind: 'preference_compare',
-    description:
-      '同一 Prompt 下两条模型回答的偏好选择,标注强度、维度、安全风险与 rationale,共 12 条文本对比。',
-    itemCount: 12,
-    size: 6982,
-    importedAt: '2026-05-22 17:26',
-    mediaDistribution: { text: 12 },
-    resourceUrl: '/sample-datasets/preference_compare.json',
-    version: 'v1.0',
-  },
-];
+interface DatasetFormValues {
+  taskId: string;
+  name: string;
+  kind: DatasetKind;
+}
 
 /** 字段映射表用,直接从计划书 1.4 与 5.1 抄过来 */
 const fieldGuide: Record<DatasetKind, Array<{ key: string; desc: string; required: boolean }>> = {
@@ -123,21 +106,150 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function toTextList(value: unknown): string[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => toTextList(item));
+  }
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return [];
+    if (text.startsWith('[') && text.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(text) as unknown;
+        if (Array.isArray(parsed)) return toTextList(parsed);
+      } catch {
+        // 保留原始字符串,让表格导入的非标准数组文本也能继续展示。
+      }
+    }
+    return text
+      .split(/[,，;；、|\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return [String(value)];
+  }
+  try {
+    return [JSON.stringify(value)];
+  } catch {
+    return [String(value)];
+  }
+}
+
+function toBoolean(value: unknown) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    if (['true', '1', 'yes', 'y', '是'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n', '否'].includes(normalized)) return false;
+  }
+  return Boolean(value);
+}
+
 export default function OwnerDatasets() {
   const { message } = AntdApp.useApp();
-  const [datasets, setDatasets] = useState<DatasetMeta[]>(builtInDatasets);
-  const [activeId, setActiveId] = useState<string>(builtInDatasets[0].id);
+  const [createForm] = Form.useForm<DatasetFormValues>();
+  const [importForm] = Form.useForm<DatasetFormValues>();
+  const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+  const [activeId, setActiveId] = useState<string>('');
   const [items, setItems] = useState<DatasetItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [datasetLoading, setDatasetLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [mediaFilter, setMediaFilter] = useState<MediaType | 'all'>('all');
   const [activeItem, setActiveItem] = useState<DatasetItem | null>(null);
+  const [showAllModal, setShowAllModal] = useState(false);
+  const [ownerTasks, setOwnerTasks] = useState<OwnerTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [appendOpen, setAppendOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [importFileList, setImportFileList] = useState<UploadFile[]>([]);
+  const [appendFileList, setAppendFileList] = useState<UploadFile[]>([]);
+  const [itemsReloadKey, setItemsReloadKey] = useState(0);
 
-  const activeDataset = datasets.find((d) => d.id === activeId) ?? datasets[0];
+  const activeDataset = datasets.find((d) => d.id === activeId);
 
-  /** 拉取选中的数据集真实数据 */
+  const taskOptions = useMemo(
+    () =>
+      ownerTasks.map((task) => ({
+        label: `${task.title} · ${task.state}`,
+        value: task.taskId,
+      })),
+    [ownerTasks],
+  );
+
+  const loadTasks = useCallback(async () => {
+    setTasksLoading(true);
+    try {
+      const result = await ownerApi.listTasks();
+      setOwnerTasks(result.items);
+    } catch {
+      setOwnerTasks([]);
+      message.error('任务列表加载失败,请确认后端已启动并已登录 Owner。');
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [message]);
+
+  const loadDatasets = useCallback(
+    async (preferredId?: string) => {
+      setDatasetLoading(true);
+      try {
+        const result = await datasetApi.listDatasets();
+        setDatasets(result.items);
+        setActiveId((current) => {
+          if (preferredId && result.items.some((ds) => ds.id === preferredId)) {
+            return preferredId;
+          }
+          if (current && result.items.some((ds) => ds.id === current)) {
+            return current;
+          }
+          return result.items[0]?.id ?? '';
+        });
+        if (result.items.length === 0) {
+          setItems([]);
+          setActiveItem(null);
+        }
+      } catch {
+        setDatasets([]);
+        setActiveId('');
+        setItems([]);
+        message.error('数据集列表加载失败,请确认后端已启动并已登录 Owner。');
+      } finally {
+        setDatasetLoading(false);
+      }
+    },
+    [message],
+  );
+
   useEffect(() => {
-    if (!activeDataset) return;
+    loadDatasets();
+    loadTasks();
+  }, [loadDatasets, loadTasks]);
+
+  useEffect(() => {
+    if (!createOpen && !importOpen) return;
+    const defaultTaskId = ownerTasks[0]?.taskId;
+    if (!defaultTaskId) return;
+    if (createOpen && !createForm.getFieldValue('taskId')) {
+      createForm.setFieldValue('taskId', defaultTaskId);
+    }
+    if (importOpen && !importForm.getFieldValue('taskId')) {
+      importForm.setFieldValue('taskId', defaultTaskId);
+    }
+  }, [createForm, createOpen, importForm, importOpen, ownerTasks]);
+
+  /** 拉取选中的 MySQL 数据集条目 */
+  useEffect(() => {
+    if (!activeDataset) {
+      setItems([]);
+      setActiveItem(null);
+      return;
+    }
     // 切换数据集时立刻清空旧数据并关闭抽屉,
     // 防止上一份(不同 kind)记录被新 columns 渲染导致字段缺失崩溃
     setItems([]);
@@ -145,20 +257,20 @@ export default function OwnerDatasets() {
     setKeyword('');
     setMediaFilter('all');
     setLoading(true);
-    fetch(activeDataset.resourceUrl)
-      .then((res) => res.json())
-      .then((data: DatasetItem[]) => {
-        setItems(data);
-        setLoading(false);
-      })
+    datasetApi
+      .listItems(activeDataset.id)
+      .then((data) => setItems(data))
       .catch(() => {
         setItems([]);
+        message.error('数据集条目加载失败,请检查 MySQL 数据或后端接口。');
+      })
+      .finally(() => {
         setLoading(false);
-        message.error('数据集加载失败,请检查 sample-datasets 目录。');
       });
-  }, [activeDataset, message]);
+  }, [activeDataset?.id, itemsReloadKey, message]);
 
   const filteredItems = useMemo(() => {
+    if (!activeDataset) return [];
     return items.filter((item) => {
       if (activeDataset.kind === 'qa_quality') {
         const it = item as QaQualityItem;
@@ -176,7 +288,7 @@ export default function OwnerDatasets() {
       }
       return true;
     });
-  }, [items, activeDataset.kind, mediaFilter, keyword]);
+  }, [items, activeDataset, mediaFilter, keyword]);
 
   const qaColumns: ColumnsType<QaQualityItem> = [
     {
@@ -219,15 +331,19 @@ export default function OwnerDatasets() {
       title: '维度',
       dataIndex: 'expected_dimensions',
       width: 180,
-      render: (dims: string[] | undefined) => (
-        <Space size={4} wrap>
-          {(dims ?? []).map((d) => (
-            <Tag key={d} className="dataset-dim-tag">
-              {d}
-            </Tag>
-          ))}
-        </Space>
-      ),
+      render: (dims: unknown) => {
+        const normalizedDims = toTextList(dims);
+        if (normalizedDims.length === 0) return <Typography.Text type="secondary">-</Typography.Text>;
+        return (
+          <Space size={4} wrap>
+            {normalizedDims.map((d) => (
+              <Tag key={d} className="dataset-dim-tag">
+                {d}
+              </Tag>
+            ))}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -285,6 +401,96 @@ export default function OwnerDatasets() {
     setActiveItem(record);
   };
 
+  const openCreateModal = () => {
+    createForm.resetFields();
+    createForm.setFieldsValue({
+      kind: 'qa_quality',
+      taskId: ownerTasks[0]?.taskId,
+    });
+    setCreateOpen(true);
+  };
+
+  const openImportModal = () => {
+    importForm.resetFields();
+    importForm.setFieldsValue({
+      kind: 'qa_quality',
+      taskId: ownerTasks[0]?.taskId,
+    });
+    setImportFileList([]);
+    setImportOpen(true);
+  };
+
+  const submitCreateDataset = async () => {
+    const values = await createForm.validateFields();
+    setSubmitting(true);
+    try {
+      const created = await datasetApi.createDataset(values);
+      message.success('数据集已创建。');
+      setCreateOpen(false);
+      await loadDatasets(created.id);
+    } catch {
+      message.error('新建数据集失败,请检查任务选择和后端接口。');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitImportDataset = async () => {
+    const values = await importForm.validateFields();
+    const file = importFileList[0]?.originFileObj;
+    if (!file) {
+      message.error('请先选择要上传的数据文件。');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const created = await datasetApi.importDataset({ ...values, file });
+      message.success('数据文件已导入 MySQL。');
+      setImportOpen(false);
+      setImportFileList([]);
+      await loadDatasets(created.id);
+    } catch {
+      message.error('上传导入失败,请确认文件格式为 JSON / JSONL / CSV / 基础 XLSX。');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openAppendModal = () => {
+    setAppendFileList([]);
+    setAppendOpen(true);
+  };
+
+  const submitAppendItems = async () => {
+    if (!activeDataset) {
+      message.error('请先选择一个数据集。');
+      return;
+    }
+    const file = appendFileList[0]?.originFileObj;
+    if (!file) {
+      message.error('请先选择要添加的数据文件。');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const updated = await datasetApi.importItems(activeDataset.id, file);
+      message.success(`已向 ${updated.name} 添加数据。`);
+      setAppendOpen(false);
+      setAppendFileList([]);
+      await loadDatasets(updated.id);
+      setItemsReloadKey((key) => key + 1);
+    } catch {
+      message.error('添加数据失败,请确认文件格式和当前数据集权限。');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const refreshActiveDataset = async () => {
+    await loadDatasets(activeDataset?.id);
+    setItemsReloadKey((key) => key + 1);
+  };
+
   return (
     <Space direction="vertical" size="large" className="page-stack">
       {/* 标题 + CTA */}
@@ -292,34 +498,48 @@ export default function OwnerDatasets() {
         <Space direction="vertical" size={4}>
           <Typography.Title level={3}>数据集</Typography.Title>
           <Typography.Text type="secondary">
-            导入 JSON / JSONL / Excel 数据,识别 qa_quality 与 preference_compare 类型,
+            从 MySQL 的 datasets / items 读取数据,支持导入 JSON / JSONL / CSV / 基础 XLSX,
             保留 raw_payload 与多模态字段。
           </Typography.Text>
         </Space>
         <Space>
-          <Upload
-            multiple
-            showUploadList={false}
-            accept=".json,.jsonl,.xlsx,.csv"
-            beforeUpload={(file) => {
-              message.success(`已选择文件 ${file.name},后端导入接口将在 Phase 2 接入。`);
-              return false;
-            }}
-          >
-            <Button icon={<CloudUploadOutlined />}>上传数据文件</Button>
-          </Upload>
-          <Button type="primary" icon={<DatabaseOutlined />}>
+          <Button icon={<CloudUploadOutlined />} onClick={openImportModal}>
+            上传文件数据
+          </Button>
+          <Button type="primary" icon={<DatabaseOutlined />} onClick={openCreateModal}>
             新建数据集
           </Button>
         </Space>
       </div>
 
-      <Row gutter={16}>
+      <Row gutter={16} className="dataset-row-equal">
         {/* 左侧:数据集列表 */}
         <Col xs={24} xl={8}>
-          <Card className="dataset-list-card" title="我的数据集">
-            <Space direction="vertical" size={10} style={{ width: '100%' }}>
-              {datasets.map((ds) => (
+          <Card
+            className="dataset-list-card"
+            title="我的数据集"
+            loading={datasetLoading}
+            extra={
+              datasets.length > 3 ? (
+                <Button
+                  type="link"
+                  size="small"
+                  className="dataset-view-all-btn"
+                  onClick={() => setShowAllModal(true)}
+                >
+                  查看全部
+                </Button>
+              ) : null
+            }
+          >
+            {datasets.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="MySQL 中暂无数据集"
+              />
+            ) : (
+              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                {datasets.slice(0, 3).map((ds) => (
                 <button
                   type="button"
                   key={ds.id}
@@ -343,6 +563,7 @@ export default function OwnerDatasets() {
                     <div className="dataset-list-media">
                       {(Object.keys(ds.mediaDistribution) as MediaType[]).map((mt) => {
                         const meta = mediaTypeMeta[mt];
+                        if (!meta) return null;
                         return (
                           <span
                             key={mt}
@@ -356,74 +577,88 @@ export default function OwnerDatasets() {
                     </div>
                   )}
                 </button>
-              ))}
-            </Space>
+                ))}
+              </Space>
+            )}
           </Card>
         </Col>
 
         {/* 右侧:元数据 + 字段映射 */}
         <Col xs={24} xl={16}>
-          <Card
-            className="dataset-meta-card"
-            title={
-              <Space size={8}>
-                <DatabaseOutlined style={{ color: '#2f7bff' }} />
-                <span>{activeDataset.name}</span>
-                <Tag color={activeDataset.kind === 'qa_quality' ? 'blue' : 'purple'}>
-                  {activeDataset.kind}
-                </Tag>
-              </Space>
-            }
-            extra={
-              <Space>
-                <Button
-                  size="small"
-                  icon={<DownloadOutlined />}
-                  href={activeDataset.resourceUrl}
-                  target="_blank"
-                >
-                  下载样例
-                </Button>
-                <Button size="small" icon={<ReloadOutlined />}>
-                  重新解析
-                </Button>
-              </Space>
-            }
-          >
-            <Typography.Paragraph type="secondary" className="dataset-desc">
-              {activeDataset.description}
-            </Typography.Paragraph>
+          {activeDataset ? (
+            <Card
+              className="dataset-meta-card"
+              title={
+                <Space size={8}>
+                  <DatabaseOutlined style={{ color: '#2f7bff' }} />
+                  <span>{activeDataset.name}</span>
+                  <Tag color={activeDataset.kind === 'qa_quality' ? 'blue' : 'purple'}>
+                    {activeDataset.kind}
+                  </Tag>
+                </Space>
+              }
+              extra={
+                <Space>
+                  <Button
+                    size="small"
+                    icon={<CloudUploadOutlined />}
+                    onClick={openAppendModal}
+                  >
+                    添加数据
+                  </Button>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={datasetLoading || loading}
+                    onClick={refreshActiveDataset}
+                  >
+                    刷新数据
+                  </Button>
+                </Space>
+              }
+            >
+              <Typography.Paragraph type="secondary" className="dataset-desc">
+                {activeDataset.description}
+              </Typography.Paragraph>
 
-            <Row gutter={[16, 12]} className="dataset-meta-row">
-              <Col span={8}>
-                <div className="dataset-meta-label">条目数</div>
-                <div className="dataset-meta-value">{activeDataset.itemCount}</div>
-              </Col>
-              <Col span={8}>
-                <div className="dataset-meta-label">文件大小</div>
-                <div className="dataset-meta-value">{formatSize(activeDataset.size)}</div>
-              </Col>
-              <Col span={8}>
-                <div className="dataset-meta-label">导入时间</div>
-                <div className="dataset-meta-value">{activeDataset.importedAt}</div>
-              </Col>
-            </Row>
+              <Row gutter={[16, 12]} className="dataset-meta-row">
+                <Col span={8}>
+                  <div className="dataset-meta-label">条目数</div>
+                  <div className="dataset-meta-value">{activeDataset.itemCount}</div>
+                </Col>
+                <Col span={8}>
+                  <div className="dataset-meta-label">文件大小</div>
+                  <div className="dataset-meta-value">{formatSize(activeDataset.size)}</div>
+                </Col>
+                <Col span={8}>
+                  <div className="dataset-meta-label">导入时间</div>
+                  <div className="dataset-meta-value">{activeDataset.importedAt || '-'}</div>
+                </Col>
+              </Row>
 
-            <div className="dataset-fields-block">
-              <div className="dataset-fields-title">
-                <CheckCircleFilled style={{ color: '#22c55e' }} /> 字段映射
+              <div className="dataset-fields-block">
+                <div className="dataset-fields-title">
+                  <CheckCircleFilled style={{ color: '#22c55e' }} /> 字段映射
+                </div>
+                <ul className="dataset-fields-list">
+                  {fieldGuide[activeDataset.kind].map((field) => (
+                    <li key={field.key}>
+                      <code>{field.key}</code>
+                      <span>{field.desc}</span>
+                      {field.required && <Tag color="red">必填</Tag>}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="dataset-fields-list">
-                {fieldGuide[activeDataset.kind].map((field) => (
-                  <li key={field.key}>
-                    <code>{field.key}</code>
-                    <span>{field.desc}</span>
-                    {field.required && <Tag color="red">必填</Tag>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Card>
+            </Card>
+          ) : (
+            <Card className="dataset-meta-card">
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="请先新建数据集或上传文件数据"
+              />
+            </Card>
+          )}
         </Col>
       </Row>
 
@@ -441,7 +676,7 @@ export default function OwnerDatasets() {
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
             />
-            {activeDataset.kind === 'qa_quality' && (
+            {activeDataset?.kind === 'qa_quality' && (
               <Segmented
                 options={[
                   { label: '全部', value: 'all' },
@@ -457,7 +692,12 @@ export default function OwnerDatasets() {
           </Space>
         }
       >
-        {activeDataset.kind === 'qa_quality' ? (
+        {!activeDataset ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="暂无可预览的数据集"
+          />
+        ) : activeDataset.kind === 'qa_quality' ? (
           <Table<QaQualityItem>
             columns={qaColumns}
             dataSource={filteredItems as QaQualityItem[]}
@@ -488,12 +728,245 @@ export default function OwnerDatasets() {
         onClose={() => setActiveItem(null)}
         closeIcon={<CloseOutlined />}
       >
-        {activeItem ? (
+        {activeItem && activeDataset ? (
           <ItemDetail item={activeItem} kind={activeDataset.kind} />
         ) : (
           <Empty />
         )}
       </Drawer>
+
+      {/* 查看全部数据集 Modal */}
+      <Modal
+        title="全部数据集"
+        open={showAllModal}
+        onCancel={() => setShowAllModal(false)}
+        footer={null}
+        width={640}
+      >
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          {datasets.map((ds) => (
+            <button
+              type="button"
+              key={ds.id}
+              className={`dataset-list-item ${ds.id === activeId ? 'is-active' : ''}`}
+              onClick={() => {
+                setActiveId(ds.id);
+                setShowAllModal(false);
+              }}
+            >
+              <div className="dataset-list-head">
+                <span className="dataset-list-name">{ds.name}</span>
+                <Tag color={ds.kind === 'qa_quality' ? 'blue' : 'purple'}>
+                  {ds.kind === 'qa_quality' ? 'QA Quality' : 'Preference'}
+                </Tag>
+              </div>
+              <div className="dataset-list-meta">
+                <span>{ds.itemCount} 条</span>
+                <span>·</span>
+                <span>{formatSize(ds.size)}</span>
+                <span>·</span>
+                <span>{ds.version}</span>
+                <span>·</span>
+                <span>{ds.importedAt}</span>
+              </div>
+              {ds.mediaDistribution && (
+                <div className="dataset-list-media">
+                  {(Object.keys(ds.mediaDistribution) as MediaType[]).map((mt) => {
+                    const meta = mediaTypeMeta[mt];
+                    if (!meta) return null;
+                    return (
+                      <span
+                        key={mt}
+                        className="dataset-media-pill"
+                        style={{ color: meta.color, background: `${meta.color}15` }}
+                      >
+                        {meta.icon} {ds.mediaDistribution?.[mt]}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </button>
+          ))}
+        </Space>
+      </Modal>
+
+      <Modal
+        title="新建数据集"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={submitCreateDataset}
+        confirmLoading={submitting}
+        okText="创建"
+        cancelText="取消"
+      >
+        <Form form={createForm} layout="vertical">
+          {ownerTasks.length === 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="当前账号还没有可关联任务"
+              description="数据集表通过 task_id 关联任务。请先在任务管理页创建任务,再回到这里新建数据集。"
+              style={{ marginBottom: 16 }}
+            />
+          )}
+          <Form.Item
+            name="taskId"
+            label="关联任务"
+            rules={[{ required: true, message: '请选择关联任务' }]}
+          >
+            <Select
+              placeholder="选择该数据集所属任务"
+              loading={tasksLoading}
+              options={taskOptions}
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="数据集名称"
+            rules={[{ required: true, message: '请输入数据集名称' }]}
+          >
+            <Input placeholder="例如:问答质量评估 2026-05" maxLength={255} />
+          </Form.Item>
+          <Form.Item
+            name="kind"
+            label="数据集类型"
+            rules={[{ required: true, message: '请选择数据集类型' }]}
+          >
+            <Select
+              options={[
+                { label: 'qa_quality · 问答质量评估', value: 'qa_quality' },
+                { label: 'preference_compare · 偏好对比 A/B', value: 'preference_compare' },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="上传文件数据"
+        open={importOpen}
+        onCancel={() => setImportOpen(false)}
+        onOk={submitImportDataset}
+        confirmLoading={submitting}
+        okText="上传并导入"
+        cancelText="取消"
+        width={620}
+      >
+        <Form form={importForm} layout="vertical">
+          {ownerTasks.length === 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="当前账号还没有可关联任务"
+              description="导入数据会写入 datasets / items,必须先选择一个 Owner 任务。"
+              style={{ marginBottom: 16 }}
+            />
+          )}
+          <Form.Item
+            name="taskId"
+            label="关联任务"
+            rules={[{ required: true, message: '请选择关联任务' }]}
+          >
+            <Select
+              placeholder="选择导入到哪个任务"
+              loading={tasksLoading}
+              options={taskOptions}
+              showSearch
+              optionFilterProp="label"
+            />
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="数据集名称"
+            rules={[{ required: true, message: '请输入数据集名称' }]}
+          >
+            <Input placeholder="默认可使用文件名" maxLength={255} />
+          </Form.Item>
+          <Form.Item
+            name="kind"
+            label="数据集类型"
+            rules={[{ required: true, message: '请选择数据集类型' }]}
+          >
+            <Select
+              options={[
+                { label: 'qa_quality · 问答质量评估', value: 'qa_quality' },
+                { label: 'preference_compare · 偏好对比 A/B', value: 'preference_compare' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item label="数据文件" required>
+            <Upload.Dragger
+              accept=".json,.jsonl,.ndjson,.csv,.xlsx"
+              maxCount={1}
+              fileList={importFileList}
+              beforeUpload={() => false}
+              onChange={({ fileList }) => {
+                const nextList = fileList.slice(-1);
+                setImportFileList(nextList);
+                const selectedName = nextList[0]?.name;
+                if (selectedName && !importForm.getFieldValue('name')) {
+                  importForm.setFieldValue('name', selectedName.replace(/\.[^.]+$/, ''));
+                }
+              }}
+            >
+              <p className="ant-upload-drag-icon">
+                <CloudUploadOutlined />
+              </p>
+              <p className="ant-upload-text">点击或拖拽 JSON / JSONL / CSV / XLSX 文件到这里</p>
+              <p className="ant-upload-hint">
+                后端会解析为 items.raw_payload,并保留 media_type / media_url / content_markdown。
+              </p>
+            </Upload.Dragger>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="向当前数据集添加数据"
+        open={appendOpen}
+        onCancel={() => setAppendOpen(false)}
+        onOk={submitAppendItems}
+        confirmLoading={submitting}
+        okText="添加到当前数据集"
+        cancelText="取消"
+        width={620}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {activeDataset ? (
+            <Alert
+              type="info"
+              showIcon
+              message={`当前数据集:${activeDataset.name}`}
+              description={`新增文件会追加写入 dataset_id=${activeDataset.id} 的 items 表,不会再创建新的数据集。`}
+            />
+          ) : (
+            <Alert
+              type="warning"
+              showIcon
+              message="请先选择一个数据集"
+              description="需要有当前数据集后才能追加数据。"
+            />
+          )}
+          <Upload.Dragger
+            accept=".json,.jsonl,.ndjson,.csv,.xlsx"
+            maxCount={1}
+            fileList={appendFileList}
+            beforeUpload={() => false}
+            onChange={({ fileList }) => setAppendFileList(fileList.slice(-1))}
+          >
+            <p className="ant-upload-drag-icon">
+              <CloudUploadOutlined />
+            </p>
+            <p className="ant-upload-text">点击或拖拽 JSON / JSONL / CSV / XLSX 文件到这里</p>
+            <p className="ant-upload-hint">
+              文件内容会追加为当前数据集的新 items.raw_payload。
+            </p>
+          </Upload.Dragger>
+        </Space>
+      </Modal>
     </Space>
   );
 }
@@ -543,7 +1016,7 @@ function ItemDetail({ item, kind }: { item: DatasetItem; kind: DatasetKind }) {
         <div className="dataset-detail-row">
           <span className="dataset-detail-label">Tags</span>
           <Space size={4} wrap>
-            {(it.tags ?? []).map((t) => (
+            {toTextList(it.tags).map((t) => (
               <Tag key={t}>{t}</Tag>
             ))}
           </Space>
@@ -552,7 +1025,7 @@ function ItemDetail({ item, kind }: { item: DatasetItem; kind: DatasetKind }) {
         <div className="dataset-detail-row">
           <span className="dataset-detail-label">Expected Dimensions</span>
           <Space size={4} wrap>
-            {(it.expected_dimensions ?? []).map((d) => (
+            {toTextList(it.expected_dimensions).map((d) => (
               <Tag key={d} color="blue">
                 {d}
               </Tag>
@@ -575,7 +1048,7 @@ function ItemDetail({ item, kind }: { item: DatasetItem; kind: DatasetKind }) {
         <code className="dataset-id-large">{it.id}</code>
         <Tag>{it.task_type}</Tag>
         <Tag>{it.lang.toUpperCase()}</Tag>
-        {it.safety_flag && <Tag color="red">⚠ Safety</Tag>}
+        {toBoolean(it.safety_flag) && <Tag color="red">⚠ Safety</Tag>}
       </Space>
 
       <DetailField label="Prompt" value={it.prompt} />
@@ -607,7 +1080,7 @@ function ItemDetail({ item, kind }: { item: DatasetItem; kind: DatasetKind }) {
       <div className="dataset-detail-row">
         <span className="dataset-detail-label">Dimensions</span>
         <Space size={4} wrap>
-          {(it.dimensions ?? []).map((d) => (
+          {toTextList(it.dimensions).map((d) => (
             <Tag key={d} color="blue">
               {d}
             </Tag>
