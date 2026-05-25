@@ -24,6 +24,10 @@ function toQueryString(query?: MarketTasksQuery): string {
   const search = new URLSearchParams();
   if (query.keyword) search.set('keyword', query.keyword);
   if (query.taskType) search.set('taskType', query.taskType);
+  if (query.strategy) search.set('strategy', query.strategy);
+  if (query.mediaType) search.set('mediaType', query.mediaType);
+  if (query.aiReview) search.set('aiReview', query.aiReview);
+  if (query.sortBy) search.set('sortBy', query.sortBy);
   if (query.page) search.set('page', String(query.page));
   if (query.pageSize) search.set('pageSize', String(query.pageSize));
   const qs = search.toString();

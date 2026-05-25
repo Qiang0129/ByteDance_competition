@@ -1812,3 +1812,319 @@ body {
   color: #1f2a44;
   line-height: 1.7;
 }
+
+
+/* ========== Labeler · 任务市场 ========== */
+
+.market-fallback-tag.ant-tag {
+  border: none;
+  border-radius: 999px;
+  padding: 2px 12px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* 顶部 KPI */
+.market-kpi-row .ant-card .ant-card-body {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+}
+
+.market-kpi-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.market-kpi-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.market-kpi-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2a44;
+  line-height: 1.1;
+  margin-top: 4px;
+}
+
+/* 筛选条 */
+.market-filter-card.ant-card .ant-card-body {
+  padding: 14px 16px;
+}
+
+/* 任务卡 */
+.market-card.ant-card {
+  border-radius: 14px;
+  border: 1px solid #eef0f5;
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+}
+
+.market-card.ant-card:hover {
+  border-color: rgba(47, 123, 255, 0.4);
+  box-shadow: 0 12px 28px rgba(47, 123, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+.market-card.is-claimed {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, #ffffff 60%);
+}
+
+.market-card.is-exhausted {
+  opacity: 0.7;
+}
+
+.market-card.ant-card .ant-card-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.market-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.market-card-title {
+  font-weight: 700;
+  color: #1f2a44;
+  font-size: 15px;
+}
+
+.market-type-tag.ant-tag {
+  border-radius: 999px;
+  padding: 0 10px;
+  border: none;
+  background: rgba(47, 123, 255, 0.1);
+  color: #2f7bff;
+  font-weight: 600;
+}
+
+.market-reward-tag.ant-tag {
+  border-radius: 999px;
+  padding: 0 10px;
+  border: none;
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
+  font-weight: 600;
+}
+
+.market-card-desc {
+  margin: 0 !important;
+  color: #64748b;
+  line-height: 1.6;
+  min-height: 44px;
+}
+
+.market-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.market-media-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.market-ai-tag.ant-tag {
+  border-radius: 999px;
+  padding: 0 10px;
+  border: none;
+  background: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+  font-weight: 600;
+}
+
+/* 配额 */
+.market-card-quota {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.market-quota-numbers {
+  font-size: 13px;
+  color: #64748b;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.market-quota-numbers strong {
+  color: #1f2a44;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.market-quota-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+
+.market-quota-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6fb6ff 0%, #2f7bff 100%);
+  transition: width 0.3s ease;
+}
+
+/* 卡片底部 */
+.market-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.market-deadline,
+.market-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.market-deadline.is-soon {
+  color: #d97706;
+  font-weight: 600;
+}
+
+.market-deadline.is-expired {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.market-claim-btn.ant-btn {
+  margin-top: 4px;
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* 抽屉详情 */
+.market-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.market-detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #94a3b8;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.market-detail-value {
+  color: #1f2a44;
+  line-height: 1.7;
+  margin: 0 !important;
+}
+
+.market-detail-mini-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.market-detail-mini-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2a44;
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.market-detail-mini-value code {
+  background: rgba(47, 123, 255, 0.08);
+  color: #2f7bff;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.market-detail-mini-value.is-soon {
+  color: #d97706;
+}
+
+.market-detail-mini-value.is-expired {
+  color: #ef4444;
+}
+
+.market-detail-mini-cap {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.market-detail-tip {
+  margin-top: 8px;
+  background: rgba(47, 123, 255, 0.06);
+  color: #475569;
+  border: 1px solid rgba(47, 123, 255, 0.18);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+
+.market-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 0;
+  color: #94a3b8;
+}
+
+
+/* ========== Drawer 全局圆角 ========== */
+/* antd v6 Drawer 面板默认直角贴边。
+   用多种选择器覆盖,确保不管 antd 内部类名怎么变都能命中。
+   核心思路:给面板容器留出 16px 间距,面板本身设 18px 圆角。 */
+[class*="ant-drawer"] [class*="drawer-content-wrapper"] {
+  top: 16px !important;
+  right: 16px !important;
+  bottom: 16px !important;
+  height: auto !important;
+  border-radius: 18px !important;
+  overflow: hidden;
+  box-shadow:
+    0 18px 50px rgba(15, 23, 42, 0.18),
+    0 4px 10px rgba(15, 23, 42, 0.06) !important;
+}
+
+[class*="ant-drawer"] [class*="drawer-content"] {
+  border-radius: 18px !important;
+  overflow: hidden;
+}

@@ -135,16 +135,28 @@ public class TaskService {
     TaskMetadata metadata = readMetadata(record.rewardRuleJson());
     int totalQuota = record.quota() == null ? 0 : record.quota();
     int remainingQuota = Math.max(totalQuota - record.quotaUsed(), 0);
+    String taskType = metadata.resolvedTaskType();
     return new MarketTaskResponse(
         Long.toString(record.id()),
         record.title(),
-        metadata.resolvedTaskType(),
+        taskType,
+        toTaskTypeKey(taskType),
         record.description(),
+        metadata.tags() == null ? List.of() : metadata.tags(),
         record.schemaVersionId() == null ? "" : Long.toString(record.schemaVersionId()),
         remainingQuota,
         totalQuota,
         formatDateTime(record.deadline()),
-        metadata.rewardPerItem());
+        metadata.rewardPerItem(),
+        resolveRewardCap(metadata.reward()),
+        metadata.resolvedStrategy(),
+        List.of("text"),
+        record.ownerName(),
+        metadata.resolvedAiReviewEnabled(),
+        metadata.resolvedAiReviewEnabled() ? "电商相关性 v2" : null,
+        formatDateTime(record.createdAt()),
+        null,
+        false);
   }
 
   private AuthenticatedUser requireOwner(Authentication authentication) {
@@ -242,6 +254,14 @@ public class TaskService {
     }
   }
 
+  private String resolveRewardCap(String reward) {
+    if (reward == null || reward.isBlank()) {
+      return null;
+    }
+    String[] parts = reward.split("·", 2);
+    return parts.length < 2 || parts[1].isBlank() ? null : parts[1].trim();
+  }
+
   private LocalDateTime parseDeadline(String deadline) {
     if (deadline == null || deadline.isBlank()) {
       return null;
@@ -284,6 +304,26 @@ public class TaskService {
       return null;
     }
     return taskType.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
+  }
+
+  private String toTaskTypeKey(String taskType) {
+    if (taskType == null || taskType.isBlank()) {
+      return "annotation_task";
+    }
+    String normalized = taskType.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
+    if (normalized.contains("preference")) {
+      return "preference_compare";
+    }
+    if (normalized.contains("image")) {
+      return "image_classification";
+    }
+    if (normalized.contains("safety")) {
+      return "safety_tagging";
+    }
+    if (normalized.contains("qa")) {
+      return "qa_quality";
+    }
+    return normalized;
   }
 
   private String blankToNull(String value) {

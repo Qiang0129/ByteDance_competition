@@ -33,6 +33,23 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           },
         },
       }}
+      drawer={{
+        styles: {
+          wrapper: {
+            top: 16,
+            right: 16,
+            bottom: 16,
+            height: 'auto',
+            borderRadius: 18,
+            overflow: 'hidden',
+            boxShadow: '0 18px 50px rgba(15,23,42,0.18), 0 4px 10px rgba(15,23,42,0.06)',
+          },
+          content: {
+            borderRadius: 18,
+            overflow: 'hidden',
+          },
+        },
+      }}
     >
       <AntdApp>
         <BrowserRouter>

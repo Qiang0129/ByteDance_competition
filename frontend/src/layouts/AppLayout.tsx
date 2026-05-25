@@ -32,6 +32,8 @@ import {
 import type { MenuProps } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import { PageErrorBoundary } from './PageErrorBoundary';
+
 const { Header, Sider, Content } = Layout;
 
 /** 系统版本号:优先取构建时注入的 VITE_APP_VERSION,缺省回落到默认值 */
@@ -313,7 +315,9 @@ export default function AppLayout() {
         </Header>
 
         <Content className="app-content">
-          <Outlet />
+          <PageErrorBoundary>
+            <Outlet />
+          </PageErrorBoundary>
         </Content>
       </Layout>
     </Layout>

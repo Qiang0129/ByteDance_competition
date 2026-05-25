@@ -7,6 +7,12 @@
 /** 任务在市场中的可见状态(已发布且未结束才会出现在市场列表) */
 export type TaskStatus = 'draft' | 'published' | 'paused' | 'ended';
 
+/** 任务的分发策略:先到先得 / 指派 / 配额抢单(对齐计划书 4.1) */
+export type AssignStrategy = 'first-come' | 'assigned' | 'quota';
+
+/** 媒体类型,呼应 dataset.ts 中的同名定义 */
+export type TaskMediaType = 'text' | 'image' | 'video' | 'markdown';
+
 /** 标注项在标注员侧的状态 */
 export type ItemStatus = 'available' | 'claimed' | 'submitted' | 'returned' | 'accepted';
 
@@ -25,7 +31,11 @@ export interface MarketTask {
   taskId: string;
   title: string;
   taskType: string;
+  /** 任务类型 key,用于按类型筛选;qa_quality / preference_compare / ... */
+  taskTypeKey?: string;
   description?: string;
+  /** 标签,与 Owner 端创建任务时填的 tags 对应 */
+  tags?: string[];
   /** 标注模板 schema 版本,Renderer 渲染时按此版本拉取 */
   schemaVersionId: string;
   /** 计划书 6.1 Phase 2 所述 first-come-first-served 配额 */
@@ -33,6 +43,24 @@ export interface MarketTask {
   totalQuota: number;
   deadline?: string;
   rewardPerItem?: number;
+  /** 单条奖励上限说明,用于卡片角标 */
+  rewardCap?: string;
+  /** 分发策略:先到先得 / 指派 / 配额抢单 */
+  assignStrategy: AssignStrategy;
+  /** 主要媒体类型,用于过滤与卡片角标 */
+  mediaTypes: TaskMediaType[];
+  /** Owner 名 / 团队 */
+  ownerName: string;
+  /** 是否启用 AI 预审 */
+  aiReviewEnabled: boolean;
+  /** AI 预审规则名 */
+  aiReviewRule?: string;
+  /** 发布时间(ISO 字符串) */
+  publishedAt: string;
+  /** 标注员可领取的最大条数(超过则提示已达上限) */
+  maxClaimPerUser?: number;
+  /** 是否已被当前用户认领过(展示"继续作答" CTA) */
+  claimedByMe?: boolean;
 }
 
 /** 用户已经认领的标注作业项 */
@@ -77,6 +105,14 @@ export interface SubmitAnnotationRequest {
 export interface MarketTasksQuery {
   keyword?: string;
   taskType?: string;
+  /** 分发策略过滤 */
+  strategy?: AssignStrategy | '';
+  /** 媒体类型过滤 */
+  mediaType?: TaskMediaType | '';
+  /** 是否启用 AI 预审过滤 */
+  aiReview?: '' | 'enabled' | 'disabled';
+  /** 排序字段:reward 单价 | deadline 截止时间 | quota 剩余配额 | publishedAt 发布时间 */
+  sortBy?: 'reward' | 'deadline' | 'quota' | 'publishedAt';
   page?: number;
   pageSize?: number;
 }
