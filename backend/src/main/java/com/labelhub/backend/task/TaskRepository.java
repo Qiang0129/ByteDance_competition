@@ -72,7 +72,9 @@ public class TaskRepository {
     }
 
     long taskId = key.longValue();
-    createSchemaVersion(taskId, schemaVersion, metadata.schema(), ownerId, status);
+    if (metadata.schemaVersionId() == null && metadata.schema() != null && !metadata.schema().isBlank()) {
+      createSchemaVersion(taskId, schemaVersion, metadata.schema(), ownerId, status);
+    }
     return taskId;
   }
 

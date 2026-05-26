@@ -20,6 +20,7 @@ public record CreateTaskRequest(
     Integer maxClaimPerUser,
     List<String> assignedLabelerIds,
     String schema,
+    String schemaVersionId,
     Boolean aiReviewEnabled,
     String description,
     String taskType,

@@ -1,6 +1,7 @@
 package com.labelhub.backend.task;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
@@ -8,6 +9,8 @@ import com.labelhub.backend.auth.AuthRepository;
 import com.labelhub.backend.auth.UserAccount;
 import com.labelhub.backend.dataset.DatasetRecord;
 import com.labelhub.backend.dataset.DatasetRepository;
+import com.labelhub.backend.schema.SchemaRecord;
+import com.labelhub.backend.schema.SchemaRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -38,16 +41,19 @@ public class TaskService {
   private final AuthRepository authRepository;
   private final DatasetRepository datasetRepository;
   private final TaskRepository taskRepository;
+  private final SchemaRepository schemaRepository;
   private final ObjectMapper objectMapper;
 
   public TaskService(
       AuthRepository authRepository,
       DatasetRepository datasetRepository,
       TaskRepository taskRepository,
+      SchemaRepository schemaRepository,
       ObjectMapper objectMapper) {
     this.authRepository = authRepository;
     this.datasetRepository = datasetRepository;
     this.taskRepository = taskRepository;
+    this.schemaRepository = schemaRepository;
     this.objectMapper = objectMapper;
   }
 
@@ -56,7 +62,8 @@ public class TaskService {
     AuthenticatedUser owner = requireOwner(authentication);
     String state = normalizeState(request.status(), "published", CREATE_STATES);
     DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
-    TaskMetadata metadata = buildTaskMetadata(request, dataset);
+    TaskMetadata metadata = buildTaskMetadata(owner.id(), request, dataset, null);
+    validatePublishedSchemaConfiguration(owner.id(), metadata, state, null);
     validateStrategyConfiguration(metadata, state);
 
     long taskId = taskRepository.createTask(
@@ -90,7 +97,8 @@ public class TaskService {
 
     String state = normalizeState(request.status(), existing.status(), TASK_STATES);
     DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
-    TaskMetadata metadata = buildTaskMetadata(request, dataset);
+    TaskMetadata metadata = buildTaskMetadata(owner.id(), request, dataset, readMetadata(existing.rewardRuleJson()));
+    validatePublishedSchemaConfiguration(owner.id(), metadata, state, existing);
     validateStrategyConfiguration(metadata, state);
 
     int updated = taskRepository.updateTask(
@@ -139,6 +147,12 @@ public class TaskService {
       UpdateTaskStateRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
     String state = normalizeState(request.state(), null, TASK_STATES);
+    TaskRecord existing = taskRepository.findTask(taskId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
+    if (existing.ownerId() != owner.id()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
+    }
+    validatePublishedSchemaConfiguration(owner.id(), readMetadata(existing.rewardRuleJson()), state, existing);
     int updated = taskRepository.updateTaskState(owner.id(), taskId, state);
     if (updated == 0) {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
@@ -215,7 +229,29 @@ public class TaskService {
     return new PageResponse<>(items, 1, items.size(), items.size());
   }
 
-  private TaskMetadata buildTaskMetadata(CreateTaskRequest request, DatasetRecord dataset) {
+  private TaskMetadata buildTaskMetadata(
+      long ownerId,
+      CreateTaskRequest request,
+      DatasetRecord dataset,
+      TaskMetadata fallbackMetadata) {
+    SchemaSelection selectedSchema = resolveSelectedSchema(ownerId, request.schemaVersionId());
+    String schemaLabel = blankToNull(request.schema());
+    Long schemaVersionId = null;
+    Integer schemaVersion = null;
+    if (selectedSchema != null) {
+      schemaVersionId = selectedSchema.id();
+      schemaVersion = selectedSchema.version();
+      if (schemaLabel == null) {
+        schemaLabel = selectedSchema.label();
+      }
+    } else if (request.schemaVersionId() == null && fallbackMetadata != null) {
+      schemaVersionId = fallbackMetadata.schemaVersionId();
+      schemaVersion = fallbackMetadata.schemaVersion();
+      if (schemaLabel == null) {
+        schemaLabel = fallbackMetadata.schema();
+      }
+    }
+
     return new TaskMetadata(
         normalizeTags(request.tags()),
         blankToNull(request.reward()),
@@ -223,7 +259,9 @@ public class TaskService {
         dataset == null ? null : dataset.id(),
         request.maxClaimPerUser(),
         parseAssignedLabelerIds(request.assignedLabelerIds()),
-        blankToNull(request.schema()),
+        schemaLabel,
+        schemaVersionId,
+        schemaVersion,
         request.aiReviewEnabled(),
         resolveTaskType(request),
         resolveRewardPerItem(request.reward()));
@@ -238,9 +276,66 @@ public class TaskService {
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "DATASET_NOT_FOUND", "dataset not found"));
   }
 
+  private SchemaSelection resolveSelectedSchema(long ownerId, String schemaVersionIdValue) {
+    if (schemaVersionIdValue == null || schemaVersionIdValue.isBlank()) {
+      return null;
+    }
+    long schemaVersionId = parseLongId(schemaVersionIdValue, "INVALID_SCHEMA_VERSION_ID");
+    SchemaRecord schema = schemaRepository.findOwnerSchema(ownerId, schemaVersionId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found"));
+    if (!"published".equals(schema.status())) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "SCHEMA_NOT_PUBLISHED",
+          "task can only be associated with a published schema");
+    }
+    return new SchemaSelection(schema.id(), schema.version(), resolveSchemaLabel(schema));
+  }
+
+  private String resolveSchemaLabel(SchemaRecord schema) {
+    String name = "未命名模板";
+    try {
+      JsonNode root = objectMapper.readTree(schema.schemaJson());
+      String parsedName = text(root, "name");
+      if (parsedName != null && !parsedName.isBlank()) {
+        name = parsedName.trim();
+      }
+    } catch (JsonProcessingException ignored) {
+      // Keep a stable fallback label; schema ownership/status has already been validated.
+    }
+    return name + " (r" + schema.version() + ")";
+  }
+
   private void bindDatasetToTask(DatasetRecord dataset, long taskId) {
     if (dataset != null) {
       datasetRepository.rebindDatasetToTask(dataset.id(), taskId);
+    }
+  }
+
+  private void validatePublishedSchemaConfiguration(
+      long ownerId,
+      TaskMetadata metadata,
+      String state,
+      TaskRecord existing) {
+    if (!"published".equals(state)) {
+      return;
+    }
+    Long schemaVersionId = metadata.schemaVersionId() == null && existing != null
+        ? existing.schemaVersionId()
+        : metadata.schemaVersionId();
+    if (schemaVersionId == null) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "SCHEMA_REQUIRED",
+          "published task requires a published schema");
+    }
+    SchemaRecord schema = schemaRepository.findOwnerSchema(ownerId, schemaVersionId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found"));
+    if (!"published".equals(schema.status())) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "SCHEMA_NOT_PUBLISHED",
+          "published task requires a published schema");
     }
   }
 
@@ -310,12 +405,13 @@ public class TaskService {
     String datasetId = metadata.datasetId() != null
         ? Long.toString(metadata.datasetId())
         : record.datasetId() == null ? "" : Long.toString(record.datasetId());
+    Long schemaVersionId = resolveEffectiveSchemaVersionId(record, metadata);
     return new OwnerTaskResponse(
         Long.toString(record.id()),
         record.title(),
         metadata.resolvedTaskType(),
-        "r" + resolveSchemaVersion(record),
-        record.schemaVersionId() == null ? "" : Long.toString(record.schemaVersionId()),
+        "r" + resolveEffectiveSchemaVersion(record, metadata),
+        schemaVersionId == null ? "" : Long.toString(schemaVersionId),
         record.ownerName(),
         record.status(),
         metadata.resolvedStrategy(),
@@ -338,6 +434,7 @@ public class TaskService {
     int remainingQuota = Math.max(totalQuota - record.quotaUsed(), 0);
     String taskType = metadata.resolvedTaskType();
     List<String> mediaTypes = taskRepository.listTaskMediaTypes(record.id());
+    Long schemaVersionId = resolveEffectiveSchemaVersionId(record, metadata);
     return new MarketTaskResponse(
         Long.toString(record.id()),
         record.title(),
@@ -345,7 +442,7 @@ public class TaskService {
         toTaskTypeKey(taskType),
         record.description(),
         metadata.tags() == null ? List.of() : metadata.tags(),
-        record.schemaVersionId() == null ? "" : Long.toString(record.schemaVersionId()),
+        schemaVersionId == null ? "" : Long.toString(schemaVersionId),
         remainingQuota,
         totalQuota,
         formatDateTime(record.deadline()),
@@ -413,13 +510,16 @@ public class TaskService {
   private AssignmentResponse toAssignmentResponse(AssignmentRecord record) {
     TaskMetadata metadata = readMetadata(record.rewardRuleJson());
     String taskType = metadata.resolvedTaskType();
+    Long schemaVersionId = metadata.schemaVersionId() == null
+        ? record.schemaVersionId()
+        : metadata.schemaVersionId();
     return new AssignmentResponse(
         Long.toString(record.id()),
         Long.toString(record.taskId()),
         Long.toString(record.itemId()),
         record.status(),
         formatDateTime(record.lockedUntil()),
-        record.schemaVersionId() == null ? "" : Long.toString(record.schemaVersionId()),
+        schemaVersionId == null ? "" : Long.toString(schemaVersionId),
         record.taskTitle(),
         taskType,
         toTaskTypeKey(taskType),
@@ -474,6 +574,8 @@ public class TaskService {
         null,
         null,
         List.of(),
+        null,
+        null,
         null,
         true,
         "Annotation Task",
@@ -639,8 +741,18 @@ public class TaskService {
     return Math.max(version, 1);
   }
 
-  private int resolveSchemaVersion(TaskRecord record) {
-    return record.schemaVersion() == null ? 1 : record.schemaVersion();
+  private Long resolveEffectiveSchemaVersionId(TaskRecord record, TaskMetadata metadata) {
+    return metadata.schemaVersionId() == null ? record.schemaVersionId() : metadata.schemaVersionId();
+  }
+
+  private int resolveEffectiveSchemaVersion(TaskRecord record, TaskMetadata metadata) {
+    if (metadata.schemaVersion() != null) {
+      return metadata.schemaVersion();
+    }
+    if (record.schemaVersion() != null) {
+      return record.schemaVersion();
+    }
+    return parseSchemaVersion(metadata.schema());
   }
 
   private long parseLongId(String value, String code) {
@@ -711,7 +823,17 @@ public class TaskService {
     return value == null || value.isBlank() ? null : value.trim();
   }
 
+  private String text(JsonNode node, String field) {
+    if (node == null || field == null || !node.has(field) || node.get(field).isNull()) {
+      return null;
+    }
+    JsonNode value = node.get(field);
+    return value.isTextual() ? value.asText() : value.toString();
+  }
+
   private String formatDateTime(LocalDateTime dateTime) {
     return dateTime == null ? "" : DATE_TIME.format(dateTime);
   }
+
+  private record SchemaSelection(long id, int version, String label) {}
 }

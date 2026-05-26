@@ -10,6 +10,8 @@ public record TaskMetadata(
     Integer maxClaimPerUser,
     List<Long> assignedLabelerIds,
     String schema,
+    Long schemaVersionId,
+    Integer schemaVersion,
     Boolean aiReviewEnabled,
     String taskType,
     Double rewardPerItem) {

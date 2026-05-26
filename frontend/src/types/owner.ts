@@ -35,6 +35,7 @@ export interface CreateOwnerTaskRequest {
   maxClaimPerUser?: number;
   assignedLabelerIds?: string[];
   schema?: string;
+  schemaVersionId?: string;
   aiReviewEnabled?: boolean;
   description?: string;
   taskType?: string;

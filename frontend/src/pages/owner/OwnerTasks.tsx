@@ -32,6 +32,7 @@ import type { ColumnsType } from 'antd/es/table';
 
 import { datasetApi } from '../../api/dataset';
 import { ownerApi } from '../../api/owner';
+import { schemaApi } from '../../api/schema';
 import type { DatasetMeta } from '../../types/dataset';
 import type {
   AssignableLabeler,
@@ -40,6 +41,7 @@ import type {
   OwnerTask,
   OwnerTaskState,
 } from '../../types/owner';
+import type { SchemaSummary } from '../../types/schema';
 
 type TaskState = OwnerTaskState;
 type OwnerTaskRow = OwnerTask;
@@ -54,7 +56,8 @@ interface PublishFormValues {
   strategy: OwnerAssignStrategy;
   maxClaimPerUser?: number | null;
   assignedLabelerIds?: string[];
-  schema: string;
+  schema?: string;
+  schemaVersionId?: string;
 }
 
 const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm';
@@ -97,16 +100,19 @@ export default function OwnerTasks() {
   const [activeRow, setActiveRow] = useState<OwnerTaskRow | null>(null);
   const [rows, setRows] = useState<OwnerTaskRow[]>([]);
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+  const [schemas, setSchemas] = useState<SchemaSummary[]>([]);
   const [assignableLabelers, setAssignableLabelers] = useState<AssignableLabeler[]>([]);
   const [loading, setLoading] = useState(false);
+  const [schemaLoading, setSchemaLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const submitStateRef = useRef<TaskState>('published');
 
   const selectedStrategy = Form.useWatch('strategy', form);
   const selectedDatasetId = Form.useWatch('datasetId', form);
+  const selectedSchemaVersionId = Form.useWatch('schemaVersionId', form);
 
   useEffect(() => {
-    void Promise.all([loadTasks(), loadDatasets(), loadAssignableLabelers()]);
+    void Promise.all([loadTasks(), loadDatasets(), loadSchemas(), loadAssignableLabelers()]);
   }, []);
 
   const filteredRows = useMemo(
@@ -129,12 +135,41 @@ export default function OwnerTasks() {
     value: dataset.id,
   }));
 
+  const publishedSchemas = useMemo(
+    () => schemas.filter((schema) => schema.status === 'published'),
+    [schemas],
+  );
+
+  const schemaOptions = useMemo(
+    () =>
+      publishedSchemas.map((schema) => ({
+        label: `${schema.name} (${schema.versionNumber}) · ${schema.fieldCount} 个字段`,
+        value: schema.versionId,
+      })),
+    [publishedSchemas],
+  );
+
+  useEffect(() => {
+    if (!drawerOpen || !activeRow?.schemaVersionId) {
+      return;
+    }
+    const hasPublishedSchema = publishedSchemas.some(
+      (schema) => schema.versionId === activeRow.schemaVersionId,
+    );
+    if (hasPublishedSchema) {
+      form.setFieldValue('schemaVersionId', activeRow.schemaVersionId);
+    }
+  }, [activeRow, drawerOpen, form, publishedSchemas]);
+
   const labelerOptions = assignableLabelers.map((labeler) => ({
     label: `${labeler.displayName} (${labeler.username})`,
     value: labeler.userId,
   }));
 
   const selectedDataset = datasets.find((dataset) => dataset.id === selectedDatasetId);
+  const selectedSchema = publishedSchemas.find(
+    (schema) => schema.versionId === selectedSchemaVersionId,
+  );
 
   const columns: ColumnsType<OwnerTaskRow> = [
     {
@@ -267,6 +302,18 @@ export default function OwnerTasks() {
     }
   }
 
+  async function loadSchemas() {
+    setSchemaLoading(true);
+    try {
+      const response = await schemaApi.listSchemas();
+      setSchemas(response.items);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '模板列表加载失败');
+    } finally {
+      setSchemaLoading(false);
+    }
+  }
+
   async function loadAssignableLabelers() {
     try {
       const response = await ownerApi.listAssignableLabelers();
@@ -297,7 +344,11 @@ export default function OwnerTasks() {
       strategy: row?.assignStrategy ?? 'first-come',
       maxClaimPerUser: row?.maxClaimPerUser ?? null,
       assignedLabelerIds: row?.assignedLabelerIds ?? [],
-      schema: row ? `${row.title} (Schema ${row.schemaVersion})` : '模板建设中，暂不支持切换',
+      schema: row ? `${row.title} (Schema ${row.schemaVersion})` : '',
+      schemaVersionId:
+        row?.schemaVersionId && publishedSchemas.some((schema) => schema.versionId === row.schemaVersionId)
+          ? row.schemaVersionId
+          : undefined,
     };
   }
 
@@ -315,6 +366,8 @@ export default function OwnerTasks() {
   }
 
   function buildTaskPayload(values: PublishFormValues, status: TaskState): CreateOwnerTaskRequest {
+    const schema = publishedSchemas.find((item) => item.versionId === values.schemaVersionId);
+    const schemaLabel = schema ? `${schema.name} (${schema.versionNumber})` : values.schema?.trim();
     return {
       title: values.title.trim(),
       tags: values.tags ?? [],
@@ -327,7 +380,8 @@ export default function OwnerTasks() {
         values.strategy === 'quota' ? values.maxClaimPerUser ?? undefined : undefined,
       assignedLabelerIds:
         values.strategy === 'assigned' ? values.assignedLabelerIds ?? [] : [],
-      schema: values.schema,
+      schema: schemaLabel || undefined,
+      schemaVersionId: schema?.versionId,
       aiReviewEnabled: true,
       status,
     };
@@ -602,9 +656,48 @@ export default function OwnerTasks() {
             </Form.Item>
           ) : null}
 
-          <Form.Item label="关联模板" name="schema">
-            <Input readOnly placeholder="模板建设中，暂不支持切换" />
+          <Form.Item
+            label="关联模板"
+            name="schemaVersionId"
+            extra={
+              publishedSchemas.length === 0
+                ? '暂无已发布模板，请先到「模板搭建」页发布模板。'
+                : '任务发布后，Labeler 将按该模板版本渲染标注表单。'
+            }
+            rules={[
+              {
+                validator: async (_rule, value) => {
+                  if (
+                    submitStateRef.current === 'published' &&
+                    !publishedSchemas.some((schema) => schema.versionId === value)
+                  ) {
+                    throw new Error('发布任务前请选择一个已发布模板');
+                  }
+                },
+              },
+            ]}
+          >
+            <Select
+              placeholder="选择已发布模板"
+              options={schemaOptions}
+              loading={schemaLoading}
+              showSearch
+              allowClear
+              optionFilterProp="label"
+            />
           </Form.Item>
+
+          {selectedSchema ? (
+            <Card size="small" className="owner-stat-card">
+              <Space direction="vertical" size={2}>
+                <Typography.Text strong>{selectedSchema.name}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {selectedSchema.versionNumber} · {selectedSchema.fieldCount} 个字段 · 更新于{' '}
+                  {selectedSchema.updatedAt}
+                </Typography.Text>
+              </Space>
+            </Card>
+          ) : null}
 
           <Form.Item label="启用 AI 预审">
             <Space>

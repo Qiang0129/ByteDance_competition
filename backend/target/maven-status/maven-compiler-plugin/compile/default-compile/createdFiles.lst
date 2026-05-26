@@ -14,6 +14,7 @@ com\labelhub\backend\schema\SchemaService$SchemaSnapshot.class
 com\labelhub\backend\schema\SchemaRecord.class
 com\labelhub\backend\schema\SchemaController.class
 com\labelhub\backend\dataset\DatasetItemPayload.class
+com\labelhub\backend\task\TaskService$SchemaSelection.class
 com\labelhub\backend\schema\SchemaVersionResponse.class
 com\labelhub\backend\auth\AuthUserResponse.class
 com\labelhub\backend\task\AssignmentResponse.class

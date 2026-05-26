@@ -2,7 +2,7 @@ package com.labelhub.backend.schema;
 
 import java.time.LocalDateTime;
 
-record SchemaRecord(
+public record SchemaRecord(
     long id,
     Long taskId,
     String taskTitle,
