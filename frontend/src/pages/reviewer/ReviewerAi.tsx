@@ -218,7 +218,7 @@ export default function ReviewerAi() {
           columns={columns}
           dataSource={filtered}
           loading={loading}
-          pagination={{ pageSize: 10, showSizeChanger: false }}
+          pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
         />
       </Card>
 

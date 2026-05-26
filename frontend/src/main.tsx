@@ -50,6 +50,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           },
         },
       }}
+      table={{
+        style: {},
+      }}
     >
       <AntdApp>
         <BrowserRouter>

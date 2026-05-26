@@ -761,7 +761,7 @@ export default function OwnerDatasets() {
             dataSource={filteredItems as QaQualityItem[]}
             rowKey="id"
             loading={loading}
-            pagination={{ pageSize: 10, showSizeChanger: false }}
+            pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
             onRow={(record) => ({ onClick: () => showItemDetail(record) })}
             rowClassName="dataset-table-row"
           />
@@ -771,7 +771,7 @@ export default function OwnerDatasets() {
             dataSource={filteredItems as PreferenceCompareItem[]}
             rowKey="id"
             loading={loading}
-            pagination={{ pageSize: 10, showSizeChanger: false }}
+            pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
             onRow={(record) => ({ onClick: () => showItemDetail(record) })}
             rowClassName="dataset-table-row"
           />
@@ -781,7 +781,7 @@ export default function OwnerDatasets() {
             dataSource={filteredItems as Record<string, unknown>[]}
             rowKey={(record, index) => getRecordId(record, index ?? 0)}
             loading={loading}
-            pagination={{ pageSize: 10, showSizeChanger: false }}
+            pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
             onRow={(record) => ({ onClick: () => showItemDetail(record) })}
             rowClassName="dataset-table-row"
           />

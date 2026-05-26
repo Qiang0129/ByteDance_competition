@@ -4038,29 +4038,31 @@ body {
 }
 
 
-/* ========== 简洁页码:< 1 [2] 3 > ========== */
-/* 参考设计:只保留前后箭头 + 页码,隐藏 total / size-changer / quick-jumper */
-.ant-pagination .ant-pagination-total-text,
-.ant-pagination .ant-pagination-options {
-  display: none;
-}
-
+/* ========== 分页:完整信息 · 共 N 条 / 每页 X / 上一页 / 第 M/N 页 / 下一页 ========== */
 .ant-pagination {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-/* 页码按钮:圆角胶囊,选中态主色描边 */
+/* 总条数文案 */
+.ant-pagination .ant-pagination-total-text {
+  margin-right: auto;
+  font-size: 13px;
+  color: #64748b;
+}
+
+/* 页码按钮:圆角,选中态主色描边 */
 .ant-pagination .ant-pagination-item,
 .ant-pagination .ant-pagination-prev,
 .ant-pagination .ant-pagination-next {
   min-width: 32px;
   height: 32px;
   border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
   margin: 0;
   display: inline-flex;
   align-items: center;
@@ -4075,6 +4077,7 @@ body {
 .ant-pagination .ant-pagination-item:hover,
 .ant-pagination .ant-pagination-prev:hover,
 .ant-pagination .ant-pagination-next:hover {
+  border-color: #2f7bff;
   background: rgba(47, 123, 255, 0.06);
 }
 
@@ -4090,4 +4093,21 @@ body {
 .ant-pagination .ant-pagination-item-active a {
   color: #2f7bff;
   font-weight: 600;
+}
+
+/* 每页大小选择器 */
+.ant-pagination .ant-pagination-options {
+  margin-left: 12px;
+}
+
+.ant-pagination .ant-pagination-options .ant-select-selector {
+  border-radius: 8px !important;
+  border-color: #e5e7eb !important;
+  height: 32px !important;
+}
+
+/* 快速跳转 */
+.ant-pagination .ant-pagination-options .ant-pagination-options-quick-jumper {
+  font-size: 13px;
+  color: #64748b;
 }
