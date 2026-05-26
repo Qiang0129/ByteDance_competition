@@ -12,6 +12,7 @@ import { apiRequest } from './client';
 import type {
   Annotation,
   Assignment,
+  AssignmentItem,
   Draft,
   MarketTask,
   MarketTasksQuery,
@@ -51,6 +52,11 @@ export const labelerApi = {
   listMyAssignments(status?: string): Promise<PageResult<Assignment>> {
     const qs = status ? `?status=${encodeURIComponent(status)}` : '';
     return apiRequest<PageResult<Assignment>>(`/assignments/mine${qs}`);
+  },
+
+  /** 获取作业题目内容(原题 + Schema 字段定义),Renderer 渲染时调用 */
+  getAssignmentItem(assignmentId: string): Promise<AssignmentItem> {
+    return apiRequest<AssignmentItem>(`/assignments/${assignmentId}/item`);
   },
 
   /** 拉取草稿(进入答题页时调用) */

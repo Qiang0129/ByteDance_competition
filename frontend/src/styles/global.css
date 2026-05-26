@@ -3856,3 +3856,238 @@ body {
 .dispute-meta {
   font-size: 12px;
 }
+
+
+/* ========== Labeler · 答题页 ========== */
+
+.answer-page .ant-row {
+  align-items: stretch;
+}
+
+.answer-page .ant-row > [class*="ant-col"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.answer-page .ant-row > [class*="ant-col"] > .ant-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.answer-page .ant-row > [class*="ant-col"] > .ant-card > .ant-card-body {
+  flex: 1 1 auto;
+}
+
+.answer-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #ffffff;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid #eef0f5;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+.answer-draft-tip {
+  font-size: 12px;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.answer-progress {
+  margin: 0 !important;
+}
+
+/* 原题区 */
+.answer-section .ant-card-body {
+  padding: 20px 22px;
+}
+
+.answer-media {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #eef0f5;
+}
+
+.answer-media-video {
+  width: 100%;
+  border-radius: 12px;
+  background: #000;
+}
+
+.answer-markdown {
+  margin: 0;
+  padding: 14px 16px;
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+  border-radius: 10px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #475569;
+}
+
+.answer-raw-field {
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.answer-raw-key {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.answer-raw-value {
+  margin-top: 4px;
+  color: #1f2a44;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.answer-json {
+  margin: 0;
+  padding: 10px 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* 字段渲染 */
+.answer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.answer-field-label {
+  font-weight: 600;
+  color: #1f2a44;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.answer-field-len {
+  margin-left: auto;
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: normal;
+}
+
+.answer-field-error {
+  color: #ef4444;
+  font-size: 12px;
+}
+
+.answer-field-show {
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.answer-show-tag.ant-tag {
+  border: none;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  color: #64748b;
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+.answer-show-text {
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.answer-tag-group .ant-tag-checkable {
+  border-radius: 999px;
+  padding: 4px 14px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #475569;
+}
+
+.answer-tag-group .ant-tag-checkable-checked {
+  background: rgba(47, 123, 255, 0.1);
+  color: #2f7bff;
+  border-color: #2f7bff;
+}
+
+.answer-radio-group .ant-radio-button-wrapper {
+  border-radius: 999px !important;
+  margin: 0 8px 8px 0;
+  padding: 0 16px;
+}
+
+
+/* ========== 简洁页码:< 1 [2] 3 > ========== */
+/* 参考设计:只保留前后箭头 + 页码,隐藏 total / size-changer / quick-jumper */
+.ant-pagination .ant-pagination-total-text,
+.ant-pagination .ant-pagination-options {
+  display: none;
+}
+
+.ant-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+/* 页码按钮:圆角胶囊,选中态主色描边 */
+.ant-pagination .ant-pagination-item,
+.ant-pagination .ant-pagination-prev,
+.ant-pagination .ant-pagination-next {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ant-pagination .ant-pagination-item a {
+  color: #475569;
+  padding: 0;
+}
+
+.ant-pagination .ant-pagination-item:hover,
+.ant-pagination .ant-pagination-prev:hover,
+.ant-pagination .ant-pagination-next:hover {
+  background: rgba(47, 123, 255, 0.06);
+}
+
+.ant-pagination .ant-pagination-item:hover a {
+  color: #2f7bff;
+}
+
+.ant-pagination .ant-pagination-item-active {
+  border-color: #2f7bff;
+  background: #ffffff;
+}
+
+.ant-pagination .ant-pagination-item-active a {
+  color: #2f7bff;
+  font-weight: 600;
+}

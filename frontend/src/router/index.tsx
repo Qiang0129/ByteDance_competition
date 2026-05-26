@@ -4,6 +4,7 @@ import AppLayout from '../layouts/AppLayout';
 
 import { Login, NotFound } from '../pages';
 import {
+  AnswerPage,
   Drafts,
   LabelerOverview,
   MyTasks,
@@ -63,6 +64,7 @@ export function AppRoutes() {
         <Route path="/labeler/my-tasks" element={<MyTasks />} />
         <Route path="/labeler/drafts" element={<Drafts />} />
         <Route path="/labeler/returned" element={<ReturnedItems />} />
+        <Route path="/labeler/answer/:assignmentId" element={<AnswerPage />} />
 
         <Route path="/reviewer" element={<ReviewerOverview />} />
         <Route path="/reviewer/queue" element={<ReviewerQueue />} />

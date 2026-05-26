@@ -116,6 +116,54 @@ export interface SubmitAnnotationRequest {
   draftVersion?: number;
 }
 
+/** 答题页拉取的题目内容(包含原题数据 + Schema 字段定义) */
+export interface AssignmentItem {
+  assignmentId: string;
+  taskId: string;
+  taskTitle: string;
+  itemId: string;
+  schemaVersionId: string;
+  /** 原题数据(根据 media_type 渲染:text / image / video / markdown) */
+  rawPayload: {
+    media_type: 'text' | 'image' | 'video' | 'markdown';
+    media_url?: string;
+    content_markdown?: string;
+    /** 题目正文,例如 prompt / model_answer / origin_title */
+    [key: string]: unknown;
+  };
+  /** Schema 字段定义,Renderer 按此渲染表单 */
+  fields: Array<{
+    id: string;
+    fieldName: string;
+    label: string;
+    kind:
+      | 'text-single'
+      | 'text-multi'
+      | 'rich-text'
+      | 'single-choice'
+      | 'multi-choice'
+      | 'tags'
+      | 'json-editor'
+      | 'show-item';
+    placeholder?: string;
+    required?: boolean;
+    maxLength?: number;
+    options?: Array<{ value: string; label: string }>;
+    showText?: string;
+  }>;
+  /** 当前 assignment 在批次中的索引,用于 prev/next 按钮 */
+  position: {
+    index: number;
+    total: number;
+    prevAssignmentId?: string;
+    nextAssignmentId?: string;
+  };
+  /** 上一次提交被打回的备注(若有) */
+  returnReason?: string;
+  /** 当前已存的草稿(可空) */
+  draft?: { answerJson: Record<string, unknown>; updatedAt: string };
+}
+
 /** 任务市场分页查询参数 */
 export interface MarketTasksQuery {
   keyword?: string;

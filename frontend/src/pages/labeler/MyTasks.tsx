@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { App, Button, Card, Empty, Space, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import { useNavigate } from 'react-router-dom';
 
 import { labelerApi } from '../../api/labeler';
 import type { Assignment, ItemStatus } from '../../types/labeler';
@@ -92,6 +93,7 @@ function assignmentToRow(item: Assignment): MyTaskRow {
 
 export default function MyTasks() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [rows, setRows] = useState<MyTaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
@@ -155,7 +157,12 @@ export default function MyTasks() {
       key: 'action',
       render: (_value, record) => (
         <Space size="small">
-          <Button type="link">继续答题</Button>
+          <Button
+            type="link"
+            onClick={() => navigate(`/labeler/answer/${record.assignmentId}`)}
+          >
+            继续答题
+          </Button>
           {(record.status === 'submitted' || record.status === 'accepted') && (
             <Button type="link">查看答卷</Button>
           )}

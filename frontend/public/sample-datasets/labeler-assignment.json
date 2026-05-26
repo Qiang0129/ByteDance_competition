@@ -1,0 +1,74 @@
+{
+  "assignmentId": "S-2041-014",
+  "taskId": "T-2041",
+  "taskTitle": "商品标题清洗 v3 · 抖音电商",
+  "itemId": "Q0014",
+  "schemaVersionId": "r12",
+  "rawPayload": {
+    "media_type": "text",
+    "origin_title": "超柔软纯棉男女款居家服套装 春秋季睡衣大码情侣家居服",
+    "category_hint": "服饰内衣",
+    "source": "抖音电商商品池"
+  },
+  "fields": [
+    {
+      "id": "f-show",
+      "kind": "show-item",
+      "fieldName": "origin_title",
+      "label": "原始商品标题(展示项)",
+      "showText": "超柔软纯棉男女款居家服套装 春秋季睡衣大码情侣家居服"
+    },
+    {
+      "id": "f-cleaned",
+      "kind": "text-single",
+      "fieldName": "cleaned_title",
+      "label": "商品标题清洗结果",
+      "placeholder": "请填写清洗后的标题(最多 35 字符)",
+      "required": true,
+      "maxLength": 35
+    },
+    {
+      "id": "f-category",
+      "kind": "single-choice",
+      "fieldName": "category",
+      "label": "主类目",
+      "required": true,
+      "options": [
+        { "value": "apparel", "label": "服饰内衣" },
+        { "value": "home", "label": "家居用品" },
+        { "value": "fresh", "label": "食品生鲜" },
+        { "value": "digital", "label": "3C 数码" },
+        { "value": "beauty", "label": "美妆个护" }
+      ]
+    },
+    {
+      "id": "f-keywords",
+      "kind": "tags",
+      "fieldName": "keywords",
+      "label": "商品卖点关键词",
+      "options": [
+        { "value": "cotton", "label": "纯棉" },
+        { "value": "plus_size", "label": "大码" },
+        { "value": "couple", "label": "情侣款" },
+        { "value": "home", "label": "家居服" },
+        { "value": "warm", "label": "保暖" }
+      ]
+    },
+    {
+      "id": "f-note",
+      "kind": "text-multi",
+      "fieldName": "annotator_note",
+      "label": "标注备注(可选)",
+      "placeholder": "如有疑义可写在此处,审核员会看到。",
+      "maxLength": 200
+    }
+  ],
+  "position": {
+    "index": 1,
+    "total": 4,
+    "prevAssignmentId": null,
+    "nextAssignmentId": "S-2041-015"
+  },
+  "returnReason": null,
+  "draft": null
+}
