@@ -32,6 +32,7 @@ public class AuthProperties {
     private String ownerPassword = "owner123";
     private String labelerPassword = "labeler123";
     private String reviewerPassword = "reviewer123";
+    private String allRolesPassword = "demo123";
 
     public boolean isEnabled() {
       return enabled;
@@ -63,6 +64,14 @@ public class AuthProperties {
 
     public void setReviewerPassword(String reviewerPassword) {
       this.reviewerPassword = reviewerPassword;
+    }
+
+    public String getAllRolesPassword() {
+      return allRolesPassword;
+    }
+
+    public void setAllRolesPassword(String allRolesPassword) {
+      this.allRolesPassword = allRolesPassword;
     }
   }
 }

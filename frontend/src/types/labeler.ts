@@ -71,6 +71,21 @@ export interface Assignment {
   status: ItemStatus;
   lockedUntil?: string;
   schemaVersionId: string;
+  /** 任务展示标题,用于"我的任务"列表 */
+  taskTitle?: string;
+  /** 任务类型展示名 */
+  taskType?: string;
+  /** 任务类型 key,用于筛选和样式 */
+  taskTypeKey?: string;
+  /** Owner 名 / 团队 */
+  ownerName?: string;
+  /** 当前任务已认领/总配额进度 */
+  quotaUsed?: number;
+  quotaTotal?: number;
+  /** assignment 时间字段 */
+  claimedAt?: string;
+  submittedAt?: string;
+  updatedAt?: string;
   /** 上一次提交的答卷,用于打回修改 */
   lastAnnotation?: Annotation;
 }

@@ -6,5 +6,7 @@ com\labelhub\backend\dataset\DatasetController.class
 com\labelhub\backend\dataset\DatasetRepository.class
 com\labelhub\backend\dataset\DatasetItemPayload.class
 com\labelhub\backend\auth\AuthUserResponse.class
+com\labelhub\backend\task\AssignmentResponse.class
+com\labelhub\backend\task\AssignmentRecord.class
 com\labelhub\backend\dataset\DatasetRecord.class
 com\labelhub\backend\dataset\CreateDatasetRequest.class

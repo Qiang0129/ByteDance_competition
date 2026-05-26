@@ -28,6 +28,8 @@ F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\jav
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dataset\DatasetResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dataset\DatasetService.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\LabelHubBackendApplication.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\AssignmentRecord.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\AssignmentResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\CreateTaskRequest.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\MarketTaskResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\OwnerTaskResponse.java

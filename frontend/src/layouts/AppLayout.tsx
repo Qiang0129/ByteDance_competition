@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AppstoreOutlined,
   AuditOutlined,
@@ -16,9 +16,11 @@ import {
   RobotOutlined,
   SearchOutlined,
   ShopOutlined,
+  SwapOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import {
+  App as AntdApp,
   Avatar,
   Badge,
   Breadcrumb,
@@ -32,6 +34,15 @@ import {
 import type { MenuProps } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import { authApi, clearStoredAuthUser, getStoredAuthUser } from '../api/auth';
+import { clearAuthToken, getAuthToken } from '../api/client';
+import type { AuthUser } from '../types/auth';
+import {
+  isWorkspaceRole,
+  type WorkspaceRole,
+  workspaceRoleLabels,
+  workspaceRolePath,
+} from '../utils/authNavigation';
 import { PageErrorBoundary } from './PageErrorBoundary';
 
 const { Header, Sider, Content } = Layout;
@@ -40,13 +51,7 @@ const { Header, Sider, Content } = Layout;
 const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.0';
 
 /** 角色顶层路径前缀,用于推断当前在哪个角色端 */
-type RoleSection = 'owner' | 'labeler' | 'reviewer';
-
-const sectionRoleLabel: Record<RoleSection, string> = {
-  owner: 'Project Owner',
-  labeler: 'Labeler',
-  reviewer: 'Reviewer',
-};
+type RoleSection = WorkspaceRole;
 
 /** 路径片段 -> 显示文案,顶部面包屑使用 */
 const segmentLabel: Record<string, string> = {
@@ -59,6 +64,7 @@ const segmentLabel: Record<string, string> = {
   returned: '打回项',
   tasks: '任务管理',
   templates: '模板搭建',
+  designer: 'Designer',
   datasets: '数据集',
   'ai-review': 'AI 预审规则',
   review: '人工审核',
@@ -164,11 +170,43 @@ function resolveSelectedKey(section: RoleSection, pathname: string): string {
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { message } = AntdApp.useApp();
   const section = resolveSection(location.pathname);
   const selectedKey = resolveSelectedKey(section, location.pathname);
 
   // 侧栏折叠状态:由顶部左侧折叠按钮控制
   const [collapsed, setCollapsed] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuthUser());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshCurrentUser = async () => {
+      if (!getAuthToken()) {
+        clearStoredAuthUser();
+        navigate('/login', { replace: true });
+        return;
+      }
+
+      try {
+        const response = await authApi.getCurrentUser();
+        if (!cancelled) {
+          setCurrentUser(response.user);
+        }
+      } catch {
+        clearAuthToken();
+        clearStoredAuthUser();
+        if (!cancelled) {
+          navigate('/login', { replace: true });
+        }
+      }
+    };
+
+    void refreshCurrentUser();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   const menuItems =
     section === 'labeler'
@@ -227,16 +265,59 @@ export default function AppLayout() {
     }));
   })();
 
-  // 用户头像下拉菜单:把"退出"收纳进去,符合现代后台习惯
+  const switchableRoles = (currentUser?.roles ?? [])
+    .filter(isWorkspaceRole);
+  const visibleRoles = switchableRoles.length > 0 ? switchableRoles : [section];
+
+  async function handleUserMenuClick({ key }: { key: string }) {
+    if (key.startsWith('switch:')) {
+      const role = key.replace('switch:', '') as WorkspaceRole;
+      navigate(workspaceRolePath[role]);
+      return;
+    }
+
+    if (key === 'profile') {
+      message.info('个人资料将在后续用户中心阶段开放。');
+      return;
+    }
+
+    if (key === 'logout') {
+      await authApi.logout();
+      message.success('已退出登录');
+      navigate('/login', { replace: true });
+    }
+  }
+
+  // 用户头像下拉菜单:支持展示身份、切换可用角色和真正退出登录
   const userMenu: MenuProps['items'] = [
+    {
+      key: 'user-summary',
+      disabled: true,
+      label: (
+        <div className="app-user-menu-summary">
+          <span className="app-user-menu-name">{currentUser?.displayName ?? 'LabelHub User'}</span>
+          <span className="app-user-menu-meta">{currentUser?.username ?? '未同步用户信息'}</span>
+        </div>
+      ),
+    },
     { key: 'profile', icon: <UserOutlined />, label: '个人资料' },
+    {
+      type: 'group',
+      key: 'switch-role-group',
+      label: '切换角色',
+      children: visibleRoles.map((role) => ({
+        key: `switch:${role}`,
+        icon: <SwapOutlined />,
+        label: workspaceRoleLabels[role],
+        disabled: role === section,
+      })),
+    },
     { type: 'divider' as const },
     {
       key: 'logout',
       icon: <LogoutOutlined />,
       label: '退出登录',
       danger: true,
-      onClick: () => navigate('/login'),
     },
   ];
 
@@ -299,12 +380,21 @@ export default function AppLayout() {
 
           {/* 右侧:用户下拉 */}
           <div className="app-header-right">
-            <Dropdown menu={{ items: userMenu }} placement="bottomRight" trigger={['click']}>
+            <Dropdown
+              menu={{ items: userMenu, onClick: handleUserMenuClick }}
+              placement="bottomRight"
+              trigger={['click']}
+            >
               <div className="app-header-profile" role="button">
                 <div className="app-header-profile-text">
                   <Typography.Text type="secondary" className="app-header-profile-role">
-                    {sectionRoleLabel[section]}
+                    {workspaceRoleLabels[section]}
                   </Typography.Text>
+                  {currentUser?.displayName && (
+                    <Typography.Text className="app-header-profile-name">
+                      {currentUser.displayName}
+                    </Typography.Text>
+                  )}
                 </div>
                 <Badge dot status="success" offset={[-6, 28]}>
                   <Avatar icon={<UserOutlined />} style={{ background: '#2f7bff' }} />

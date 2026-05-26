@@ -119,7 +119,7 @@ export default function LabelerOverview() {
   const navigate = useNavigate();
 
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack labeler-overview">
       {/* ============ 欢迎横幅:主 CTA + 总贡献度 ============ */}
       <section className="overview-hero">
         <div className="overview-hero-content">

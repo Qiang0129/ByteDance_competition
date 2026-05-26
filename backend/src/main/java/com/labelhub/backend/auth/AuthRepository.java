@@ -104,7 +104,7 @@ public class AuthRepository {
         .orElseThrow(() -> new IllegalStateException("failed to load created user"));
   }
 
-  public void upsertDemoUser(String username, String displayName, String passwordHash, String roleCode) {
+  public void upsertDemoUser(String username, String displayName, String passwordHash, String... roleCodes) {
     Optional<UserAccount> existingUser = findUserByUsername(username);
     long userId = existingUser
         .map(UserAccount::id)
@@ -122,13 +122,15 @@ public class AuthRepository {
           userId);
     }
 
-    jdbcTemplate.update(
-        """
-        INSERT IGNORE INTO user_roles (user_id, role_id)
-        SELECT ?, id FROM roles WHERE role_code = ?
-        """,
-        userId,
-        roleCode);
+    for (String roleCode : roleCodes) {
+      jdbcTemplate.update(
+          """
+          INSERT IGNORE INTO user_roles (user_id, role_id)
+          SELECT ?, id FROM roles WHERE role_code = ?
+          """,
+          userId,
+          roleCode);
+    }
   }
 
   private long insertUser(String username, String displayName, String passwordHash) {

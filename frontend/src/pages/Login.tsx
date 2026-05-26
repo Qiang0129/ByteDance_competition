@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyOutlined,
   TeamOutlined,
@@ -7,17 +7,35 @@ import {
 import { App, Button, Form, Input, Select } from 'antd';
 import { useNavigate } from 'react-router-dom';
 
-import { authApi } from '../api/auth';
+import { authApi, clearStoredAuthUser, getStoredAuthUser } from '../api/auth';
+import { clearAuthToken, getAuthToken } from '../api/client';
 import type { LoginRequest, RegisterRequest, UserRole } from '../types/auth';
+import { resolveLandingPath } from '../utils/authNavigation';
 
 type AuthMode = 'login' | 'signup';
+type LoginRole = Exclude<UserRole, 'admin'>;
+type DemoLoginSource = LoginRole | 'allRoles';
+type LoginSource = 'manual' | DemoLoginSource;
 
 type SignupFormValues = Pick<RegisterRequest, 'username' | 'password'>;
 
-const roleOptions: Array<{ label: string; value: UserRole }> = [
+const roleOptions: Array<{ label: string; value: LoginRole }> = [
   { label: 'Owner', value: 'owner' },
   { label: 'Labeler', value: 'labeler' },
   { label: 'Reviewer', value: 'reviewer' },
+];
+
+const demoAccounts: Array<{
+  source: DemoLoginSource;
+  role: LoginRole;
+  label: string;
+  username: string;
+  password: string;
+}> = [
+  { source: 'allRoles', role: 'owner', label: 'All Roles', username: 'demo', password: 'demo123' },
+  { source: 'owner', role: 'owner', label: 'Owner', username: 'owner', password: 'owner123' },
+  { source: 'labeler', role: 'labeler', label: 'Labeler', username: 'labeler', password: 'labeler123' },
+  { source: 'reviewer', role: 'reviewer', label: 'Reviewer', username: 'reviewer', password: 'reviewer123' },
 ];
 
 export default function Login() {
@@ -27,28 +45,54 @@ export default function Login() {
   const [mode, setMode] = useState<AuthMode>('login');
   // 登录成功后的离场动画状态:开启后页面淡出,过渡结束再跳转
   const [leaving, setLeaving] = useState(false);
+  const [signingIn, setSigningIn] = useState<LoginSource | null>(null);
 
-  const handleLoginFinish = async (values: LoginRequest) => {
+  useEffect(() => {
+    let cancelled = false;
+
+    const redirectSignedInUser = async () => {
+      if (!getAuthToken()) {
+        return;
+      }
+
+      try {
+        const response = await authApi.getCurrentUser();
+        if (!cancelled) {
+          navigate(resolveLandingPath(response.user.roles), { replace: true });
+        }
+      } catch {
+        clearStoredAuthUser();
+        clearAuthToken();
+      }
+    };
+
+    const storedUser = getStoredAuthUser();
+    if (storedUser && getAuthToken()) {
+      navigate(resolveLandingPath(storedUser.roles), { replace: true });
+      return undefined;
+    }
+
+    void redirectSignedInUser();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  const handleLoginFinish = async (values: LoginRequest, source: LoginSource = 'manual') => {
+    setSigningIn(source);
     try {
       const response = await authApi.login(values);
-      const role = resolveLandingRole(response.user.roles, values.role);
+      const landingPath = resolveLandingPath(response.user.roles, values.role);
       message.success('Signed in successfully.');
       setLeaving(true);
       // 等离场动画跑完再跳转,避免直接 navigate 造成"闪一下"
       window.setTimeout(() => {
-        navigate(`/${role}`);
+        navigate(landingPath);
       }, 480);
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'Sign in failed.');
+      setSigningIn(null);
     }
-  };
-
-  const resolveLandingRole = (roles: UserRole[], selectedRole?: UserRole) => {
-    if (selectedRole && roles.includes(selectedRole)) {
-      return selectedRole;
-    }
-
-    return roles.find((role) => role === 'owner' || role === 'labeler' || role === 'reviewer') ?? 'owner';
   };
 
   const handleSignupFinish = async (values: SignupFormValues) => {
@@ -112,7 +156,7 @@ export default function Login() {
               <Form<LoginRequest>
                 layout="vertical"
                 initialValues={{ role: 'owner' }}
-                onFinish={handleLoginFinish}
+                onFinish={(values) => void handleLoginFinish(values)}
                 requiredMark={false}
               >
                 <Form.Item
@@ -160,10 +204,39 @@ export default function Login() {
                   size="large"
                   block
                   className="login-submit"
+                  loading={signingIn === 'manual'}
+                  disabled={!!signingIn && signingIn !== 'manual'}
                 >
                   LOGIN
                 </Button>
               </Form>
+
+              <div className="login-demo-panel">
+                <div className="login-demo-title">演示账号</div>
+                <div className="login-demo-actions">
+                  {demoAccounts.map((account) => (
+                    <Button
+                      key={account.source}
+                      icon={<TeamOutlined />}
+                      className="login-demo-button"
+                      loading={signingIn === account.source}
+                      disabled={!!signingIn && signingIn !== account.source}
+                      onClick={() => {
+                        void handleLoginFinish(
+                          {
+                            username: account.username,
+                            password: account.password,
+                            role: account.role,
+                          },
+                          account.source,
+                        );
+                      }}
+                    >
+                      {account.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
 
               <div className="login-footer">
                 Don&apos;t have an account ?

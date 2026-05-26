@@ -28,3 +28,4 @@ labelhub:
       owner-password: ${LABELHUB_DEMO_OWNER_PASSWORD:owner123}
       labeler-password: ${LABELHUB_DEMO_LABELER_PASSWORD:labeler123}
       reviewer-password: ${LABELHUB_DEMO_REVIEWER_PASSWORD:reviewer123}
+      all-roles-password: ${LABELHUB_DEMO_ALL_ROLES_PASSWORD:demo123}

@@ -17,14 +17,26 @@ import {
   OwnerExport,
   OwnerReview,
   OwnerTasks,
+  OwnerTemplateDesigner,
   OwnerTemplates,
 } from '../pages/owner';
 import ReviewerHome from '../pages/reviewer';
+import { getStoredAuthUser } from '../api/auth';
+import { getAuthToken } from '../api/client';
+import { resolveLandingPath } from '../utils/authNavigation';
+
+function RootRedirect() {
+  const storedUser = getStoredAuthUser();
+  if (getAuthToken() && storedUser) {
+    return <Navigate to={resolveLandingPath(storedUser.roles)} replace />;
+  }
+  return <Navigate to="/login" replace />;
+}
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<RootRedirect />} />
       <Route path="/login" element={<Login />} />
 
       <Route element={<AppLayout />}>
@@ -32,6 +44,7 @@ export function AppRoutes() {
         <Route path="/owner" element={<Navigate to="/owner/tasks" replace />} />
         <Route path="/owner/tasks" element={<OwnerTasks />} />
         <Route path="/owner/templates" element={<OwnerTemplates />} />
+        <Route path="/owner/templates/designer" element={<OwnerTemplateDesigner />} />
         <Route path="/owner/datasets" element={<OwnerDatasets />} />
         <Route path="/owner/ai-review" element={<OwnerAiReview />} />
         <Route path="/owner/review" element={<OwnerReview />} />

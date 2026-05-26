@@ -46,8 +46,35 @@ public class TaskController {
       Authentication authentication,
       @RequestParam(required = false) String keyword,
       @RequestParam(required = false) String taskType,
+      @RequestParam(required = false) String strategy,
+      @RequestParam(required = false) String mediaType,
+      @RequestParam(required = false) String aiReview,
+      @RequestParam(required = false) String sortBy,
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer pageSize) {
-    return taskService.listMarketTasks(authentication, keyword, taskType, page, pageSize);
+    return taskService.listMarketTasks(
+        authentication,
+        keyword,
+        taskType,
+        strategy,
+        mediaType,
+        aiReview,
+        sortBy,
+        page,
+        pageSize);
+  }
+
+  @PostMapping("/tasks/{taskId}/claim")
+  public AssignmentResponse claimTask(
+      Authentication authentication,
+      @PathVariable long taskId) {
+    return taskService.claimTask(authentication, taskId);
+  }
+
+  @GetMapping("/assignments/mine")
+  public PageResponse<AssignmentResponse> listMyAssignments(
+      Authentication authentication,
+      @RequestParam(required = false) String status) {
+    return taskService.listMyAssignments(authentication, status);
   }
 }
