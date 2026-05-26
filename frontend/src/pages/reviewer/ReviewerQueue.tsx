@@ -408,7 +408,7 @@ function BatchReviewPanel({ batchId }: { batchId: string }) {
         </Typography.Paragraph>
         <Input.TextArea
           rows={4}
-          placeholder="例如:cleaned_title 缺失关键卖点 \"加厚保暖\",请补充后重新提交。"
+          placeholder="例如:cleaned_title 缺失关键卖点「加厚保暖」,请补充后重新提交。"
           value={returnReason}
           onChange={(e) => setReturnReason(e.target.value)}
         />

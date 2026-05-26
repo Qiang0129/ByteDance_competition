@@ -3541,3 +3541,318 @@ body {
   font-weight: 600;
   color: #1f2a44;
 }
+
+
+/* ========== Reviewer 端 ========== */
+
+/* 同行卡片等高 */
+.reviewer-overview .ant-row,
+.reviewer-overview .ant-row {
+  align-items: stretch;
+}
+
+.reviewer-overview .ant-row > [class*="ant-col"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.reviewer-overview .ant-row > [class*="ant-col"] > .ant-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.reviewer-overview .ant-row > [class*="ant-col"] > .ant-card > .ant-card-body {
+  flex: 1 1 auto;
+}
+
+/* KPI */
+.reviewer-kpi.ant-card .ant-card-body {
+  padding: 18px 20px;
+}
+
+.reviewer-kpi-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 12px;
+}
+
+.reviewer-kpi-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1f2a44;
+  line-height: 1.1;
+}
+
+.reviewer-kpi-title {
+  font-size: 13px;
+  color: #475569;
+  margin-top: 4px;
+}
+
+/* 待审批次行 */
+.reviewer-batch-row {
+  padding: 12px 14px;
+  border: 1px solid #eef0f5;
+  border-radius: 12px;
+  background: #fafbfd;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reviewer-batch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.reviewer-batch-title {
+  font-weight: 600;
+  color: #1f2a44;
+}
+
+.reviewer-batch-type.ant-tag {
+  border: none;
+  background: rgba(47, 123, 255, 0.1);
+  color: #2f7bff;
+  border-radius: 999px;
+  padding: 0 10px;
+}
+
+.reviewer-batch-meta {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.reviewer-batch-meta strong {
+  color: #1f2a44;
+  font-weight: 700;
+}
+
+/* 质量指标 */
+.reviewer-quality-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.reviewer-quality-label strong {
+  color: #1f2a44;
+}
+
+.reviewer-quality-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+
+.reviewer-quality-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.reviewer-quality-tip {
+  margin-top: 14px;
+  background: rgba(245, 158, 11, 0.08);
+  color: #b45309;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 工作建议小条 */
+.reviewer-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #475569;
+  padding: 8px 10px;
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+  border-radius: 10px;
+}
+
+.reviewer-tip-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.reviewer-tip-text {
+  flex: 1 1 auto;
+}
+
+/* 队列页:批次卡 */
+.reviewer-batch-card.ant-card {
+  border-radius: 14px;
+  border: 1px solid #eef0f5;
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.reviewer-batch-card.ant-card:hover {
+  border-color: rgba(47, 123, 255, 0.4);
+  box-shadow: 0 12px 28px rgba(47, 123, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+.reviewer-batch-card .ant-card-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reviewer-batch-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.reviewer-batch-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6fb6ff, #2f7bff);
+}
+
+.reviewer-batch-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+
+/* 审核台 */
+.reviewer-review-panel pre.review-json {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reviewer-review-panel pre.review-json.highlight {
+  background: rgba(47, 123, 255, 0.06);
+  color: #1f2a44;
+  border: 1px solid rgba(47, 123, 255, 0.2);
+}
+
+.review-section-label {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.review-revision-tag.ant-tag {
+  border: none;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.review-decision-card .ant-btn {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.review-shortcut-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reviewer-batch-load.ant-card .ant-card-body {
+  padding: 60px 0;
+}
+
+/* AI 审核结果展示 */
+.ai-score-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ai-score-cell {
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.ai-score-key {
+  font-size: 11px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.ai-score-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2a44;
+  margin-top: 2px;
+}
+
+.ai-total-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.ai-total-row strong {
+  color: #1f2a44;
+}
+
+.ai-comment {
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 0 !important;
+  color: #475569;
+  line-height: 1.7;
+}
+
+/* 争议样本 */
+.dispute-task-title {
+  font-weight: 600;
+  color: #1f2a44;
+}
+
+.dispute-meta {
+  font-size: 12px;
+}

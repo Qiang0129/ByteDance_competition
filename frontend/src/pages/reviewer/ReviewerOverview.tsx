@@ -236,7 +236,7 @@ export default function ReviewerOverview() {
               />
             </Space>
             <div className="reviewer-quality-tip">
-              <ThunderboltFilled /> 一致率低于 90% 时建议复盘审核标准;抽检覆盖率<10% 时升级到全量审核。
+              <ThunderboltFilled /> 一致率低于 90% 时建议复盘审核标准;抽检覆盖率小于 10% 时升级到全量审核。
             </div>
           </Card>
         </Col>

@@ -20,7 +20,13 @@ import {
   OwnerTemplateDesigner,
   OwnerTemplates,
 } from '../pages/owner';
-import ReviewerHome from '../pages/reviewer';
+import {
+  ReviewerAi,
+  ReviewerDisputes,
+  ReviewerOverview,
+  ReviewerQueue,
+  ReviewerReports,
+} from '../pages/reviewer';
 import { getStoredAuthUser } from '../api/auth';
 import { getAuthToken } from '../api/client';
 import { resolveLandingPath } from '../utils/authNavigation';
@@ -58,7 +64,11 @@ export function AppRoutes() {
         <Route path="/labeler/drafts" element={<Drafts />} />
         <Route path="/labeler/returned" element={<ReturnedItems />} />
 
-        <Route path="/reviewer" element={<ReviewerHome />} />
+        <Route path="/reviewer" element={<ReviewerOverview />} />
+        <Route path="/reviewer/queue" element={<ReviewerQueue />} />
+        <Route path="/reviewer/ai" element={<ReviewerAi />} />
+        <Route path="/reviewer/disputes" element={<ReviewerDisputes />} />
+        <Route path="/reviewer/reports" element={<ReviewerReports />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />
