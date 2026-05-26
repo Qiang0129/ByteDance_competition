@@ -4,9 +4,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
+import com.labelhub.backend.auth.AuthRepository;
+import com.labelhub.backend.auth.UserAccount;
+import com.labelhub.backend.dataset.DatasetRecord;
+import com.labelhub.backend.dataset.DatasetRepository;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -24,15 +29,24 @@ public class TaskService {
   private static final Set<String> ASSIGNMENT_STATUSES =
       Set.of("claimed", "submitted", "returned", "accepted");
   private static final Set<String> MEDIA_TYPES = Set.of("text", "image", "video", "markdown");
+  private static final Set<String> PUBLISHED_STRATEGIES = Set.of("first-come", "assigned", "quota");
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
   private static final DateTimeFormatter DATE_TIME_SECONDS =
       DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
   private static final Pattern NUMBER_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)");
 
+  private final AuthRepository authRepository;
+  private final DatasetRepository datasetRepository;
   private final TaskRepository taskRepository;
   private final ObjectMapper objectMapper;
 
-  public TaskService(TaskRepository taskRepository, ObjectMapper objectMapper) {
+  public TaskService(
+      AuthRepository authRepository,
+      DatasetRepository datasetRepository,
+      TaskRepository taskRepository,
+      ObjectMapper objectMapper) {
+    this.authRepository = authRepository;
+    this.datasetRepository = datasetRepository;
     this.taskRepository = taskRepository;
     this.objectMapper = objectMapper;
   }
@@ -41,14 +55,9 @@ public class TaskService {
   public OwnerTaskResponse createTask(Authentication authentication, CreateTaskRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
     String state = normalizeState(request.status(), "published", CREATE_STATES);
-    TaskMetadata metadata = new TaskMetadata(
-        normalizeTags(request.tags()),
-        blankToNull(request.reward()),
-        normalizeStrategy(request.strategy()),
-        blankToNull(request.schema()),
-        request.aiReviewEnabled(),
-        resolveTaskType(request),
-        resolveRewardPerItem(request.reward()));
+    DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
+    TaskMetadata metadata = buildTaskMetadata(request, dataset);
+    validateStrategyConfiguration(metadata, state);
 
     long taskId = taskRepository.createTask(
         owner.id(),
@@ -59,10 +68,50 @@ public class TaskService {
         parseDeadline(request.deadline()),
         metadata,
         parseSchemaVersion(request.schema()));
+    bindDatasetToTask(dataset, taskId);
+    ensureStrategyAssignments(taskId, metadata, request.quota(), state);
 
     return taskRepository.findTask(taskId)
         .map(this::toOwnerResponse)
         .orElseThrow(() -> new IllegalStateException("failed to load created task"));
+  }
+
+  @Transactional
+  public OwnerTaskResponse updateTask(
+      Authentication authentication,
+      long taskId,
+      CreateTaskRequest request) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    TaskRecord existing = taskRepository.findTask(taskId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
+    if (existing.ownerId() != owner.id()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
+    }
+
+    String state = normalizeState(request.status(), existing.status(), TASK_STATES);
+    DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
+    TaskMetadata metadata = buildTaskMetadata(request, dataset);
+    validateStrategyConfiguration(metadata, state);
+
+    int updated = taskRepository.updateTask(
+        owner.id(),
+        taskId,
+        request.title().trim(),
+        resolveDescription(request.description()),
+        state,
+        request.quota(),
+        parseDeadline(request.deadline()),
+        metadata);
+    if (updated == 0) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
+    }
+    taskRepository.updateLatestSchemaState(taskId, state);
+    bindDatasetToTask(dataset, taskId);
+    ensureStrategyAssignments(taskId, metadata, request.quota(), state);
+
+    return taskRepository.findTask(taskId)
+        .map(this::toOwnerResponse)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
   }
 
   public PageResponse<OwnerTaskResponse> listOwnerTasks(Authentication authentication) {
@@ -71,6 +120,16 @@ public class TaskService {
         .map(this::toOwnerResponse)
         .toList();
     return new PageResponse<>(items, 1, items.size(), items.size());
+  }
+
+  public List<AssignableLabelerResponse> listAssignableLabelers(Authentication authentication) {
+    requireOwner(authentication);
+    return authRepository.listUsersByRoleCode("labeler").stream()
+        .map(user -> new AssignableLabelerResponse(
+            Long.toString(user.id()),
+            user.username(),
+            user.name()))
+        .toList();
   }
 
   @Transactional
@@ -156,9 +215,101 @@ public class TaskService {
     return new PageResponse<>(items, 1, items.size(), items.size());
   }
 
+  private TaskMetadata buildTaskMetadata(CreateTaskRequest request, DatasetRecord dataset) {
+    return new TaskMetadata(
+        normalizeTags(request.tags()),
+        blankToNull(request.reward()),
+        normalizeStrategy(request.strategy()),
+        dataset == null ? null : dataset.id(),
+        request.maxClaimPerUser(),
+        parseAssignedLabelerIds(request.assignedLabelerIds()),
+        blankToNull(request.schema()),
+        request.aiReviewEnabled(),
+        resolveTaskType(request),
+        resolveRewardPerItem(request.reward()));
+  }
+
+  private DatasetRecord resolveSelectedDataset(long ownerId, String datasetIdValue) {
+    if (datasetIdValue == null || datasetIdValue.isBlank()) {
+      return null;
+    }
+    long datasetId = parseLongId(datasetIdValue, "INVALID_DATASET_ID");
+    return datasetRepository.findOwnerDataset(ownerId, datasetId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "DATASET_NOT_FOUND", "dataset not found"));
+  }
+
+  private void bindDatasetToTask(DatasetRecord dataset, long taskId) {
+    if (dataset != null) {
+      datasetRepository.rebindDatasetToTask(dataset.id(), taskId);
+    }
+  }
+
+  private void validateStrategyConfiguration(TaskMetadata metadata, String state) {
+    if (!PUBLISHED_STRATEGIES.contains(metadata.resolvedStrategy())) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ASSIGN_STRATEGY", "unsupported assign strategy");
+    }
+    if (!"published".equals(state)) {
+      return;
+    }
+    if ("assigned".equals(metadata.resolvedStrategy()) && metadata.resolvedAssignedLabelerIds().isEmpty()) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "ASSIGNED_LABELERS_REQUIRED",
+          "assigned strategy requires at least one labeler");
+    }
+    if ("quota".equals(metadata.resolvedStrategy()) && metadata.resolvedMaxClaimPerUser() == null) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "MAX_CLAIM_PER_USER_REQUIRED",
+          "quota strategy requires max claim per user");
+    }
+  }
+
+  private void ensureStrategyAssignments(
+      long taskId,
+      TaskMetadata metadata,
+      Integer quota,
+      String state) {
+    if (!"published".equals(state)
+        || !"assigned".equals(metadata.resolvedStrategy())
+        || metadata.resolvedAssignedLabelerIds().isEmpty()) {
+      return;
+    }
+
+    for (long labelerId : metadata.resolvedAssignedLabelerIds()) {
+      ensureAssignableLabeler(labelerId);
+      if (taskRepository.hasTaskAssignment(taskId, labelerId)) {
+        continue;
+      }
+      if (quota != null && taskRepository.countTaskAssignments(taskId) >= quota) {
+        throw new ApiException(HttpStatus.CONFLICT, "TASK_QUOTA_EXHAUSTED", "task quota is exhausted");
+      }
+      long itemId = taskRepository.findFirstClaimableItem(taskId)
+          .orElseThrow(() -> new ApiException(
+              HttpStatus.CONFLICT,
+              "NO_AVAILABLE_ITEM",
+              "task has no available item to assign"));
+      taskRepository.createAssignment(taskId, itemId, labelerId, LocalDateTime.now().plusHours(2));
+    }
+  }
+
+  private void ensureAssignableLabeler(long labelerId) {
+    UserAccount user = authRepository.findUserById(labelerId)
+        .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "LABELER_NOT_FOUND", "labeler not found"));
+    if (!authRepository.findRoleCodes(user.id()).contains("labeler")) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "LABELER_ROLE_REQUIRED",
+          "assigned user must have labeler role");
+    }
+  }
+
   private OwnerTaskResponse toOwnerResponse(TaskRecord record) {
     TaskMetadata metadata = readMetadata(record.rewardRuleJson());
     int totalQuota = record.quota() == null ? 0 : record.quota();
+    String datasetId = metadata.datasetId() != null
+        ? Long.toString(metadata.datasetId())
+        : record.datasetId() == null ? "" : Long.toString(record.datasetId());
     return new OwnerTaskResponse(
         Long.toString(record.id()),
         record.title(),
@@ -168,8 +319,11 @@ public class TaskService {
         record.ownerName(),
         record.status(),
         metadata.resolvedStrategy(),
+        datasetId,
         record.quotaUsed(),
         totalQuota,
+        metadata.resolvedMaxClaimPerUser(),
+        metadata.resolvedAssignedLabelerIds().stream().map(String::valueOf).toList(),
         formatDateTime(record.createdAt()),
         formatDateTime(record.deadline()),
         metadata.reward(),
@@ -203,18 +357,29 @@ public class TaskService {
         metadata.resolvedAiReviewEnabled(),
         metadata.resolvedAiReviewEnabled() ? "电商相关性 v2" : null,
         formatDateTime(record.createdAt()),
-        1,
+        metadata.resolvedMaxClaimPerUser(),
         taskRepository.hasTaskAssignment(record.id(), currentUserId));
   }
 
   private AssignmentResponse createAssignmentForStrategy(TaskRecord task, long labelerId) {
     validateClaimableTask(task);
-    String strategy = readMetadata(task.rewardRuleJson()).resolvedStrategy();
+    TaskMetadata metadata = readMetadata(task.rewardRuleJson());
+    String strategy = metadata.resolvedStrategy();
     if ("assigned".equals(strategy)) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "ASSIGNED_TASK_NOT_CLAIMABLE",
           "assigned task requires a pre-created assignment");
+    }
+
+    if ("quota".equals(strategy)
+        && metadata.resolvedMaxClaimPerUser() != null
+        && taskRepository.countLabelerTaskAssignments(task.id(), labelerId)
+            >= metadata.resolvedMaxClaimPerUser()) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "TASK_CLAIM_LIMIT_REACHED",
+          "task claim limit for current labeler is reached");
     }
 
     if (task.quota() != null && taskRepository.countTaskAssignments(task.id()) >= task.quota()) {
@@ -302,7 +467,17 @@ public class TaskService {
   }
 
   private TaskMetadata emptyMetadata() {
-    return new TaskMetadata(List.of(), null, "first-come", null, true, "Annotation Task", null);
+    return new TaskMetadata(
+        List.of(),
+        null,
+        "first-come",
+        null,
+        null,
+        List.of(),
+        null,
+        true,
+        "Annotation Task",
+        null);
   }
 
   private String normalizeState(String state, String defaultState, Set<String> allowedStates) {
@@ -380,6 +555,23 @@ public class TaskService {
         .toList();
   }
 
+  private List<Long> parseAssignedLabelerIds(List<String> assignedLabelerIds) {
+    if (assignedLabelerIds == null) {
+      return List.of();
+    }
+    List<Long> ids = new ArrayList<>();
+    for (String assignedLabelerId : assignedLabelerIds) {
+      if (assignedLabelerId == null || assignedLabelerId.isBlank()) {
+        continue;
+      }
+      long parsed = parseLongId(assignedLabelerId, "INVALID_LABELER_ID");
+      if (!ids.contains(parsed)) {
+        ids.add(parsed);
+      }
+    }
+    return ids;
+  }
+
   private String resolveTaskType(CreateTaskRequest request) {
     if (request.taskType() != null && !request.taskType().isBlank()) {
       return request.taskType().trim();
@@ -449,6 +641,14 @@ public class TaskService {
 
   private int resolveSchemaVersion(TaskRecord record) {
     return record.schemaVersion() == null ? 1 : record.schemaVersion();
+  }
+
+  private long parseLongId(String value, String code) {
+    try {
+      return Long.parseLong(value);
+    } catch (NumberFormatException exception) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, code, "id format is invalid");
+    }
   }
 
   private String resolveDescription(String description) {

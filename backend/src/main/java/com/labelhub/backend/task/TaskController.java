@@ -28,9 +28,22 @@ public class TaskController {
     return taskService.createTask(authentication, request);
   }
 
+  @PutMapping("/tasks/{taskId}")
+  public OwnerTaskResponse updateTask(
+      Authentication authentication,
+      @PathVariable long taskId,
+      @Valid @RequestBody CreateTaskRequest request) {
+    return taskService.updateTask(authentication, taskId, request);
+  }
+
   @GetMapping("/tasks")
   public PageResponse<OwnerTaskResponse> listOwnerTasks(Authentication authentication) {
     return taskService.listOwnerTasks(authentication);
+  }
+
+  @GetMapping("/tasks/assignable-labelers")
+  public java.util.List<AssignableLabelerResponse> listAssignableLabelers(Authentication authentication) {
+    return taskService.listAssignableLabelers(authentication);
   }
 
   @PutMapping("/tasks/{taskId}/state")

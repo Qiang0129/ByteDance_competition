@@ -1843,6 +1843,20 @@ body {
   white-space: pre-wrap;
 }
 
+.dataset-json-preview {
+  margin: 0;
+  padding: 14px;
+  max-height: 520px;
+  overflow: auto;
+  color: #1f2a44;
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+  border-radius: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* 偏好对比 A/B 块 */
 .dataset-pref-pair {
   display: grid;

@@ -14,7 +14,11 @@ public record CreateTaskRequest(
     @Min(value = 1, message = "quota must be greater than 0")
     Integer quota,
     String deadline,
+    String datasetId,
     String strategy,
+    @Min(value = 1, message = "maxClaimPerUser must be greater than 0")
+    Integer maxClaimPerUser,
+    List<String> assignedLabelerIds,
     String schema,
     Boolean aiReviewEnabled,
     String description,

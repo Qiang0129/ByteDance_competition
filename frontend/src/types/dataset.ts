@@ -5,7 +5,8 @@
  * 后端 import 时需保留 raw_payload / media_type / media_url / content_markdown。
  */
 
-export type DatasetKind = 'qa_quality' | 'preference_compare';
+export type KnownDatasetKind = 'qa_quality' | 'preference_compare';
+export type DatasetKind = KnownDatasetKind | (string & {});
 export type MediaType = 'text' | 'image' | 'video' | 'markdown';
 export type TextListLike = string[] | string;
 
@@ -43,7 +44,7 @@ export interface PreferenceCompareItem {
   annotator_note: string;
 }
 
-export type DatasetItem = QaQualityItem | PreferenceCompareItem;
+export type DatasetItem = QaQualityItem | PreferenceCompareItem | Record<string, unknown>;
 
 /** 数据集元数据(列表卡用) */
 export interface DatasetMeta {
@@ -70,7 +71,7 @@ export interface DatasetMeta {
 }
 
 export interface CreateDatasetRequest {
-  taskId: string;
+  taskId?: string;
   name: string;
   kind: DatasetKind;
 }

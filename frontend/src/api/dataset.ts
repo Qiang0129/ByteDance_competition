@@ -25,7 +25,9 @@ export const datasetApi = {
 
   importDataset(payload: ImportDatasetRequest): Promise<DatasetMeta> {
     const formData = new FormData();
-    formData.append('taskId', payload.taskId);
+    if (payload.taskId) {
+      formData.append('taskId', payload.taskId);
+    }
     formData.append('kind', payload.kind);
     formData.append('name', payload.name);
     formData.append('file', payload.file);

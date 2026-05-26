@@ -9,6 +9,7 @@ public record TaskRecord(
     String status,
     long ownerId,
     String ownerName,
+    Long datasetId,
     Integer quota,
     int quotaUsed,
     LocalDateTime deadline,

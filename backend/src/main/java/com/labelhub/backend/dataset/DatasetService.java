@@ -28,7 +28,6 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class DatasetService {
 
-  private static final Set<String> ALLOWED_KINDS = Set.of("qa_quality", "preference_compare");
   private static final Set<String> ALLOWED_MEDIA_TYPES = Set.of("text", "image", "video", "markdown");
   private static final int MAX_IMPORT_BYTES = 20 * 1024 * 1024;
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
@@ -65,7 +64,7 @@ public class DatasetService {
   @Transactional
   public DatasetResponse createDataset(Authentication authentication, CreateDatasetRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
-    long taskId = parseId(request.taskId(), "INVALID_TASK_ID");
+    Long taskId = parseOptionalId(request.taskId(), "INVALID_TASK_ID");
     ensureTaskOwner(owner.id(), taskId);
     String kind = normalizeKind(request.kind());
     String name = normalizeName(request.name(), kind);
@@ -96,7 +95,7 @@ public class DatasetService {
       String nameValue,
       MultipartFile file) {
     AuthenticatedUser owner = requireOwner(authentication);
-    long taskId = parseId(taskIdValue, "INVALID_TASK_ID");
+    Long taskId = parseOptionalId(taskIdValue, "INVALID_TASK_ID");
     ensureTaskOwner(owner.id(), taskId);
     String kind = normalizeKind(kindValue);
     if (file == null || file.isEmpty()) {
@@ -200,7 +199,7 @@ public class DatasetService {
     Map<String, Integer> mediaDistribution = datasetRepository.countMediaDistribution(record.id());
     return new DatasetResponse(
         Long.toString(record.id()),
-        Long.toString(record.taskId()),
+        record.taskId() == null ? "" : Long.toString(record.taskId()),
         record.taskTitle(),
         resolveName(record),
         kind,
@@ -221,7 +220,10 @@ public class DatasetService {
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "DATASET_NOT_FOUND", "dataset not found"));
   }
 
-  private void ensureTaskOwner(long ownerId, long taskId) {
+  private void ensureTaskOwner(long ownerId, Long taskId) {
+    if (taskId == null) {
+      return;
+    }
     if (!datasetRepository.taskBelongsToOwner(taskId, ownerId)) {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
     }
@@ -254,8 +256,11 @@ public class DatasetService {
   }
 
   private String normalizeKind(String kind) {
-    String normalized = normalizeKnownKind(kind);
-    if (!ALLOWED_KINDS.contains(normalized)) {
+    if (kind == null || kind.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DATASET_KIND", "unsupported dataset kind");
+    }
+    String normalized = normalizeKindToken(kind);
+    if (normalized.length() > 64 || normalized.chars().anyMatch(Character::isISOControl)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DATASET_KIND", "unsupported dataset kind");
     }
     return normalized;
@@ -265,11 +270,22 @@ public class DatasetService {
     if (kind == null || kind.isBlank()) {
       return "qa_quality";
     }
-    String normalized = kind.trim().toLowerCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
-    if (normalized.contains("preference")) {
+    return normalizeKindToken(kind);
+  }
+
+  private String normalizeKindToken(String kind) {
+    String normalized = kind.trim().toLowerCase(Locale.ROOT)
+        .replace('-', '_')
+        .replaceAll("\\s+", "_");
+    if (normalized.equals("preference")
+        || normalized.equals("preference_compare")
+        || normalized.equals("preference_ab")
+        || normalized.equals("preference_a_b")) {
       return "preference_compare";
     }
-    if (normalized.contains("qa")) {
+    if (normalized.equals("qa")
+        || normalized.equals("qa_quality")
+        || normalized.equals("question_answer_quality")) {
       return "qa_quality";
     }
     return normalized;
@@ -289,24 +305,36 @@ public class DatasetService {
     if (name != null && !name.isBlank()) {
       return name.trim();
     }
-    return "qa_quality".equals(kind) ? "问答质量评估数据集" : "偏好对比数据集";
+    if ("qa_quality".equals(kind)) {
+      return "问答质量评估数据集";
+    }
+    if ("preference_compare".equals(kind)) {
+      return "偏好对比数据集";
+    }
+    return kind + " 数据集";
   }
 
   private String resolveName(DatasetRecord record) {
     if (record.fileName() != null && !record.fileName().isBlank()) {
       return record.fileName();
     }
-    String label = "preference_compare".equals(normalizeKnownKind(record.datasetType()))
-        ? "偏好对比 A/B"
-        : "问答质量评估";
+    String kind = normalizeKnownKind(record.datasetType());
+    String label = switch (kind) {
+      case "preference_compare" -> "偏好对比 A/B";
+      case "qa_quality" -> "问答质量评估";
+      default -> kind;
+    };
     return label + " · #" + record.id();
   }
 
   private String resolveDescription(String kind, String taskTitle) {
-    String typeDesc = "preference_compare".equals(kind)
-        ? "同一 Prompt 下两条模型回答的偏好选择数据。"
-        : "模型答 vs 参考答的单条质量评估数据,保留多模态字段。";
-    return typeDesc + "关联任务:" + taskTitle;
+    String typeDesc = switch (kind) {
+      case "preference_compare" -> "同一 Prompt 下两条模型回答的偏好选择数据。";
+      case "qa_quality" -> "模型答 vs 参考答的单条质量评估数据,保留多模态字段。";
+      default -> "自定义数据集类型:" + kind + "。";
+    };
+    String taskDesc = taskTitle == null || taskTitle.isBlank() ? "未关联任务" : taskTitle;
+    return typeDesc + "关联任务:" + taskDesc;
   }
 
   private String text(JsonNode node, String field) {
@@ -323,6 +351,13 @@ public class DatasetService {
     } catch (NumberFormatException exception) {
       throw new ApiException(HttpStatus.BAD_REQUEST, code, "id format is invalid");
     }
+  }
+
+  private Long parseOptionalId(String id, String code) {
+    if (id == null || id.isBlank()) {
+      return null;
+    }
+    return parseId(id, code);
   }
 
   private byte[] readBytes(MultipartFile file) {

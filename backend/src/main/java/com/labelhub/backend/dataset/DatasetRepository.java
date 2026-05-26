@@ -66,7 +66,7 @@ public class DatasetRepository {
   }
 
   public long createDataset(
-      long taskId,
+      Long taskId,
       long fileId,
       String datasetType,
       String importStatus,
@@ -83,7 +83,11 @@ public class DatasetRepository {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           """,
           Statement.RETURN_GENERATED_KEYS);
-      statement.setLong(1, taskId);
+      if (taskId == null) {
+        statement.setNull(1, Types.BIGINT);
+      } else {
+        statement.setLong(1, taskId);
+      }
       statement.setLong(2, fileId);
       statement.setString(3, datasetType);
       statement.setString(4, importStatus);
@@ -103,7 +107,7 @@ public class DatasetRepository {
   public List<DatasetRecord> listOwnerDatasets(long ownerId) {
     return queryDatasets(
         """
-        WHERE t.owner_id = ?
+        WHERE f.created_by = ?
         """,
         List.of(ownerId),
         "ORDER BY d.created_at DESC");
@@ -112,7 +116,7 @@ public class DatasetRepository {
   public Optional<DatasetRecord> findOwnerDataset(long ownerId, long datasetId) {
     return queryDatasets(
         """
-        WHERE t.owner_id = ? AND d.id = ?
+        WHERE f.created_by = ? AND d.id = ?
         """,
         List.of(ownerId, datasetId),
         "").stream().findFirst();
@@ -138,8 +142,8 @@ public class DatasetRepository {
         SELECT CAST(i.raw_payload AS CHAR) AS raw_payload_json
         FROM items i
         JOIN datasets d ON d.id = i.dataset_id
-        JOIN tasks t ON t.id = d.task_id
-        WHERE t.owner_id = ? AND d.id = ?
+        LEFT JOIN files f ON f.id = d.file_id
+        WHERE f.created_by = ? AND d.id = ?
         ORDER BY i.id ASC
         """,
         (rs, rowNum) -> rs.getString("raw_payload_json"),
@@ -147,7 +151,7 @@ public class DatasetRepository {
         datasetId);
   }
 
-  public void insertItems(long taskId, long datasetId, List<DatasetItemPayload> items) {
+  public void insertItems(Long taskId, long datasetId, List<DatasetItemPayload> items) {
     if (items.isEmpty()) {
       return;
     }
@@ -161,7 +165,11 @@ public class DatasetRepository {
           @Override
           public void setValues(java.sql.PreparedStatement ps, int i) throws java.sql.SQLException {
             DatasetItemPayload item = items.get(i);
-            ps.setLong(1, taskId);
+            if (taskId == null) {
+              ps.setNull(1, Types.BIGINT);
+            } else {
+              ps.setLong(1, taskId);
+            }
             ps.setLong(2, datasetId);
             ps.setString(3, item.itemKey());
             ps.setString(4, item.rawPayloadJson());
@@ -201,6 +209,27 @@ public class DatasetRepository {
         datasetId);
   }
 
+  public void rebindDatasetToTask(long datasetId, long taskId) {
+    jdbcTemplate.update(
+        """
+        UPDATE datasets
+        SET task_id = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        taskId,
+        datasetId);
+    jdbcTemplate.update(
+        """
+        UPDATE items
+        SET task_id = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE dataset_id = ?
+        """,
+        taskId,
+        datasetId);
+  }
+
   private List<DatasetRecord> queryDatasets(String whereClause, List<Object> args, String suffix) {
     String sql = """
         SELECT
@@ -219,7 +248,7 @@ public class DatasetRepository {
           d.created_at,
           d.updated_at
         FROM datasets d
-        JOIN tasks t ON t.id = d.task_id
+        LEFT JOIN tasks t ON t.id = d.task_id
         LEFT JOIN files f ON f.id = d.file_id
         """ + whereClause + " " + suffix;
 
@@ -227,7 +256,7 @@ public class DatasetRepository {
         sql,
         (rs, rowNum) -> new DatasetRecord(
             rs.getLong("id"),
-            rs.getLong("task_id"),
+            toLong(rs.getObject("task_id")),
             rs.getString("task_title"),
             toLong(rs.getObject("file_id")),
             rs.getString("file_name"),

@@ -114,6 +114,12 @@ cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V1__init
 cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V2__seed_demo_auth_users.sql"
 ```
 
+已有数据库从旧版结构升级时,再执行一次数据集解绑迁移:
+
+```powershell
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V3__allow_unbound_datasets.sql"
+```
+
 把命令中的 `123456` 换成你的 MySQL root 密码。`V1__init_labelhub_schema.sql` 内部会创建并切换到 `labelhub` 数据库。
 
 后端启动时也会通过 `DemoUserInitializer` upsert 演示账号。新增或修改演示账号后,需要重启后端服务才会写入当前数据库。

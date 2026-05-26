@@ -52,6 +52,28 @@ public class AuthRepository {
     return users.stream().findFirst();
   }
 
+  public List<UserAccount> listUsersByRoleCode(String roleCode) {
+    return jdbcTemplate.query(
+        """
+        SELECT DISTINCT u.id, u.username, u.name, u.email, u.password_hash, u.status
+        FROM users u
+        JOIN user_roles ur ON ur.user_id = u.id
+        JOIN roles r ON r.id = ur.role_id
+        WHERE r.role_code = ?
+          AND u.deleted_at IS NULL
+          AND u.status = 'active'
+        ORDER BY u.name ASC, u.username ASC
+        """,
+        (rs, rowNum) -> new UserAccount(
+            rs.getLong("id"),
+            rs.getString("username"),
+            rs.getString("name"),
+            rs.getString("email"),
+            rs.getString("password_hash"),
+            rs.getString("status")),
+        roleCode);
+  }
+
   public List<String> findRoleCodes(long userId) {
     return jdbcTemplate.queryForList(
         """

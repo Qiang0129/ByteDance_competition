@@ -41,7 +41,7 @@ public class DatasetController {
   @PostMapping(path = "/datasets/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public DatasetResponse importDataset(
       Authentication authentication,
-      @RequestParam String taskId,
+      @RequestParam(required = false) String taskId,
       @RequestParam String kind,
       @RequestParam(required = false) String name,
       @RequestPart("file") MultipartFile file) {

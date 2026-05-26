@@ -11,8 +11,11 @@ export interface OwnerTask {
   owner: string;
   state: OwnerTaskState;
   assignStrategy: OwnerAssignStrategy;
+  datasetId?: string;
   quotaUsed: number;
   quotaTotal: number;
+  maxClaimPerUser?: number;
+  assignedLabelerIds: string[];
   createdAt: string;
   deadline?: string;
   reward?: string;
@@ -27,12 +30,21 @@ export interface CreateOwnerTaskRequest {
   reward?: string;
   quota?: number;
   deadline?: string;
+  datasetId?: string;
   strategy?: OwnerAssignStrategy;
+  maxClaimPerUser?: number;
+  assignedLabelerIds?: string[];
   schema?: string;
   aiReviewEnabled?: boolean;
   description?: string;
   taskType?: string;
   status: OwnerTaskState;
+}
+
+export interface AssignableLabeler {
+  userId: string;
+  username: string;
+  displayName: string;
 }
 
 export interface UpdateOwnerTaskStateRequest {

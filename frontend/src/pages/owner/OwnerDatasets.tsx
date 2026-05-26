@@ -14,6 +14,7 @@ import {
 import {
   Alert,
   App as AntdApp,
+  AutoComplete,
   Button,
   Card,
   Col,
@@ -71,13 +72,13 @@ const mediaTypeMeta: Record<MediaType, MediaTypeMeta> = {
 };
 
 interface DatasetFormValues {
-  taskId: string;
+  taskId?: string;
   name: string;
   kind: DatasetKind;
 }
 
 /** 字段映射表用,直接从计划书 1.4 与 5.1 抄过来 */
-const fieldGuide: Record<DatasetKind, Array<{ key: string; desc: string; required: boolean }>> = {
+const fieldGuide = {
   qa_quality: [
     { key: 'id', desc: '稳定主键,用于打回追溯', required: true },
     { key: 'media_type', desc: 'text / image / video / markdown', required: true },
@@ -98,7 +99,58 @@ const fieldGuide: Record<DatasetKind, Array<{ key: string; desc: string; require
     { key: 'dimensions', desc: '准确性、完整性、可读性等多维度标签', required: false },
     { key: 'safety_flag', desc: '是否触发安全风险标记', required: false },
   ],
-};
+} satisfies Record<'qa_quality' | 'preference_compare', Array<{ key: string; desc: string; required: boolean }>>;
+
+const datasetKindOptions = [
+  { label: 'qa_quality · 问答质量评估', value: 'qa_quality' },
+  { label: 'preference_compare · 偏好对比 A/B', value: 'preference_compare' },
+];
+
+function getDatasetKindMeta(kind?: string) {
+  if (kind === 'qa_quality') {
+    return { color: 'blue', label: 'QA Quality', guide: fieldGuide.qa_quality };
+  }
+  if (kind === 'preference_compare') {
+    return { color: 'purple', label: 'Preference', guide: fieldGuide.preference_compare };
+  }
+  return {
+    color: 'default',
+    label: kind || 'Custom',
+    guide: [
+      { key: 'id', desc: '建议保留稳定主键,便于追踪和后续绑定任务', required: false },
+      { key: 'raw_payload', desc: '自定义类型会按原始 JSON 字段通用展示', required: false },
+    ],
+  };
+}
+
+function DatasetKindTag({ kind }: { kind?: string }) {
+  const meta = getDatasetKindMeta(kind);
+  return <Tag color={meta.color}>{meta.label}</Tag>;
+}
+
+function normalizeDatasetFormValues(values: DatasetFormValues): DatasetFormValues {
+  return {
+    ...values,
+    taskId: values.taskId?.trim() || undefined,
+    kind: values.kind.trim(),
+  };
+}
+
+function getRecordText(record: unknown) {
+  if (record == null) return '';
+  if (typeof record === 'string') return record;
+  if (typeof record === 'number' || typeof record === 'boolean') return String(record);
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return String(record);
+  }
+}
+
+function getRecordId(record: Record<string, unknown>, index: number) {
+  const id = record.id ?? record.item_key ?? record.key;
+  return id == null || String(id).trim() === '' ? `row-${index + 1}` : String(id);
+}
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -232,16 +284,10 @@ export default function OwnerDatasets() {
   }, [loadDatasets, loadTasks]);
 
   useEffect(() => {
-    if (!createOpen && !importOpen) return;
-    const defaultTaskId = ownerTasks[0]?.taskId;
-    if (!defaultTaskId) return;
-    if (createOpen && !createForm.getFieldValue('taskId')) {
-      createForm.setFieldValue('taskId', defaultTaskId);
+    if (createOpen || importOpen) {
+      void loadTasks();
     }
-    if (importOpen && !importForm.getFieldValue('taskId')) {
-      importForm.setFieldValue('taskId', defaultTaskId);
-    }
-  }, [createForm, createOpen, importForm, importOpen, ownerTasks]);
+  }, [createOpen, importOpen, loadTasks]);
 
   /** 拉取选中的 MySQL 数据集条目 */
   useEffect(() => {
@@ -271,20 +317,23 @@ export default function OwnerDatasets() {
 
   const filteredItems = useMemo(() => {
     if (!activeDataset) return [];
+    const lowerKeyword = keyword.toLowerCase();
     return items.filter((item) => {
       if (activeDataset.kind === 'qa_quality') {
         const it = item as QaQualityItem;
         if (mediaFilter !== 'all' && it.media_type !== mediaFilter) return false;
         if (keyword) {
           const hay = `${it.id} ${it.prompt} ${it.model_answer} ${it.category}`.toLowerCase();
-          if (!hay.includes(keyword.toLowerCase())) return false;
+          if (!hay.includes(lowerKeyword)) return false;
         }
-      } else {
+      } else if (activeDataset.kind === 'preference_compare') {
         const it = item as PreferenceCompareItem;
         if (keyword) {
           const hay = `${it.id} ${it.prompt} ${it.response_a} ${it.response_b}`.toLowerCase();
-          if (!hay.includes(keyword.toLowerCase())) return false;
+          if (!hay.includes(lowerKeyword)) return false;
         }
+      } else if (keyword && !getRecordText(item).toLowerCase().includes(lowerKeyword)) {
+        return false;
       }
       return true;
     });
@@ -397,6 +446,21 @@ export default function OwnerDatasets() {
     },
   ];
 
+  const genericColumns: ColumnsType<Record<string, unknown>> = [
+    {
+      title: 'ID',
+      key: 'id',
+      width: 120,
+      render: (_value, record, index) => <code className="dataset-id">{getRecordId(record, index)}</code>,
+    },
+    {
+      title: '原始数据摘要',
+      key: 'payload',
+      ellipsis: true,
+      render: (_value, record) => <span className="dataset-prompt">{getRecordText(record)}</span>,
+    },
+  ];
+
   const showItemDetail = (record: DatasetItem) => {
     setActiveItem(record);
   };
@@ -405,7 +469,6 @@ export default function OwnerDatasets() {
     createForm.resetFields();
     createForm.setFieldsValue({
       kind: 'qa_quality',
-      taskId: ownerTasks[0]?.taskId,
     });
     setCreateOpen(true);
   };
@@ -414,14 +477,13 @@ export default function OwnerDatasets() {
     importForm.resetFields();
     importForm.setFieldsValue({
       kind: 'qa_quality',
-      taskId: ownerTasks[0]?.taskId,
     });
     setImportFileList([]);
     setImportOpen(true);
   };
 
   const submitCreateDataset = async () => {
-    const values = await createForm.validateFields();
+    const values = normalizeDatasetFormValues(await createForm.validateFields());
     setSubmitting(true);
     try {
       const created = await datasetApi.createDataset(values);
@@ -436,7 +498,7 @@ export default function OwnerDatasets() {
   };
 
   const submitImportDataset = async () => {
-    const values = await importForm.validateFields();
+    const values = normalizeDatasetFormValues(await importForm.validateFields());
     const file = importFileList[0]?.originFileObj;
     if (!file) {
       message.error('请先选择要上传的数据文件。');
@@ -548,9 +610,7 @@ export default function OwnerDatasets() {
                 >
                   <div className="dataset-list-head">
                     <span className="dataset-list-name">{ds.name}</span>
-                    <Tag color={ds.kind === 'qa_quality' ? 'blue' : 'purple'}>
-                      {ds.kind === 'qa_quality' ? 'QA Quality' : 'Preference'}
-                    </Tag>
+                    <DatasetKindTag kind={ds.kind} />
                   </div>
                   <div className="dataset-list-meta">
                     <span>{ds.itemCount} 条</span>
@@ -592,9 +652,7 @@ export default function OwnerDatasets() {
                 <Space size={8}>
                   <DatabaseOutlined style={{ color: '#2f7bff' }} />
                   <span>{activeDataset.name}</span>
-                  <Tag color={activeDataset.kind === 'qa_quality' ? 'blue' : 'purple'}>
-                    {activeDataset.kind}
-                  </Tag>
+                  <DatasetKindTag kind={activeDataset.kind} />
                 </Space>
               }
               extra={
@@ -641,7 +699,7 @@ export default function OwnerDatasets() {
                   <CheckCircleFilled style={{ color: '#22c55e' }} /> 字段映射
                 </div>
                 <ul className="dataset-fields-list">
-                  {fieldGuide[activeDataset.kind].map((field) => (
+                  {getDatasetKindMeta(activeDataset.kind).guide.map((field) => (
                     <li key={field.key}>
                       <code>{field.key}</code>
                       <span>{field.desc}</span>
@@ -707,11 +765,21 @@ export default function OwnerDatasets() {
             onRow={(record) => ({ onClick: () => showItemDetail(record) })}
             rowClassName="dataset-table-row"
           />
-        ) : (
+        ) : activeDataset.kind === 'preference_compare' ? (
           <Table<PreferenceCompareItem>
             columns={prefColumns}
             dataSource={filteredItems as PreferenceCompareItem[]}
             rowKey="id"
+            loading={loading}
+            pagination={{ pageSize: 10, showSizeChanger: false }}
+            onRow={(record) => ({ onClick: () => showItemDetail(record) })}
+            rowClassName="dataset-table-row"
+          />
+        ) : (
+          <Table<Record<string, unknown>>
+            columns={genericColumns}
+            dataSource={filteredItems as Record<string, unknown>[]}
+            rowKey={(record, index) => getRecordId(record, index ?? 0)}
             loading={loading}
             pagination={{ pageSize: 10, showSizeChanger: false }}
             onRow={(record) => ({ onClick: () => showItemDetail(record) })}
@@ -756,9 +824,7 @@ export default function OwnerDatasets() {
             >
               <div className="dataset-list-head">
                 <span className="dataset-list-name">{ds.name}</span>
-                <Tag color={ds.kind === 'qa_quality' ? 'blue' : 'purple'}>
-                  {ds.kind === 'qa_quality' ? 'QA Quality' : 'Preference'}
-                </Tag>
+                <DatasetKindTag kind={ds.kind} />
               </div>
               <div className="dataset-list-meta">
                 <span>{ds.itemCount} 条</span>
@@ -803,22 +869,22 @@ export default function OwnerDatasets() {
         <Form form={createForm} layout="vertical">
           {ownerTasks.length === 0 && (
             <Alert
-              type="warning"
+              type="info"
               showIcon
               message="当前账号还没有可关联任务"
-              description="数据集表通过 task_id 关联任务。请先在任务管理页创建任务,再回到这里新建数据集。"
+              description="可以先创建未绑定任务的数据集,后续在任务发布页选择该数据集完成绑定。"
               style={{ marginBottom: 16 }}
             />
           )}
           <Form.Item
             name="taskId"
-            label="关联任务"
-            rules={[{ required: true, message: '请选择关联任务' }]}
+            label="关联任务（可选）"
           >
             <Select
-              placeholder="选择该数据集所属任务"
+              placeholder="可先不关联,后续在任务发布页绑定"
               loading={tasksLoading}
               options={taskOptions}
+              allowClear
               showSearch
               optionFilterProp="label"
             />
@@ -833,13 +899,19 @@ export default function OwnerDatasets() {
           <Form.Item
             name="kind"
             label="数据集类型"
-            rules={[{ required: true, message: '请选择数据集类型' }]}
+            rules={[
+              { required: true, message: '请选择或输入数据集类型' },
+              { max: 64, message: '数据集类型最多 64 个字符' },
+            ]}
           >
-            <Select
-              options={[
-                { label: 'qa_quality · 问答质量评估', value: 'qa_quality' },
-                { label: 'preference_compare · 偏好对比 A/B', value: 'preference_compare' },
-              ]}
+            <AutoComplete
+              options={datasetKindOptions}
+              placeholder="选择内置类型或输入自定义类型"
+              filterOption={(inputValue, option) =>
+                String(option?.label ?? option?.value ?? '')
+                  .toLowerCase()
+                  .includes(inputValue.toLowerCase())
+              }
             />
           </Form.Item>
         </Form>
@@ -858,22 +930,22 @@ export default function OwnerDatasets() {
         <Form form={importForm} layout="vertical">
           {ownerTasks.length === 0 && (
             <Alert
-              type="warning"
+              type="info"
               showIcon
               message="当前账号还没有可关联任务"
-              description="导入数据会写入 datasets / items,必须先选择一个 Owner 任务。"
+              description="可以先导入未绑定任务的数据集,后续在任务发布页选择该数据集完成绑定。"
               style={{ marginBottom: 16 }}
             />
           )}
           <Form.Item
             name="taskId"
-            label="关联任务"
-            rules={[{ required: true, message: '请选择关联任务' }]}
+            label="关联任务（可选）"
           >
             <Select
-              placeholder="选择导入到哪个任务"
+              placeholder="可先不关联,后续在任务发布页绑定"
               loading={tasksLoading}
               options={taskOptions}
+              allowClear
               showSearch
               optionFilterProp="label"
             />
@@ -888,13 +960,19 @@ export default function OwnerDatasets() {
           <Form.Item
             name="kind"
             label="数据集类型"
-            rules={[{ required: true, message: '请选择数据集类型' }]}
+            rules={[
+              { required: true, message: '请选择或输入数据集类型' },
+              { max: 64, message: '数据集类型最多 64 个字符' },
+            ]}
           >
-            <Select
-              options={[
-                { label: 'qa_quality · 问答质量评估', value: 'qa_quality' },
-                { label: 'preference_compare · 偏好对比 A/B', value: 'preference_compare' },
-              ]}
+            <AutoComplete
+              options={datasetKindOptions}
+              placeholder="选择内置类型或输入自定义类型"
+              filterOption={(inputValue, option) =>
+                String(option?.label ?? option?.value ?? '')
+                  .toLowerCase()
+                  .includes(inputValue.toLowerCase())
+              }
             />
           </Form.Item>
           <Form.Item label="数据文件" required>
@@ -1041,54 +1119,67 @@ function ItemDetail({ item, kind }: { item: DatasetItem; kind: DatasetKind }) {
     );
   }
 
-  const it = item as PreferenceCompareItem;
+  if (kind === 'preference_compare') {
+    const it = item as PreferenceCompareItem;
+    return (
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Space size={8}>
+          <code className="dataset-id-large">{it.id}</code>
+          <Tag>{it.task_type}</Tag>
+          {it.lang && <Tag>{it.lang.toUpperCase()}</Tag>}
+          {toBoolean(it.safety_flag) && <Tag color="red">Safety</Tag>}
+        </Space>
+
+        <DetailField label="Prompt" value={it.prompt} />
+
+        <div className="dataset-pref-pair">
+          <div className={`dataset-pref-block ${it.preferred === 'A' ? 'is-preferred' : ''}`}>
+            <div className="dataset-pref-block-head">
+              <Tag color="blue">A</Tag>
+              <span>{it.model_a}</span>
+              {it.preferred === 'A' && <Tag color="success">Preferred</Tag>}
+            </div>
+            <div className="dataset-pref-block-body">{it.response_a}</div>
+          </div>
+          <div className={`dataset-pref-block ${it.preferred === 'B' ? 'is-preferred' : ''}`}>
+            <div className="dataset-pref-block-head">
+              <Tag color="purple">B</Tag>
+              <span>{it.model_b}</span>
+              {it.preferred === 'B' && <Tag color="success">Preferred</Tag>}
+            </div>
+            <div className="dataset-pref-block-body">{it.response_b}</div>
+          </div>
+        </div>
+
+        <div className="dataset-detail-row">
+          <span className="dataset-detail-label">Margin</span>
+          <Tag>{it.margin}</Tag>
+        </div>
+
+        <div className="dataset-detail-row">
+          <span className="dataset-detail-label">Dimensions</span>
+          <Space size={4} wrap>
+            {toTextList(it.dimensions).map((d) => (
+              <Tag key={d} color="blue">
+                {d}
+              </Tag>
+            ))}
+          </Space>
+        </div>
+
+        <DetailField label="Annotator Note" value={it.annotator_note} />
+      </Space>
+    );
+  }
+
+  const record = item as Record<string, unknown>;
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Space size={8}>
-        <code className="dataset-id-large">{it.id}</code>
-        <Tag>{it.task_type}</Tag>
-        <Tag>{it.lang.toUpperCase()}</Tag>
-        {toBoolean(it.safety_flag) && <Tag color="red">⚠ Safety</Tag>}
+        <code className="dataset-id-large">{getRecordId(record, 0)}</code>
+        <DatasetKindTag kind={kind} />
       </Space>
-
-      <DetailField label="Prompt" value={it.prompt} />
-
-      <div className="dataset-pref-pair">
-        <div className={`dataset-pref-block ${it.preferred === 'A' ? 'is-preferred' : ''}`}>
-          <div className="dataset-pref-block-head">
-            <Tag color="blue">A</Tag>
-            <span>{it.model_a}</span>
-            {it.preferred === 'A' && <Tag color="success">Preferred</Tag>}
-          </div>
-          <div className="dataset-pref-block-body">{it.response_a}</div>
-        </div>
-        <div className={`dataset-pref-block ${it.preferred === 'B' ? 'is-preferred' : ''}`}>
-          <div className="dataset-pref-block-head">
-            <Tag color="purple">B</Tag>
-            <span>{it.model_b}</span>
-            {it.preferred === 'B' && <Tag color="success">Preferred</Tag>}
-          </div>
-          <div className="dataset-pref-block-body">{it.response_b}</div>
-        </div>
-      </div>
-
-      <div className="dataset-detail-row">
-        <span className="dataset-detail-label">Margin</span>
-        <Tag>{it.margin}</Tag>
-      </div>
-
-      <div className="dataset-detail-row">
-        <span className="dataset-detail-label">Dimensions</span>
-        <Space size={4} wrap>
-          {toTextList(it.dimensions).map((d) => (
-            <Tag key={d} color="blue">
-              {d}
-            </Tag>
-          ))}
-        </Space>
-      </div>
-
-      <DetailField label="Annotator Note" value={it.annotator_note} />
+      <pre className="dataset-json-preview">{JSON.stringify(record, null, 2)}</pre>
     </Space>
   );
 }

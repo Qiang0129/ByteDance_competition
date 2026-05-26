@@ -139,6 +139,27 @@ function safeNumber(value: unknown) {
 function getClaimErrorMessage(error: unknown) {
   if (typeof error === 'object' && error !== null && 'payload' in error) {
     const payload = (error as { payload?: unknown }).payload;
+    if (typeof payload === 'object' && payload !== null && 'code' in payload) {
+      const code = (payload as { code?: unknown }).code;
+      if (typeof code === 'string') {
+        switch (code) {
+          case 'NO_AVAILABLE_ITEM':
+            return '该任务还没有可认领的数据项，请先让 Owner 在数据集页导入或追加数据。';
+          case 'TASK_QUOTA_EXHAUSTED':
+            return '该任务的可认领配额已用尽。';
+          case 'TASK_CLAIM_LIMIT_REACHED':
+            return '你已达到该任务的个人认领上限。';
+          case 'TASK_NOT_PUBLISHED':
+            return '该任务还未发布，暂时不能认领。';
+          case 'TASK_EXPIRED':
+            return '该任务已过截止时间，无法认领。';
+          case 'ASSIGNED_TASK_NOT_CLAIMABLE':
+            return '该任务属于指派任务，当前账号没有可认领项。';
+          default:
+            break;
+        }
+      }
+    }
     if (typeof payload === 'object' && payload !== null && 'message' in payload) {
       const message = (payload as { message?: unknown }).message;
       if (typeof message === 'string' && message.trim()) {

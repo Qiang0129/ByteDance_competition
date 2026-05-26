@@ -76,6 +76,43 @@ public class TaskRepository {
     return taskId;
   }
 
+  public int updateTask(
+      long ownerId,
+      long taskId,
+      String title,
+      String description,
+      String status,
+      Integer quota,
+      LocalDateTime deadline,
+      TaskMetadata metadata) {
+    String metadataJson = writeMetadata(metadata);
+    return jdbcTemplate.update(
+        """
+        UPDATE tasks
+        SET title = ?,
+            description = ?,
+            status = ?,
+            quota = ?,
+            deadline = ?,
+            reward_rule = ?,
+            published_at = CASE
+              WHEN ? = 'published' AND published_at IS NULL THEN CURRENT_TIMESTAMP
+              ELSE published_at
+            END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND owner_id = ?
+        """,
+        title,
+        description,
+        status,
+        quota,
+        deadline == null ? null : Timestamp.valueOf(deadline),
+        metadataJson,
+        status,
+        taskId,
+        ownerId);
+  }
+
   public Optional<TaskRecord> findTask(long taskId) {
     List<TaskRecord> records = queryTasks(
         """
@@ -195,6 +232,19 @@ public class TaskRepository {
         "SELECT COUNT(*) FROM assignments WHERE task_id = ?",
         Long.class,
         taskId);
+    return count == null ? 0L : count;
+  }
+
+  public long countLabelerTaskAssignments(long taskId, long labelerId) {
+    Long count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM assignments
+        WHERE task_id = ? AND labeler_id = ?
+        """,
+        Long.class,
+        taskId,
+        labelerId);
     return count == null ? 0L : count;
   }
 
@@ -336,6 +386,7 @@ public class TaskRepository {
           t.status,
           t.owner_id,
           u.name AS owner_name,
+          ds.id AS dataset_id,
           t.quota,
           COALESCE(ac.quota_used, 0) AS quota_used,
           t.deadline,
@@ -350,6 +401,13 @@ public class TaskRepository {
           FROM assignments
           GROUP BY task_id
         ) ac ON ac.task_id = t.id
+        LEFT JOIN datasets ds ON ds.id = (
+          SELECT latest_ds.id
+          FROM datasets latest_ds
+          WHERE latest_ds.task_id = t.id
+          ORDER BY latest_ds.updated_at DESC, latest_ds.id DESC
+          LIMIT 1
+        )
         LEFT JOIN task_schema_versions tsv ON tsv.id = (
           SELECT latest_tsv.id
           FROM task_schema_versions latest_tsv
@@ -368,6 +426,7 @@ public class TaskRepository {
             rs.getString("status"),
             rs.getLong("owner_id"),
             rs.getString("owner_name"),
+            toLong(rs.getObject("dataset_id")),
             toInteger(rs.getObject("quota")),
             rs.getInt("quota_used"),
             toLocalDateTime(rs.getTimestamp("deadline")),

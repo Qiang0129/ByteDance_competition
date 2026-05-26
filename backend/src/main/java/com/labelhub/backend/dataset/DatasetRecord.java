@@ -4,7 +4,7 @@ import java.time.LocalDateTime;
 
 public record DatasetRecord(
     long id,
-    long taskId,
+    Long taskId,
     String taskTitle,
     Long fileId,
     String fileName,

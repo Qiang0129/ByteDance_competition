@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS task_schema_versions (
 
 CREATE TABLE IF NOT EXISTS datasets (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  task_id BIGINT UNSIGNED NOT NULL,
+  task_id BIGINT UNSIGNED DEFAULT NULL,
   file_id BIGINT UNSIGNED DEFAULT NULL,
   dataset_type VARCHAR(64) DEFAULT NULL,
   import_status VARCHAR(32) NOT NULL DEFAULT 'pending',
@@ -135,13 +135,13 @@ CREATE TABLE IF NOT EXISTS datasets (
   PRIMARY KEY (id),
   KEY idx_datasets_task_status (task_id, import_status),
   KEY idx_datasets_file_id (file_id),
-  CONSTRAINT fk_datasets_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+  CONSTRAINT fk_datasets_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE SET NULL,
   CONSTRAINT fk_datasets_file FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS items (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  task_id BIGINT UNSIGNED NOT NULL,
+  task_id BIGINT UNSIGNED DEFAULT NULL,
   dataset_id BIGINT UNSIGNED NOT NULL,
   item_key VARCHAR(128) DEFAULT NULL,
   raw_payload JSON NOT NULL,
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS items (
   KEY idx_items_task_status (task_id, item_status),
   KEY idx_items_dataset_status (dataset_id, item_status),
   KEY idx_items_item_key (item_key),
-  CONSTRAINT fk_items_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+  CONSTRAINT fk_items_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE SET NULL,
   CONSTRAINT fk_items_dataset FOREIGN KEY (dataset_id) REFERENCES datasets (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

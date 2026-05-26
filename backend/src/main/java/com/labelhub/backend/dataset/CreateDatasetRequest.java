@@ -4,7 +4,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 public record CreateDatasetRequest(
-    @NotBlank(message = "taskId is required")
     String taskId,
 
     @NotBlank(message = "name is required")
@@ -12,4 +11,5 @@ public record CreateDatasetRequest(
     String name,
 
     @NotBlank(message = "kind is required")
+    @Size(max = 64, message = "kind must be at most 64 characters")
     String kind) {}
