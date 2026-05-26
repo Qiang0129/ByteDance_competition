@@ -7,24 +7,25 @@ LabelHub 是一个面向数据标注协作流程的 Web 平台。当前仓库包
 已实现或已接入的主要能力：
 
 1. 认证与会话
+
    - `POST /api/auth/login`、`GET /api/auth/me`、`POST /api/auth/logout`
    - 基于 Redis 保存登录 token
    - 前端缓存当前用户,刷新后可回到默认工作台
    - 顶栏支持在当前账号已有角色之间切换
-
 2. Owner 工作台
+
    - 任务列表、新建任务、发布/暂停等状态流转
    - 模板列表与模板设计器前端能力
    - 数据集列表、创建数据集、导入文件、向已有数据集追加文件数据
    - Owner 数据看板页面,后端接口未完成时会保留前端演示数据
-
 3. Labeler 工作台
+
    - 任务市场读取后端真实任务
    - 支持按任务类型、分发策略、媒体类型、AI 预审等条件筛选
    - `POST /api/tasks/{taskId}/claim` 真实写入 `assignments`
    - “我的任务”读取 `GET /api/assignments/mine`
-
 4. Reviewer 工作台
+
    - 当前保留 Reviewer 首页和后续审核流程入口
 
 仍需注意的边界：
@@ -306,22 +307,23 @@ frontend: npm run build 通过
 ## 常见问题
 
 1. 登录失败或刷新后掉线
+
    - 确认 Redis 已启动。
    - token 存在 Redis 中,重启或清空 Redis 后需要重新登录。
-
 2. `demo / demo123` 不存在
+
    - 确认已经执行 `V2__seed_demo_auth_users.sql`,或重启后端让 `DemoUserInitializer` 自动 upsert。
    - 确认 `LABELHUB_DEMO_USERS_ENABLED` 没有被设置为 `false`。
-
 3. “切换角色”只能看到一个角色
+
    - 单角色账号只能切换当前账号已有角色。
    - 需要跨 Owner / Labeler / Reviewer 演示时,使用 `demo / demo123`。
-
 4. 前端请求 `/api` 失败
+
    - 确认后端运行在 `http://127.0.0.1:8080`。
    - 如果改了后端端口,同步修改 `frontend/vite.config.ts` 的 proxy target。
-
 5. 认领成功但“我的任务”为空
+
    - 确认使用的是 Labeler 角色视角。
    - 确认任务已发布且数据集内有可认领 item。
    - 当前“我的任务”读取 `GET /api/assignments/mine`,需要后端和数据库都正常运行。

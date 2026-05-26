@@ -33,23 +33,12 @@ import {
 } from 'antd';
 
 import { labelerApi } from '../../api/labeler';
-import { ownerApi } from '../../api/owner';
 import type {
   AssignStrategy,
   MarketTask,
   MarketTasksQuery,
   TaskMediaType,
 } from '../../types/labeler';
-import type { OwnerTask } from '../../types/owner';
-
-/**
- * 任务市场。
- * 对齐《项目实施计划书》4.3 / 5.2:
- *   - GET /market/tasks(列表 + 关键词 + 类型 + 排序)
- *   - POST /tasks/{id}/claim(立即认领)
- * 后端 Spring Boot 接口未上线时,前端回落到 public/sample-datasets/market-tasks.json,
- * 这样所有筛选/排序/认领交互在前端层面均能演示。
- */
 
 const taskTypeOptions = [
   { label: '全部类型', value: '' },
@@ -80,11 +69,14 @@ const aiReviewOptions = [
   { label: '未启用 AI', value: 'disabled' },
 ];
 
-const sortOptions = [
+const sortOptions: Array<{
+  label: string;
+  value: NonNullable<MarketTasksQuery['sortBy']>;
+}> = [
   { label: '默认排序', value: 'publishedAt' },
-  { label: '单价高 → 低', value: 'reward' },
-  { label: '截止快 → 慢', value: 'deadline' },
-  { label: '剩余配额多 → 少', value: 'quota' },
+  { label: '单价高 -> 低', value: 'reward' },
+  { label: '截止快 -> 慢', value: 'deadline' },
+  { label: '剩余额度多 -> 少', value: 'quota' },
 ];
 
 const strategyMeta: Record<AssignStrategy, { label: string; color: string }> = {
@@ -93,30 +85,45 @@ const strategyMeta: Record<AssignStrategy, { label: string; color: string }> = {
   quota: { label: '配额抢单', color: 'gold' },
 };
 
-const mediaMeta: Record<TaskMediaType, { label: string; icon: React.ReactNode; color: string }> = {
+const mediaMeta: Record<
+  TaskMediaType,
+  { label: string; icon: React.ReactNode; color: string }
+> = {
   text: { label: 'Text', icon: <FileTextOutlined />, color: '#2f7bff' },
   image: { label: 'Image', icon: <PictureOutlined />, color: '#22c55e' },
   video: { label: 'Video', icon: <VideoCameraOutlined />, color: '#a855f7' },
   markdown: { label: 'Markdown', icon: <TagsOutlined />, color: '#f59e0b' },
 };
 
-/** 把 "2026-06-01 23:59" 这种字符串转成 ms;失败返回 NaN */
 function parseTime(value?: string): number {
-  if (!value) return NaN;
-  const ts = new Date(value.replace(' ', 'T')).getTime();
-  return Number.isNaN(ts) ? NaN : ts;
+  if (!value) return Number.NaN;
+  const timestamp = new Date(value.replace(' ', 'T')).getTime();
+  return Number.isNaN(timestamp) ? Number.NaN : timestamp;
 }
 
-/** 计算与"现在"的相对截止时间;过期返回 "已截止" */
-function deadlineRemaining(deadline?: string): { text: string; soon: boolean; expired: boolean } {
-  if (!deadline) return { text: '未设置', soon: false, expired: false };
-  const ts = parseTime(deadline);
-  if (Number.isNaN(ts)) return { text: deadline, soon: false, expired: false };
-  const diff = ts - Date.now();
-  if (diff <= 0) return { text: '已截止', soon: false, expired: true };
+function deadlineRemaining(
+  deadline?: string,
+): { text: string; soon: boolean; expired: boolean } {
+  if (!deadline) {
+    return { text: '未设置', soon: false, expired: false };
+  }
+
+  const timestamp = parseTime(deadline);
+  if (Number.isNaN(timestamp)) {
+    return { text: deadline, soon: false, expired: false };
+  }
+
+  const diff = timestamp - Date.now();
+  if (diff <= 0) {
+    return { text: '已截止', soon: false, expired: true };
+  }
+
   const day = Math.floor(diff / 86_400_000);
-  if (day >= 1) return { text: `剩 ${day} 天`, soon: day <= 2, expired: false };
-  const hour = Math.floor(diff / 3_600_000);
+  if (day >= 1) {
+    return { text: `剩 ${day} 天`, soon: day <= 2, expired: false };
+  }
+
+  const hour = Math.max(1, Math.floor(diff / 3_600_000));
   return { text: `剩 ${hour} 小时`, soon: true, expired: false };
 }
 
@@ -124,70 +131,30 @@ function formatReward(amount?: number) {
   return amount == null ? '奖励待配置' : `¥${Number(amount).toFixed(2)} / 条`;
 }
 
-/** 安全数字格式化:undefined 返回 "-" */
 function safeNumber(value: unknown) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-';
   return value.toLocaleString();
 }
 
-/**
- * Owner 端写入的任务(同一份后端接口)适配为任务市场卡所需的 MarketTask。
- * 字段差异说明:
- *   OwnerTask.reward(字符串描述,如 "0.30 元 / 条 · 月度封顶 1500 元") →
- *     拆出单价数字给 rewardPerItem,后半段作为 rewardCap。
- *   OwnerTask.quotaUsed/quotaTotal → remainingQuota/totalQuota。
- *   OwnerTask.taskType 形如 "QA Quality" → 同时算出 taskTypeKey 用于过滤。
- */
-function ownerTaskToMarket(task: OwnerTask): MarketTask {
-  const { rewardPerItem, rewardCap } = parseRewardString(task.reward);
-  const total = task.quotaTotal ?? 0;
-  const used = task.quotaUsed ?? 0;
-  const taskTypeKey = ownerTaskTypeKey(task.taskType);
-  return {
-    taskId: task.taskId,
-    title: task.title,
-    taskType: task.taskType,
-    taskTypeKey,
-    description: task.description,
-    tags: task.tags ?? [],
-    schemaVersionId: task.schemaVersionId ?? task.schemaVersion ?? '-',
-    remainingQuota: Math.max(0, total - used),
-    totalQuota: total,
-    deadline: task.deadline,
-    rewardPerItem,
-    rewardCap,
-    assignStrategy: task.assignStrategy,
-    // Owner 端目前只有文本任务,后续动态表单阶段再扩展为 Schema 推断
-    mediaTypes: ['text'],
-    ownerName: task.owner,
-    aiReviewEnabled: !!task.aiReviewEnabled,
-    aiReviewRule: task.aiReviewEnabled ? '默认规则' : undefined,
-    publishedAt: task.createdAt,
-    maxClaimPerUser: undefined,
-    claimedByMe: false,
-  };
-}
+function getClaimErrorMessage(error: unknown) {
+  if (typeof error === 'object' && error !== null && 'payload' in error) {
+    const payload = (error as { payload?: unknown }).payload;
+    if (typeof payload === 'object' && payload !== null && 'message' in payload) {
+      const message = (payload as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim()) {
+        return message;
+      }
+    }
+    if (typeof payload === 'string' && payload.trim()) {
+      return payload;
+    }
+  }
 
-function parseRewardString(reward?: string): { rewardPerItem?: number; rewardCap?: string } {
-  if (!reward) return {};
-  // 期望形如 "0.30 元 / 条 · 月度封顶 1500 元"
-  const numMatch = reward.match(/([\d.]+)\s*元\s*\/\s*条/);
-  const rewardPerItem = numMatch ? Number(numMatch[1]) : undefined;
-  const capMatch = reward.split('·')[1]?.trim();
-  return {
-    rewardPerItem: Number.isNaN(rewardPerItem ?? NaN) ? undefined : rewardPerItem,
-    rewardCap: capMatch || undefined,
-  };
-}
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
 
-function ownerTaskTypeKey(taskType?: string): string | undefined {
-  if (!taskType) return undefined;
-  const normalized = taskType.toLowerCase().replace(/\s+/g, '_');
-  if (normalized.includes('preference')) return 'preference_compare';
-  if (normalized.includes('image')) return 'image_classification';
-  if (normalized.includes('safety')) return 'safety_tagging';
-  if (normalized.includes('qa')) return 'qa_quality';
-  return normalized;
+  return '认领失败，请稍后重试。';
 }
 
 export default function TaskMarket() {
@@ -197,7 +164,8 @@ export default function TaskMarket() {
   const [strategy, setStrategy] = useState<'' | AssignStrategy>('');
   const [mediaType, setMediaType] = useState<'' | TaskMediaType>('');
   const [aiReview, setAiReview] = useState<'' | 'enabled' | 'disabled'>('');
-  const [sortBy, setSortBy] = useState<NonNullable<MarketTasksQuery['sortBy']>>('publishedAt');
+  const [sortBy, setSortBy] =
+    useState<NonNullable<MarketTasksQuery['sortBy']>>('publishedAt');
   const [tasks, setTasks] = useState<MarketTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTask, setActiveTask] = useState<MarketTask | null>(null);
@@ -206,23 +174,9 @@ export default function TaskMarket() {
 
   useEffect(() => {
     let cancelled = false;
+
     const run = async () => {
       setLoading(true);
-      // 优先复用 Owner 端 /tasks,只取 state === 'published',
-      // 这样 Owner 一发布,Labeler 立刻能看到,字段完全一致。
-      try {
-        const ownerResp = await ownerApi.listTasks();
-        if (cancelled) return;
-        const items = (ownerResp.items ?? [])
-          .filter((task) => task.state === 'published')
-          .map(ownerTaskToMarket);
-        setTasks(items);
-        setUsingFallback(false);
-        setLoading(false);
-        return;
-      } catch {
-        /* fallthrough: 尝试 /market/tasks */
-      }
 
       try {
         const response = await labelerApi.listMarketTasks({ page: 1, pageSize: 50 });
@@ -230,80 +184,101 @@ export default function TaskMarket() {
         setTasks(Array.isArray(response.items) ? response.items : []);
         setUsingFallback(false);
       } catch {
-        // 后端未起,回落到样例文件
         try {
-          const res = await fetch('/sample-datasets/market-tasks.json');
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const data = await res.json();
+          const response = await fetch('/sample-datasets/market-tasks.json');
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const data = await response.json();
           if (cancelled) return;
           setTasks(Array.isArray(data?.items) ? data.items : []);
           setUsingFallback(true);
         } catch {
           if (cancelled) return;
-          message.error('任务市场加载失败,请检查 sample-datasets/market-tasks.json');
+          message.error(
+            '任务市场加载失败，请检查后端接口或 sample-datasets/market-tasks.json。',
+          );
           setTasks([]);
+          setUsingFallback(false);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
+
     void run();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [message]);
 
-  /** 前端兜底过滤与排序:在使用样例数据时也能对筛选生效 */
   const filteredTasks = useMemo(() => {
     let list = tasks.slice();
-    const kw = keyword.trim().toLowerCase();
-    if (kw) {
-      list = list.filter((t) =>
-        `${t.title ?? ''} ${t.taskId ?? ''} ${t.ownerName ?? ''} ${(t.tags ?? []).join(' ')}`
+    const normalizedKeyword = keyword.trim().toLowerCase();
+
+    if (normalizedKeyword) {
+      list = list.filter((task) =>
+        `${task.title ?? ''} ${task.taskId ?? ''} ${task.ownerName ?? ''} ${(task.tags ?? []).join(' ')}`
           .toLowerCase()
-          .includes(kw),
+          .includes(normalizedKeyword),
       );
     }
-    if (taskType) list = list.filter((t) => t.taskTypeKey === taskType);
-    if (strategy) list = list.filter((t) => t.assignStrategy === strategy);
-    if (mediaType) list = list.filter((t) => (t.mediaTypes ?? []).includes(mediaType));
+
+    if (taskType) {
+      list = list.filter((task) => task.taskTypeKey === taskType);
+    }
+
+    if (strategy) {
+      list = list.filter((task) => task.assignStrategy === strategy);
+    }
+
+    if (mediaType) {
+      list = list.filter((task) => (task.mediaTypes ?? []).includes(mediaType));
+    }
+
     if (aiReview) {
-      list = list.filter((t) =>
-        aiReview === 'enabled' ? !!t.aiReviewEnabled : !t.aiReviewEnabled,
+      list = list.filter((task) =>
+        aiReview === 'enabled' ? !!task.aiReviewEnabled : !task.aiReviewEnabled,
       );
     }
+
     switch (sortBy) {
       case 'reward':
-        list.sort((a, b) => (b.rewardPerItem ?? 0) - (a.rewardPerItem ?? 0));
+        list.sort((left, right) => (right.rewardPerItem ?? 0) - (left.rewardPerItem ?? 0));
         break;
       case 'deadline':
-        list.sort((a, b) => {
-          const pa = parseTime(a.deadline);
-          const pb = parseTime(b.deadline);
-          return (Number.isNaN(pa) ? Infinity : pa) - (Number.isNaN(pb) ? Infinity : pb);
+        list.sort((left, right) => {
+          const leftTime = parseTime(left.deadline);
+          const rightTime = parseTime(right.deadline);
+          return (
+            (Number.isNaN(leftTime) ? Number.POSITIVE_INFINITY : leftTime) -
+            (Number.isNaN(rightTime) ? Number.POSITIVE_INFINITY : rightTime)
+          );
         });
         break;
       case 'quota':
-        list.sort((a, b) => (b.remainingQuota ?? 0) - (a.remainingQuota ?? 0));
+        list.sort((left, right) => (right.remainingQuota ?? 0) - (left.remainingQuota ?? 0));
         break;
-      default: {
-        list.sort((a, b) => {
-          const pa = parseTime(a.publishedAt);
-          const pb = parseTime(b.publishedAt);
-          return (Number.isNaN(pb) ? 0 : pb) - (Number.isNaN(pa) ? 0 : pa);
+      default:
+        list.sort((left, right) => {
+          const leftTime = parseTime(left.publishedAt);
+          const rightTime = parseTime(right.publishedAt);
+          return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
         });
-      }
+        break;
     }
-    return list;
-  }, [tasks, keyword, taskType, strategy, mediaType, aiReview, sortBy]);
 
-  /** 顶部统计 */
+    return list;
+  }, [aiReview, keyword, mediaType, sortBy, strategy, taskType, tasks]);
+
   const stats = useMemo(() => {
-    const claimable = filteredTasks.filter((t) => (t.remainingQuota ?? 0) > 0);
-    const totalReward = claimable.reduce((sum, t) => sum + (t.rewardPerItem ?? 0), 0);
+    const claimable = filteredTasks.filter((task) => (task.remainingQuota ?? 0) > 0);
+    const totalReward = claimable.reduce((sum, task) => sum + (task.rewardPerItem ?? 0), 0);
     const avgReward = claimable.length === 0 ? 0 : totalReward / claimable.length;
-    const expiringSoon = claimable.filter((t) => deadlineRemaining(t.deadline).soon).length;
+    const expiringSoon = claimable.filter((task) => deadlineRemaining(task.deadline).soon).length;
     return { available: claimable.length, avgReward, expiringSoon };
   }, [filteredTasks]);
 
@@ -318,33 +293,39 @@ export default function TaskMarket() {
 
   async function handleClaim(task: MarketTask) {
     if (task.claimedByMe) {
-      message.info('你已认领过该任务,前往「我的任务」继续作答。');
+      message.info('你已经认领过该任务，前往「我的任务」继续作答。');
       return;
     }
+
+    if (usingFallback) {
+      message.warning('当前为演示模式，后端未连接，无法真实认领任务。');
+      return;
+    }
+
     if ((task.remainingQuota ?? 0) === 0) {
       message.warning('该任务配额已用尽。');
       return;
     }
+
     setClaimingId(task.taskId);
     try {
       await labelerApi.claimTask(task.taskId);
-      message.success('认领成功,已加入「我的任务」。');
-    } catch {
-      message.success('认领成功(演示模式),已加入「我的任务」。');
-    } finally {
-      setClaimingId(null);
-      // 本地乐观更新
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.taskId === task.taskId
+      message.success('认领成功，已加入「我的任务」。');
+      setTasks((previous) =>
+        previous.map((current) =>
+          current.taskId === task.taskId
             ? {
-                ...t,
+                ...current,
                 claimedByMe: true,
-                remainingQuota: Math.max(0, (t.remainingQuota ?? 0) - 1),
+                remainingQuota: Math.max(0, (current.remainingQuota ?? 0) - 1),
               }
-            : t,
+            : current,
         ),
       );
+    } catch (error) {
+      message.error(getClaimErrorMessage(error));
+    } finally {
+      setClaimingId(null);
     }
   }
 
@@ -354,7 +335,7 @@ export default function TaskMarket() {
         <Space direction="vertical" size={4}>
           <Typography.Title level={3}>任务市场</Typography.Title>
           <Typography.Text type="secondary">
-            浏览已发布任务并先到先得地认领名额。配额按 task_id + item_id 唯一约束,先到先得不重复领取。
+            浏览已发布任务并先到先得地认领名额。配额按 task_id + item_id 唯一约束，先到先得不重复领取。
           </Typography.Text>
         </Space>
         {usingFallback && (
@@ -364,7 +345,6 @@ export default function TaskMarket() {
         )}
       </div>
 
-      {/* 顶部统计 */}
       <Row gutter={[16, 16]} className="market-kpi-row">
         <Col xs={24} sm={8}>
           <Card className="market-kpi-card">
@@ -410,7 +390,6 @@ export default function TaskMarket() {
         </Col>
       </Row>
 
-      {/* 筛选条 */}
       <Card className="market-filter-card">
         <Space size={12} wrap>
           <Input
@@ -443,20 +422,19 @@ export default function TaskMarket() {
           <Select
             options={aiReviewOptions}
             value={aiReview}
-            onChange={(v) => setAiReview(v as '' | 'enabled' | 'disabled')}
+            onChange={(value) => setAiReview(value as '' | 'enabled' | 'disabled')}
             style={{ width: 160 }}
           />
           <Select
             options={sortOptions}
             value={sortBy}
-            onChange={(v) => setSortBy(v as NonNullable<MarketTasksQuery['sortBy']>)}
+            onChange={(value) => setSortBy(value as NonNullable<MarketTasksQuery['sortBy']>)}
             style={{ width: 180 }}
           />
           <Button onClick={resetFilters}>重置</Button>
         </Space>
       </Card>
 
-      {/* 任务卡片网格 */}
       {loading ? (
         <Card>
           <div className="market-loading">
@@ -466,7 +444,7 @@ export default function TaskMarket() {
         </Card>
       ) : filteredTasks.length === 0 ? (
         <Card>
-          <Empty description="暂无符合筛选条件的任务,试试放宽条件。" />
+          <Empty description="暂无符合筛选条件的任务，试试放宽条件。" />
         </Card>
       ) : (
         <Row gutter={[16, 16]}>
@@ -483,7 +461,6 @@ export default function TaskMarket() {
         </Row>
       )}
 
-      {/* 详情抽屉 */}
       <Drawer
         title={activeTask?.title ?? '任务详情'}
         width={520}
@@ -515,7 +492,6 @@ export default function TaskMarket() {
   );
 }
 
-/** 单张任务卡:抽出来便于隔离渲染异常,避免整页空白 */
 function TaskCard({
   task,
   claiming,
@@ -530,8 +506,11 @@ function TaskCard({
   const remaining = task.remainingQuota ?? 0;
   const total = task.totalQuota ?? 0;
   const ratio = total === 0 ? 0 : Math.round(((total - remaining) / total) * 100);
-  const dl = deadlineRemaining(task.deadline);
-  const strategyTag = strategyMeta[task.assignStrategy] ?? { label: task.assignStrategy, color: 'default' };
+  const deadline = deadlineRemaining(task.deadline);
+  const strategyTag = strategyMeta[task.assignStrategy] ?? {
+    label: task.assignStrategy,
+    color: 'default',
+  };
   const exhausted = remaining === 0;
 
   return (
@@ -561,12 +540,12 @@ function TaskCard({
 
       <div className="market-card-tags">
         <Tag color={strategyTag.color}>{strategyTag.label}</Tag>
-        {(task.mediaTypes ?? []).map((mt) => {
-          const meta = mediaMeta[mt];
+        {(task.mediaTypes ?? []).map((mediaType) => {
+          const meta = mediaMeta[mediaType];
           if (!meta) return null;
           return (
             <span
-              key={mt}
+              key={mediaType}
               className="market-media-pill"
               style={{ color: meta.color, background: `${meta.color}15` }}
             >
@@ -575,7 +554,7 @@ function TaskCard({
           );
         })}
         {task.aiReviewEnabled && (
-          <Tooltip title={`AI 预审规则:${task.aiReviewRule ?? '默认'}`}>
+          <Tooltip title={`AI 预审规则: ${task.aiReviewRule ?? '默认'}`}>
             <Tag className="market-ai-tag">
               <RobotOutlined /> AI 预审
             </Tag>
@@ -596,11 +575,9 @@ function TaskCard({
 
       <div className="market-card-foot">
         <span
-          className={`market-deadline ${
-            dl.expired ? 'is-expired' : dl.soon ? 'is-soon' : ''
-          }`}
+          className={`market-deadline ${deadline.expired ? 'is-expired' : deadline.soon ? 'is-soon' : ''}`}
         >
-          <ClockCircleOutlined /> {dl.text}
+          <ClockCircleOutlined /> {deadline.text}
         </span>
         <span className="market-owner">
           <UserOutlined /> {task.ownerName ?? '-'}
@@ -612,7 +589,7 @@ function TaskCard({
         block
         className="market-claim-btn"
         loading={claiming}
-        disabled={exhausted || dl.expired}
+        disabled={exhausted || deadline.expired}
         onClick={(event) => {
           event.stopPropagation();
           onClaim();
@@ -622,7 +599,7 @@ function TaskCard({
           ? '继续作答'
           : exhausted
             ? '配额已用尽'
-            : dl.expired
+            : deadline.expired
               ? '已截止'
               : '立即认领'}
       </Button>
@@ -630,23 +607,25 @@ function TaskCard({
   );
 }
 
-/** 抽屉内的任务详情视图 */
 function TaskDetail({ task }: { task: MarketTask }) {
-  const dl = deadlineRemaining(task.deadline);
-  const strategyTag =
-    strategyMeta[task.assignStrategy] ?? { label: task.assignStrategy, color: 'default' };
+  const deadline = deadlineRemaining(task.deadline);
+  const strategyTag = strategyMeta[task.assignStrategy] ?? {
+    label: task.assignStrategy,
+    color: 'default',
+  };
+
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Space wrap size={6}>
         <Tag>{task.taskId}</Tag>
         <Tag className="market-type-tag">{task.taskType}</Tag>
         <Tag color={strategyTag.color}>{strategyTag.label}</Tag>
-        {(task.mediaTypes ?? []).map((mt) => {
-          const meta = mediaMeta[mt];
+        {(task.mediaTypes ?? []).map((mediaType) => {
+          const meta = mediaMeta[mediaType];
           if (!meta) return null;
           return (
             <span
-              key={mt}
+              key={mediaType}
               className="market-media-pill"
               style={{ color: meta.color, background: `${meta.color}15` }}
             >
@@ -672,8 +651,8 @@ function TaskDetail({ task }: { task: MarketTask }) {
         <div>
           <div className="market-detail-label">标签</div>
           <Space size={6} wrap>
-            {task.tags.map((tg) => (
-              <Tag key={tg}>{tg}</Tag>
+            {task.tags.map((tag) => (
+              <Tag key={tag}>{tag}</Tag>
             ))}
           </Space>
         </div>
@@ -690,11 +669,9 @@ function TaskDetail({ task }: { task: MarketTask }) {
         <Col span={12}>
           <div className="market-detail-mini-label">截止时间</div>
           <div
-            className={`market-detail-mini-value ${
-              dl.expired ? 'is-expired' : dl.soon ? 'is-soon' : ''
-            }`}
+            className={`market-detail-mini-value ${deadline.expired ? 'is-expired' : deadline.soon ? 'is-soon' : ''}`}
           >
-            <ClockCircleOutlined /> {task.deadline ?? '未设置'} · {dl.text}
+            <ClockCircleOutlined /> {task.deadline ?? '未设置'} · {deadline.text}
           </div>
         </Col>
         <Col span={12}>
@@ -728,8 +705,7 @@ function TaskDetail({ task }: { task: MarketTask }) {
       </div>
 
       <div className="market-detail-tip">
-        认领后,该批次任务将在「我的任务」出现;在标注页提交后会自动入队
-        AI 预审,审核通过则进入数据交付,被打回的项可在「打回项」查看原因后重新提交。
+        认领后，该批次任务会出现在「我的任务」。提交后会进入后端审核流程；如果被打回，可在「打回项」查看原因并重新处理。
       </div>
     </Space>
   );
