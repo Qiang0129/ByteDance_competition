@@ -555,7 +555,11 @@ public class TaskRepository {
 
   private String writeSchema(String schemaLabel) {
     try {
-      return objectMapper.writeValueAsString(new SchemaSnapshot(schemaLabel, true));
+      var root = objectMapper.createObjectNode();
+      root.put("name", schemaLabel == null || schemaLabel.isBlank() ? "任务默认模板" : schemaLabel);
+      root.put("description", "任务创建时自动生成的占位模板,可在模板搭建页继续编辑。");
+      root.set("fields", objectMapper.createArrayNode());
+      return objectMapper.writeValueAsString(root);
     } catch (JsonProcessingException exception) {
       throw new IllegalStateException("failed to serialize schema snapshot", exception);
     }
@@ -575,5 +579,4 @@ public class TaskRepository {
 
   private record QueryParts(String whereClause, List<Object> args) {}
 
-  private record SchemaSnapshot(String schemaLabel, boolean placeholder) {}
 }

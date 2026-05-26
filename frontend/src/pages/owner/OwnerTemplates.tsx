@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AppstoreOutlined,
   CheckCircleFilled,
@@ -33,67 +33,10 @@ import type { SchemaSummary } from '../../types/schema';
  *   - 接口预留:GET /schemas、GET /schemas/{versionId}、POST /tasks/{id}/schemas/draft、
  *             POST /schemas/{id}/publish
  *
- * 当前阶段后端未实现,前端兜底渲染样例数据,保证 Designer 入口、版本切换、复制/导出等
- * 交互可用。
+ * 模板数据来自后端 /api/schemas,Designer 与 Labeler Renderer 共用同一份 Schema。
  */
 
 type StatusFilter = 'all' | 'draft' | 'published';
-
-const sampleTemplates: SchemaSummary[] = [
-  {
-    versionId: 'sv-001',
-    versionNumber: 'r12',
-    name: '商品清洗 · v3',
-    taskId: 'T-2041',
-    taskTitle: '商品标题清洗 v3 · 抖音电商',
-    status: 'published',
-    fieldCount: 8,
-    updatedAt: '2026-05-22 16:48',
-    createdBy: '张涛',
-  },
-  {
-    versionId: 'sv-002',
-    versionNumber: 'r07',
-    name: '偏好对比 A/B',
-    taskId: 'T-2039',
-    taskTitle: '短视频脚本对齐评测',
-    status: 'published',
-    fieldCount: 6,
-    updatedAt: '2026-05-19 10:12',
-    createdBy: '李南',
-  },
-  {
-    versionId: 'sv-003',
-    versionNumber: 'r03',
-    name: '图像分类 · 交通标志',
-    taskId: 'T-2055',
-    taskTitle: '图像分类 · 交通标志 V4',
-    status: 'published',
-    fieldCount: 5,
-    updatedAt: '2026-05-15 14:25',
-    createdBy: '王慕白',
-  },
-  {
-    versionId: 'sv-004',
-    versionNumber: 'r02',
-    name: '客服多轮对话安全',
-    status: 'draft',
-    fieldCount: 4,
-    updatedAt: '2026-05-23 09:20',
-    createdBy: '陈一',
-  },
-  {
-    versionId: 'sv-005',
-    versionNumber: 'r01',
-    name: 'AIGC 图文质检',
-    taskId: 'T-2063',
-    taskTitle: 'AIGC 图文质量打分',
-    status: 'draft',
-    fieldCount: 7,
-    updatedAt: '2026-05-21 21:08',
-    createdBy: '赵雪',
-  },
-];
 
 export default function OwnerTemplates() {
   const navigate = useNavigate();
@@ -102,30 +45,23 @@ export default function OwnerTemplates() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [keyword, setKeyword] = useState('');
-  const [usingFallback, setUsingFallback] = useState(false);
+
+  const loadSchemas = useCallback(async () => {
+    setLoading(true);
+    try {
+      const resp = await schemaApi.listSchemas();
+      setTemplates(resp.items ?? []);
+    } catch {
+      setTemplates([]);
+      message.error('模板列表加载失败,请确认后端已启动并已执行 V4 数据库迁移。');
+    } finally {
+      setLoading(false);
+    }
+  }, [message]);
 
   useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setLoading(true);
-      try {
-        const resp = await schemaApi.listSchemas();
-        if (cancelled) return;
-        setTemplates(resp.items ?? []);
-        setUsingFallback(false);
-      } catch {
-        if (cancelled) return;
-        setTemplates(sampleTemplates);
-        setUsingFallback(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void loadSchemas();
+  }, [loadSchemas]);
 
   const filtered = useMemo(() => {
     return templates.filter((t) => {
@@ -156,9 +92,19 @@ export default function OwnerTemplates() {
     navigate('/owner/templates/designer?new=1');
   }
 
-  function handleDuplicate(template: SchemaSummary) {
-    message.success(`已复制模板「${template.name}」为新草稿`);
-    // 真实场景:调用 schemaApi.createStandaloneDraft({ ...复制后的字段 })
+  async function handleDuplicate(template: SchemaSummary) {
+    try {
+      const source = await schemaApi.getSchema(template.versionId);
+      await schemaApi.createStandaloneDraft({
+        name: `${source.name} 副本`,
+        description: source.description,
+        fields: source.fields,
+      });
+      message.success(`已复制模板「${template.name}」为新草稿`);
+      await loadSchemas();
+    } catch {
+      message.error('复制模板失败,请确认当前模板存在且后端接口可用。');
+    }
   }
 
   return (
@@ -171,7 +117,6 @@ export default function OwnerTemplates() {
           </Typography.Text>
         </Space>
         <Space>
-          {usingFallback && <Tag color="gold">演示模式 · 接口未连接</Tag>}
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
             新建模板
           </Button>
@@ -248,7 +193,7 @@ export default function OwnerTemplates() {
               <TemplateCard
                 template={template}
                 onOpen={() => handleOpen(template)}
-                onDuplicate={() => handleDuplicate(template)}
+                onDuplicate={() => void handleDuplicate(template)}
               />
             </Col>
           ))}

@@ -176,6 +176,19 @@ export default function AppLayout() {
 
   // 侧栏折叠状态:由顶部左侧折叠按钮控制
   const [collapsed, setCollapsed] = useState(false);
+
+  // 滚动距离 > 8px 时给 header 加上液态玻璃样式
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 8);
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, []);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuthUser());
 
   useEffect(() => {
@@ -352,7 +365,7 @@ export default function AppLayout() {
       </Sider>
 
       <Layout>
-        <Header className="app-header">
+        <Header className={`app-header ${scrolled ? 'is-scrolled' : ''}`}>
           {/* 左侧:折叠按钮 + 面包屑路径 + 搜索框 */}
           <div className="app-header-left">
             <Button

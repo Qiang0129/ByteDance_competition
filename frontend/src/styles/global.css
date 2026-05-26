@@ -636,11 +636,27 @@ body {
   padding: 0 20px;
   background: #ffffff;
   border-radius: 18px;
-  border-bottom: none;
+  border: none;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.9) inset,
     0 12px 28px rgba(15, 23, 42, 0.08),
     0 2px 6px rgba(15, 23, 42, 0.04);
+  /* 滚动到底部时切换为液态玻璃,过渡平滑 */
+  transition: background 0.3s ease, box-shadow 0.3s ease,
+    backdrop-filter 0.3s ease, -webkit-backdrop-filter 0.3s ease,
+    border 0.3s ease;
+}
+
+/* 液态玻璃态:半透明白底 + backdrop blur */
+.app-header.is-scrolled {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: none;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 8px 28px rgba(47, 123, 255, 0.12),
+    0 2px 6px rgba(15, 23, 42, 0.06);
 }
 
 .app-header-left {

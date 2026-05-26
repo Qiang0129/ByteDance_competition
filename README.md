@@ -120,6 +120,12 @@ cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V2__seed
 cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V3__allow_unbound_datasets.sql"
 ```
 
+模板搭建后端需要 `task_schema_versions` 支持独立草稿,旧库还需要执行:
+
+```powershell
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V4__support_schema_designer_backend.sql"
+```
+
 把命令中的 `123456` 换成你的 MySQL root 密码。`V1__init_labelhub_schema.sql` 内部会创建并切换到 `labelhub` 数据库。
 
 后端启动时也会通过 `DemoUserInitializer` upsert 演示账号。新增或修改演示账号后,需要重启后端服务才会写入当前数据库。

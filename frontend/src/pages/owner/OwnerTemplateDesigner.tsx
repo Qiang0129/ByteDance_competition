@@ -59,6 +59,7 @@ import {
 } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { ApiError } from '../../api/client';
 import { schemaApi } from '../../api/schema';
 import type {
   MaterialCategory,
@@ -208,6 +209,16 @@ function createField(meta: MaterialMeta, existing: SchemaField[]): SchemaField {
   };
 }
 
+function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.payload && typeof error.payload === 'object') {
+    const payload = error.payload as { message?: unknown };
+    if (typeof payload.message === 'string' && payload.message) {
+      return payload.message;
+    }
+  }
+  return fallback;
+}
+
 export default function OwnerTemplateDesigner() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -219,8 +230,8 @@ export default function OwnerTemplateDesigner() {
   const [schema, setSchema] = useState<SchemaVersion>({
     versionId: versionId ?? `draft-${Date.now()}`,
     versionNumber: versionId ? 'r12' : 'r-draft',
-    taskId: 'T-2041',
-    taskTitle: '商品标题清洗 v3 · 抖音电商',
+    taskId: undefined,
+    taskTitle: undefined,
     name: isNew ? '新建模板' : '商品清洗 · v3',
     description: 'Schema 与渲染解耦:左物料 → 中画布 → 右属性,产物为可序列化 JSON Schema。',
     status: 'draft',
@@ -257,13 +268,16 @@ export default function OwnerTemplateDesigner() {
           setUsingFallback(false);
         }
       } catch {
-        if (!cancelled) setUsingFallback(true);
+        if (!cancelled) {
+          setUsingFallback(true);
+          message.error('模板详情加载失败,请确认后端已启动并已执行 V4 数据库迁移。');
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [versionId, isNew]);
+  }, [versionId, isNew, message]);
 
   const activeField = useMemo(
     () => schema.fields.find((f) => f.id === activeFieldId) ?? null,
@@ -374,16 +388,41 @@ export default function OwnerTemplateDesigner() {
     }
   }
 
-  async function handleSave() {
-    try {
-      await schemaApi.updateDraft(schema.versionId, {
+  async function saveDraft(): Promise<SchemaVersion> {
+    if (schema.versionId.startsWith('draft-')) {
+      const created = await schemaApi.createStandaloneDraft({
         name: schema.name,
         taskId: schema.taskId,
+        description: schema.description,
         fields: schema.fields,
       });
+      setSchema(created);
+      setActiveFieldId(created.fields[0]?.id ?? null);
+      setUsingFallback(false);
+      navigate(`/owner/templates/designer?versionId=${encodeURIComponent(created.versionId)}`, {
+        replace: true,
+      });
+      return created;
+    }
+
+    const updated = await schemaApi.updateDraft(schema.versionId, {
+      name: schema.name,
+      taskId: schema.taskId,
+      description: schema.description,
+      fields: schema.fields,
+    });
+    setSchema(updated);
+    setActiveFieldId(updated.fields[0]?.id ?? null);
+    setUsingFallback(false);
+    return updated;
+  }
+
+  async function handleSave() {
+    try {
+      await saveDraft();
       message.success('草稿已保存');
-    } catch {
-      message.success('草稿已保存(演示模式)');
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '草稿保存失败,请确认后端接口和模板状态。'));
     }
   }
 
@@ -395,12 +434,13 @@ export default function OwnerTemplateDesigner() {
       okText: '立即发布',
       onOk: async () => {
         try {
-          await schemaApi.publish(schema.versionId);
-          setSchema((prev) => ({ ...prev, status: 'published' }));
-          message.success(`已发布版本 ${schema.versionNumber}`);
-        } catch {
-          setSchema((prev) => ({ ...prev, status: 'published' }));
-          message.success(`已发布版本 ${schema.versionNumber}(演示模式)`);
+          const draft = schema.versionId.startsWith('draft-') ? await saveDraft() : schema;
+          const published = await schemaApi.publish(draft.versionId);
+          setSchema(published);
+          setUsingFallback(false);
+          message.success(`已发布版本 ${published.versionNumber}`);
+        } catch (error) {
+          message.error(getApiErrorMessage(error, '模板发布失败,请确认后端接口和模板状态。'));
         }
       },
     });
@@ -432,7 +472,7 @@ export default function OwnerTemplateDesigner() {
           <Tag color={schema.status === 'published' ? 'success' : 'processing'}>
             {schema.status === 'published' ? '已发布' : '草稿'}
           </Tag>
-          {usingFallback && <Tag color="gold">演示模式</Tag>}
+          {usingFallback && <Tag color="gold">详情加载失败</Tag>}
         </Space>
         <Space>
           <Tag className="designer-version-tag">当前版本 {schema.versionNumber}</Tag>

@@ -109,6 +109,7 @@ export interface SchemaSummary {
 export interface CreateSchemaDraftRequest {
   name: string;
   taskId?: string;
+  description?: string;
   fields: SchemaField[];
 }
 
@@ -116,5 +117,6 @@ export interface CreateSchemaDraftRequest {
 export interface UpdateSchemaDraftRequest {
   name?: string;
   taskId?: string;
+  description?: string;
   fields: SchemaField[];
 }
