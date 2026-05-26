@@ -1,0 +1,67 @@
+{
+  "items": [
+    {
+      "batchId": "RB-001",
+      "taskId": "T-2041",
+      "taskTitle": "商品标题清洗 v3 · 抖音电商",
+      "taskType": "QA Quality",
+      "pending": 36,
+      "reviewed": 14,
+      "needHumanReview": 6,
+      "samplingRatio": 0.12,
+      "priority": "high",
+      "status": "pending",
+      "reviewerId": null,
+      "deadline": "2026-06-01 18:00",
+      "updatedAt": "2026-05-25 14:30"
+    },
+    {
+      "batchId": "RB-002",
+      "taskId": "T-2055",
+      "taskTitle": "图像分类 · 交通标志 V4",
+      "taskType": "Image Classification",
+      "pending": 50,
+      "reviewed": 0,
+      "needHumanReview": 4,
+      "samplingRatio": 0.10,
+      "priority": "high",
+      "status": "pending",
+      "reviewerId": null,
+      "deadline": "2026-06-02 24:00",
+      "updatedAt": "2026-05-25 09:12"
+    },
+    {
+      "batchId": "RB-003",
+      "taskId": "T-2039",
+      "taskTitle": "短视频脚本对齐评测",
+      "taskType": "Preference Compare",
+      "pending": 12,
+      "reviewed": 24,
+      "needHumanReview": 2,
+      "samplingRatio": 0.18,
+      "priority": "normal",
+      "status": "in_review",
+      "reviewerId": "demo",
+      "deadline": "2026-06-05 24:00",
+      "updatedAt": "2026-05-25 11:45"
+    },
+    {
+      "batchId": "RB-004",
+      "taskId": "T-2061",
+      "taskTitle": "客服多轮对话安全合规",
+      "taskType": "Safety Tagging",
+      "pending": 0,
+      "reviewed": 80,
+      "needHumanReview": 0,
+      "samplingRatio": 0.15,
+      "priority": "normal",
+      "status": "completed",
+      "reviewerId": "demo",
+      "deadline": "2026-05-24 18:00",
+      "updatedAt": "2026-05-24 17:45"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 4
+}

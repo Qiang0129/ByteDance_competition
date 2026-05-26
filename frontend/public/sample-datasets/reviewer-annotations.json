@@ -1,0 +1,100 @@
+{
+  "items": [
+    {
+      "annotationId": "A-9001",
+      "assignmentId": "S-2041-014",
+      "itemId": "Q0014",
+      "schemaVersionId": "r12",
+      "labelerName": "Olivia Clark",
+      "submittedAt": "今天 11:08",
+      "answerJson": {
+        "cleaned_title": "纯棉男女款居家服套装 春秋季",
+        "category": "apparel",
+        "keywords": ["纯棉", "情侣款"]
+      },
+      "rawPayload": {
+        "origin_title": "超柔软纯棉男女款居家服套装 春秋季睡衣大码情侣家居服"
+      },
+      "aiResult": {
+        "scores": {
+          "relevance": 86,
+          "accuracy": 78,
+          "format_compliance": 95,
+          "safety": 100
+        },
+        "total_score": 87,
+        "decision": "NEED_HUMAN_REVIEW",
+        "comment": "标题去掉了\"大码 / 家居服\",可能影响关键词检索;主类目正确。",
+        "risk_flags": ["coverage_warning"],
+        "evidence": ["origin 含\"大码 家居服\",cleaned 缺失"]
+      },
+      "revisionNo": 1,
+      "isDispute": false
+    },
+    {
+      "annotationId": "A-9002",
+      "assignmentId": "S-2041-015",
+      "itemId": "Q0015",
+      "schemaVersionId": "r12",
+      "labelerName": "Michael Davis",
+      "submittedAt": "今天 10:32",
+      "answerJson": {
+        "cleaned_title": "夏季韩版宽松短袖 T 恤男士印花",
+        "category": "apparel",
+        "keywords": ["韩版", "宽松", "印花"]
+      },
+      "rawPayload": {
+        "origin_title": "2026 夏季韩版宽松短袖 T 恤男士印花潮流ins 风"
+      },
+      "aiResult": {
+        "scores": {
+          "relevance": 92,
+          "accuracy": 90,
+          "format_compliance": 98,
+          "safety": 100
+        },
+        "total_score": 95,
+        "decision": "PASS",
+        "comment": "字段完整,符合电商相关性规则。",
+        "risk_flags": [],
+        "evidence": []
+      },
+      "revisionNo": 1,
+      "isDispute": false
+    },
+    {
+      "annotationId": "A-9003",
+      "assignmentId": "S-2041-016",
+      "itemId": "Q0016",
+      "schemaVersionId": "r12",
+      "labelerName": "Wei Lan",
+      "submittedAt": "今天 09:55",
+      "answerJson": {
+        "cleaned_title": "2026新款女士羽绒服",
+        "category": "apparel",
+        "keywords": ["新款", "羽绒服"]
+      },
+      "rawPayload": {
+        "origin_title": "【限时促销】2026 新款 ★ 加厚保暖女士羽绒服 韩版修身 ❤"
+      },
+      "aiResult": {
+        "scores": {
+          "relevance": 78,
+          "accuracy": 70,
+          "format_compliance": 92,
+          "safety": 100
+        },
+        "total_score": 80,
+        "decision": "NEED_HUMAN_REVIEW",
+        "comment": "去掉了 \"加厚保暖 韩版修身\" 等关键卖点,可能影响检索。",
+        "risk_flags": ["keyword_loss"],
+        "evidence": ["origin 含 加厚 保暖 韩版 修身,cleaned 缺失"]
+      },
+      "revisionNo": 1,
+      "isDispute": false
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 3
+}

@@ -70,6 +70,11 @@ const segmentLabel: Record<string, string> = {
   review: '人工审核',
   dashboard: '数据看板',
   export: '导出中心',
+  overview: '工作概览',
+  queue: '待审队列',
+  ai: 'AI 审核',
+  disputes: '争议样本',
+  reports: '审核报表',
 };
 
 /**
@@ -136,9 +141,34 @@ const labelerMenuItems: MenuProps['items'] = [
   },
 ];
 
-/** Reviewer 暂保留单项入口,后续阶段再展开 */
+/** Reviewer 端导航对齐计划书 4.5 / 4.4 / 4.6:
+ * - 工作台:概览
+ * - 审核动作:待审队列 / AI 审核 / 争议样本
+ * - 报表:审核报表
+ */
 const reviewerMenuItems: MenuProps['items'] = [
-  { key: '/reviewer', icon: <AuditOutlined />, label: '审核员工作台' },
+  {
+    type: 'group',
+    key: 'g-reviewer-workspace',
+    label: 'WORKSPACE',
+    children: [{ key: '/reviewer', icon: <DashboardOutlined />, label: '工作概览' }],
+  },
+  {
+    type: 'group',
+    key: 'g-reviewer-review',
+    label: 'REVIEW',
+    children: [
+      { key: '/reviewer/queue', icon: <AuditOutlined />, label: '待审队列' },
+      { key: '/reviewer/ai', icon: <RobotOutlined />, label: 'AI 审核' },
+      { key: '/reviewer/disputes', icon: <ExclamationCircleOutlined />, label: '争议样本' },
+    ],
+  },
+  {
+    type: 'group',
+    key: 'g-reviewer-reports',
+    label: 'REPORTS',
+    children: [{ key: '/reviewer/reports', icon: <FileTextOutlined />, label: '审核报表' }],
+  },
 ];
 
 function resolveSection(pathname: string): RoleSection {
@@ -163,6 +193,15 @@ function resolveSelectedKey(section: RoleSection, pathname: string): string {
       '/owner/export',
     ];
     return ownerKeys.find((key) => pathname.startsWith(key)) ?? '/owner/tasks';
+  }
+  if (section === 'reviewer') {
+    const reviewerKeys = [
+      '/reviewer/queue',
+      '/reviewer/ai',
+      '/reviewer/disputes',
+      '/reviewer/reports',
+    ];
+    return reviewerKeys.find((key) => pathname.startsWith(key)) ?? '/reviewer';
   }
   return `/${section}`;
 }

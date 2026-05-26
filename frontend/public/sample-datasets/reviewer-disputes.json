@@ -1,0 +1,40 @@
+{
+  "items": [
+    {
+      "disputeId": "D-301",
+      "annotationId": "A-9101",
+      "taskId": "T-2041",
+      "taskTitle": "商品标题清洗 v3 · 抖音电商",
+      "reason": "Labeler 与初审一致认定 \"加厚保暖\" 为多余词,但抽检发现下游召回率下降。",
+      "raisedBy": "Reviewer R2",
+      "raisedAt": "今天 09:20",
+      "status": "open",
+      "rounds": 2
+    },
+    {
+      "disputeId": "D-302",
+      "annotationId": "A-9102",
+      "taskId": "T-2039",
+      "taskTitle": "短视频脚本对齐评测",
+      "reason": "preferred 选择 A,但 margin=持平;Labeler 重提后 prefer=B,需要终审裁决。",
+      "raisedBy": "Reviewer R1",
+      "raisedAt": "昨天 18:01",
+      "status": "open",
+      "rounds": 3
+    },
+    {
+      "disputeId": "D-298",
+      "annotationId": "A-9080",
+      "taskId": "T-2061",
+      "taskTitle": "客服多轮对话安全合规",
+      "reason": "客服回答涉及医疗用药建议,存在合规风险,需终审。",
+      "raisedBy": "Reviewer R3",
+      "raisedAt": "昨天 14:32",
+      "status": "resolved",
+      "rounds": 2
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 3
+}
