@@ -28,6 +28,7 @@ import {
   ReviewerQueue,
   ReviewerReports,
 } from '../pages/reviewer';
+import { AppearanceSettings } from '../pages/settings';
 import { getStoredAuthUser } from '../api/auth';
 import { getAuthToken } from '../api/client';
 import { resolveLandingPath } from '../utils/authNavigation';
@@ -71,6 +72,9 @@ export function AppRoutes() {
         <Route path="/reviewer/ai" element={<ReviewerAi />} />
         <Route path="/reviewer/disputes" element={<ReviewerDisputes />} />
         <Route path="/reviewer/reports" element={<ReviewerReports />} />
+
+        {/* 系统设置:外观主题选择,所有角色共用 */}
+        <Route path="/settings/appearance" element={<AppearanceSettings />} />
       </Route>
 
       <Route path="*" element={<NotFound />} />

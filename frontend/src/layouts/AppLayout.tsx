@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   AppstoreOutlined,
   AuditOutlined,
+  BgColorsOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
@@ -333,6 +334,11 @@ export default function AppLayout() {
       return;
     }
 
+    if (key === 'appearance') {
+      navigate('/settings/appearance');
+      return;
+    }
+
     if (key === 'logout') {
       await authApi.logout();
       message.success('已退出登录');
@@ -353,6 +359,7 @@ export default function AppLayout() {
       ),
     },
     { key: 'profile', icon: <UserOutlined />, label: '个人资料' },
+    { key: 'appearance', icon: <BgColorsOutlined />, label: '外观主题' },
     {
       type: 'group',
       key: 'switch-role-group',
@@ -449,7 +456,10 @@ export default function AppLayout() {
                   )}
                 </div>
                 <Badge dot status="success" offset={[-6, 28]}>
-                  <Avatar icon={<UserOutlined />} style={{ background: '#2f7bff' }} />
+                  <Avatar
+                    icon={<UserOutlined />}
+                    style={{ background: 'var(--lh-primary)' }}
+                  />
                 </Badge>
               </div>
             </Dropdown>

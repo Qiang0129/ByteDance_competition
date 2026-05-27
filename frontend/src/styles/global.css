@@ -73,7 +73,7 @@ body {
 .login-blob {
   position: absolute;
   border-radius: 50%;
-  background: #2f7bff;
+  background: var(--lh-primary);
   pointer-events: none;
 }
 
@@ -134,7 +134,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #2f7bff;
+  color: var(--lh-primary);
   line-height: 1;
 }
 
@@ -204,13 +204,13 @@ body {
   width: 76px;
   height: 76px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6fb6ff 0%, #2f7bff 100%);
+  background: var(--lh-primary-gradient);
   color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 36px;
-  box-shadow: 0 8px 18px rgba(47, 123, 255, 0.35);
+  box-shadow: 0 8px 18px var(--lh-primary-bg-35);
   border: 4px solid #ffffff;
 }
 
@@ -255,12 +255,12 @@ body {
   border-radius: 999px;
   font-weight: 600;
   letter-spacing: 2px;
-  background: #2f7bff;
-  box-shadow: 0 8px 18px rgba(47, 123, 255, 0.3);
+  background: var(--lh-primary);
+  box-shadow: 0 8px 18px var(--lh-primary-bg-30);
 }
 
 .login-submit.ant-btn:hover {
-  background: #2466e6 !important;
+  background: var(--lh-primary-hover) !important;
 }
 
 .login-demo-panel {
@@ -295,9 +295,9 @@ body {
 }
 
 .login-demo-button.ant-btn:hover {
-  border-color: rgba(47, 123, 255, 0.45) !important;
-  color: #2f7bff !important;
-  background: rgba(47, 123, 255, 0.06) !important;
+  border-color: var(--lh-primary-bg-45) !important;
+  color: var(--lh-primary) !important;
+  background: var(--lh-primary-bg-6) !important;
 }
 
 .login-demo-button.ant-btn .anticon {
@@ -313,7 +313,7 @@ body {
 
 .login-footer a {
   margin-left: 6px;
-  color: #2f7bff;
+  color: var(--lh-primary);
   font-weight: 600;
 }
 
@@ -423,8 +423,8 @@ body {
 .app-sider-version-mark {
   font-size: 11px;
   font-weight: 600;
-  color: #2f7bff;
-  background: rgba(47, 123, 255, 0.1);
+  color: var(--lh-primary);
+  background: var(--lh-primary-bg-10);
   padding: 2px 8px;
   border-radius: 999px;
   letter-spacing: 0.3px;
@@ -498,9 +498,9 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  background: linear-gradient(135deg, #6fb6ff 0%, #2f7bff 100%);
+  background: var(--lh-primary-gradient);
   color: #ffffff;
-  box-shadow: 0 6px 14px rgba(47, 123, 255, 0.4);
+  box-shadow: 0 6px 14px var(--lh-primary-bg-40);
   font-size: 14px;
 }
 
@@ -524,7 +524,7 @@ body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.2px;
-  color: #2f7bff;
+  color: var(--lh-primary);
   text-transform: uppercase;
 }
 
@@ -544,7 +544,7 @@ body {
   width: 17.59px;
   height: 17.59px;
   border-radius: 50%;
-  border: 2px solid #2f7bff;
+  border: 2px solid var(--lh-primary);
   background: transparent;
   vertical-align: middle;
 }
@@ -587,15 +587,15 @@ body {
 }
 
 .app-shell .ant-menu-light .ant-menu-item:hover {
-  background: rgba(47, 123, 255, 0.06) !important;
-  color: #2f7bff !important;
+  background: var(--lh-primary-bg-6) !important;
+  color: var(--lh-primary) !important;
 }
 
 /* 选中项:蓝色渐变胶囊 + 阴影 + 右侧箭头(用 ::after 绘制) */
 .app-shell .ant-menu-light .ant-menu-item-selected {
-  background: linear-gradient(135deg, #6fb6ff 0%, #2f7bff 100%) !important;
+  background: var(--lh-primary-gradient) !important;
   color: #ffffff !important;
-  box-shadow: 0 8px 18px rgba(47, 123, 255, 0.28);
+  box-shadow: 0 8px 18px var(--lh-primary-bg-28);
 }
 
 .app-shell .ant-menu-light .ant-menu-item-selected .anticon {
@@ -655,7 +655,7 @@ body {
   border: none;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 8px 28px rgba(47, 123, 255, 0.12),
+    0 8px 28px var(--lh-primary-bg-12),
     0 2px 6px rgba(15, 23, 42, 0.06);
 }
 
@@ -674,8 +674,8 @@ body {
 }
 
 .app-header-toggle.ant-btn:hover {
-  color: #2f7bff;
-  background: rgba(47, 123, 255, 0.08);
+  color: var(--lh-primary);
+  background: var(--lh-primary-bg-8);
 }
 
 .app-header-search.ant-input-affix-wrapper {
@@ -720,8 +720,8 @@ body {
 }
 
 .app-header-breadcrumb.ant-breadcrumb a:hover {
-  color: #2f7bff;
-  background: rgba(47, 123, 255, 0.08);
+  color: var(--lh-primary);
+  background: var(--lh-primary-bg-8);
 }
 
 .app-header-breadcrumb.ant-breadcrumb li:last-child > span {
@@ -736,7 +736,7 @@ body {
 }
 
 .app-breadcrumb-root .anticon {
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 @media (max-width: 980px) {
@@ -762,7 +762,7 @@ body {
 }
 
 .app-header-profile:hover .app-header-profile-role {
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 .app-header-profile-text {
@@ -835,7 +835,7 @@ body {
 }
 
 .app-content .ant-statistic-content-prefix {
-  color: #2f7bff;
+  color: var(--lh-primary);
   margin-inline-end: 8px;
 }
 
@@ -876,11 +876,11 @@ body {
 
 /* 主按钮:与登录按钮保持同款胶囊+蓝色阴影,但工作台用 8px 圆角 */
 .app-content .ant-btn-primary {
-  box-shadow: 0 6px 14px rgba(47, 123, 255, 0.25);
+  box-shadow: 0 6px 14px var(--lh-primary-bg-25);
 }
 
 .app-content .ant-btn-primary:hover {
-  box-shadow: 0 8px 18px rgba(47, 123, 255, 0.32);
+  box-shadow: 0 8px 18px var(--lh-primary-bg-32);
 }
 
 
@@ -897,8 +897,8 @@ body {
   color: #ffffff;
   background:
     radial-gradient(circle at 90% 0%, rgba(255, 255, 255, 0.18), transparent 38%),
-    linear-gradient(135deg, #2f7bff 0%, #4f8dff 50%, #6fb6ff 100%);
-  box-shadow: 0 18px 36px rgba(47, 123, 255, 0.25);
+    linear-gradient(135deg, var(--lh-primary) 0%, #4f8dff 50%, var(--lh-primary-light) 100%);
+  box-shadow: 0 18px 36px var(--lh-primary-bg-25);
   overflow: hidden;
 }
 
@@ -944,7 +944,7 @@ body {
 
 .overview-hero-cta.ant-btn {
   background: #ffffff;
-  color: #2f7bff;
+  color: var(--lh-primary);
   border: none;
   font-weight: 600;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
@@ -952,7 +952,7 @@ body {
 
 .overview-hero-cta.ant-btn:hover {
   background: #f5f8ff !important;
-  color: #2466e6 !important;
+  color: var(--lh-primary-hover) !important;
 }
 
 .overview-hero-secondary.ant-btn {
@@ -1094,7 +1094,7 @@ body {
 
 .overview-progress-tip .anticon {
   margin-right: 6px;
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 /* AI 审核分布 */
@@ -1161,8 +1161,8 @@ body {
 }
 
 .batch-item:hover {
-  border-color: rgba(47, 123, 255, 0.4);
-  box-shadow: 0 6px 16px rgba(47, 123, 255, 0.1);
+  border-color: var(--lh-primary-bg-40);
+  box-shadow: 0 6px 16px var(--lh-primary-bg-10);
 }
 
 .batch-item-head {
@@ -1182,8 +1182,8 @@ body {
   border-radius: 999px;
   padding: 0 10px;
   border: none;
-  background: rgba(47, 123, 255, 0.1);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
 }
 
 .batch-item-reward.ant-tag {
@@ -1266,13 +1266,13 @@ body {
 
 .shortcut-tile .anticon {
   font-size: 20px;
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 .shortcut-tile:hover {
-  background: rgba(47, 123, 255, 0.06);
-  border-color: rgba(47, 123, 255, 0.4);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-6);
+  border-color: var(--lh-primary-bg-40);
+  color: var(--lh-primary);
   transform: translateY(-1px);
 }
 
@@ -1283,8 +1283,8 @@ body {
 }
 
 .types-desc code {
-  background: rgba(47, 123, 255, 0.08);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-8);
+  color: var(--lh-primary);
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 12px;
@@ -1313,7 +1313,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: rgba(47, 123, 255, 0.05);
+  background: var(--lh-primary-bg-5);
   border-radius: 10px;
   font-size: 12px;
   color: #475569;
@@ -1347,7 +1347,7 @@ body {
 }
 
 .owner-stat-primary {
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 .owner-stat-trend.ant-tag {
@@ -1451,14 +1451,14 @@ body {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #6fb6ff 0%, #2f7bff 100%);
+  background: var(--lh-primary-gradient-h);
   transition: width 0.3s ease;
 }
 
 /* 抽屉:发布任务表单 */
 .owner-drawer-banner {
   background: #f0f6ff;
-  color: #2466e6;
+  color: var(--lh-primary-hover);
   border: 1px solid #d6e6ff;
   border-radius: 10px;
   padding: 10px 14px;
@@ -1482,8 +1482,8 @@ body {
   width: 72px;
   height: 72px;
   border-radius: 20px;
-  background: rgba(47, 123, 255, 0.1);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1522,14 +1522,14 @@ body {
 }
 
 .dataset-list-item:hover {
-  border-color: rgba(47, 123, 255, 0.4);
-  box-shadow: 0 6px 16px rgba(47, 123, 255, 0.08);
+  border-color: var(--lh-primary-bg-40);
+  box-shadow: 0 6px 16px var(--lh-primary-bg-8);
 }
 
 .dataset-list-item.is-active {
-  border-color: #2f7bff;
-  background: linear-gradient(135deg, rgba(47, 123, 255, 0.06) 0%, rgba(111, 182, 255, 0.06) 100%);
-  box-shadow: 0 8px 18px rgba(47, 123, 255, 0.12);
+  border-color: var(--lh-primary);
+  background: linear-gradient(135deg, var(--lh-primary-bg-6) 0%, var(--lh-primary-bg-6) 100%);
+  box-shadow: 0 8px 18px var(--lh-primary-bg-12);
 }
 
 .dataset-list-head {
@@ -1648,8 +1648,8 @@ body {
 }
 
 .dataset-fields-list code {
-  background: rgba(47, 123, 255, 0.08);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-8);
+  color: var(--lh-primary);
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 12px;
@@ -1672,16 +1672,16 @@ body {
 
 .dataset-id {
   font-size: 12px;
-  color: #2f7bff;
-  background: rgba(47, 123, 255, 0.08);
+  color: var(--lh-primary);
+  background: var(--lh-primary-bg-8);
   padding: 2px 6px;
   border-radius: 4px;
 }
 
 .dataset-id-large {
   font-size: 13px;
-  color: #2f7bff;
-  background: rgba(47, 123, 255, 0.08);
+  color: var(--lh-primary);
+  background: var(--lh-primary-bg-8);
   padding: 3px 10px;
   border-radius: 6px;
 }
@@ -1752,7 +1752,7 @@ body {
 
 .dataset-detail-video .anticon {
   font-size: 18px;
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 .dataset-detail-video-player {
@@ -1823,7 +1823,7 @@ body {
 }
 
 .dataset-md-link {
-  color: #2f7bff;
+  color: var(--lh-primary);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -1963,8 +1963,8 @@ body {
 }
 
 .market-card.ant-card:hover {
-  border-color: rgba(47, 123, 255, 0.4);
-  box-shadow: 0 12px 28px rgba(47, 123, 255, 0.12);
+  border-color: var(--lh-primary-bg-40);
+  box-shadow: 0 12px 28px var(--lh-primary-bg-12);
   transform: translateY(-2px);
 }
 
@@ -2001,8 +2001,8 @@ body {
   border-radius: 999px;
   padding: 0 10px;
   border: none;
-  background: rgba(47, 123, 255, 0.1);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
   font-weight: 600;
 }
 
@@ -2079,7 +2079,7 @@ body {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #6fb6ff 0%, #2f7bff 100%);
+  background: var(--lh-primary-gradient-h);
   transition: width 0.3s ease;
 }
 
@@ -2157,8 +2157,8 @@ body {
 }
 
 .market-detail-mini-value code {
-  background: rgba(47, 123, 255, 0.08);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-8);
+  color: var(--lh-primary);
   padding: 2px 8px;
   border-radius: 6px;
   font-size: 12px;
@@ -2181,9 +2181,9 @@ body {
 
 .market-detail-tip {
   margin-top: 8px;
-  background: rgba(47, 123, 255, 0.06);
+  background: var(--lh-primary-bg-6);
   color: #475569;
-  border: 1px solid rgba(47, 123, 255, 0.18);
+  border: 1px solid var(--lh-primary-bg-18);
   border-radius: 10px;
   padding: 12px 14px;
   font-size: 13px;
@@ -2227,14 +2227,14 @@ body {
 .dataset-view-all-btn.ant-btn-link {
   padding: 2px 12px;
   border-radius: 999px;
-  background: rgba(47, 123, 255, 0.08);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-8);
+  color: var(--lh-primary);
   font-weight: 600;
   font-size: 12px;
 }
 
 .dataset-view-all-btn.ant-btn-link:hover {
-  background: rgba(47, 123, 255, 0.14);
+  background: var(--lh-primary-bg-14);
 }
 
 
@@ -2248,8 +2248,8 @@ body {
 }
 
 .template-card.ant-card:hover {
-  border-color: rgba(47, 123, 255, 0.4);
-  box-shadow: 0 12px 28px rgba(47, 123, 255, 0.12);
+  border-color: var(--lh-primary-bg-40);
+  box-shadow: 0 12px 28px var(--lh-primary-bg-12);
   transform: translateY(-2px);
 }
 
@@ -2270,8 +2270,8 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(111, 182, 255, 0.18), rgba(47, 123, 255, 0.18));
-  color: #2f7bff;
+  background: linear-gradient(135deg, var(--lh-primary-bg-18), var(--lh-primary-bg-18));
+  color: var(--lh-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2289,8 +2289,8 @@ body {
   border: none;
   border-radius: 999px;
   padding: 0 10px;
-  background: rgba(47, 123, 255, 0.1);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
   font-weight: 600;
 }
 
@@ -2346,13 +2346,13 @@ body {
   border: none;
   border-radius: 999px;
   padding: 2px 12px;
-  background: rgba(47, 123, 255, 0.08);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-8);
+  color: var(--lh-primary);
   font-weight: 600;
 }
 
 .designer-subtitle {
-  background: rgba(47, 123, 255, 0.06);
+  background: var(--lh-primary-bg-6);
   color: #475569;
   border-radius: 12px;
   padding: 10px 16px;
@@ -2390,7 +2390,7 @@ body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.2px;
-  color: #2f7bff;
+  color: var(--lh-primary);
   text-transform: uppercase;
   margin-bottom: 8px;
 }
@@ -2417,9 +2417,9 @@ body {
 }
 
 .material-item:hover {
-  background: rgba(47, 123, 255, 0.08);
-  border-color: rgba(47, 123, 255, 0.4);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-8);
+  border-color: var(--lh-primary-bg-40);
+  color: var(--lh-primary);
 }
 
 .material-icon {
@@ -2428,8 +2428,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(47, 123, 255, 0.1);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
   border-radius: 6px;
   font-size: 14px;
 }
@@ -2445,7 +2445,7 @@ body {
 }
 
 .material-item:hover .material-plus {
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 /* 中间画布 */
@@ -2484,8 +2484,8 @@ body {
 }
 
 .canvas-add:hover {
-  border-color: #2f7bff;
-  color: #2f7bff;
+  border-color: var(--lh-primary);
+  color: var(--lh-primary);
 }
 
 /* 字段卡 */
@@ -2499,12 +2499,12 @@ body {
 }
 
 .field-card:hover {
-  border-color: rgba(47, 123, 255, 0.5);
+  border-color: var(--lh-primary-bg-50);
 }
 
 .field-card.is-active {
-  border-color: #2f7bff;
-  box-shadow: 0 0 0 3px rgba(47, 123, 255, 0.12);
+  border-color: var(--lh-primary);
+  box-shadow: 0 0 0 3px var(--lh-primary-bg-12);
 }
 
 .field-card-head {
@@ -2545,7 +2545,7 @@ body {
 }
 
 .field-card-actions .ant-btn:hover {
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 .field-card-meta {
@@ -2555,8 +2555,8 @@ body {
 }
 
 .field-card-meta code {
-  background: rgba(47, 123, 255, 0.08);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-8);
+  color: var(--lh-primary);
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 12px;
@@ -2623,7 +2623,7 @@ body {
 
 .property-empty .anticon {
   font-size: 28px;
-  color: rgba(47, 123, 255, 0.5);
+  color: var(--lh-primary-bg-50);
 }
 
 .property-field {
@@ -2651,8 +2651,8 @@ body {
 }
 
 .linkage-rule code {
-  background: rgba(47, 123, 255, 0.08);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-8);
+  color: var(--lh-primary);
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 11px;
@@ -2953,7 +2953,7 @@ body {
 }
 
 .bar-seg.ontime {
-  background: #2f7bff;
+  background: var(--lh-primary);
 }
 
 .attendance-stack .bar-seg {
@@ -3186,11 +3186,11 @@ body {
 }
 
 .schedule-day:hover {
-  background: rgba(47, 123, 255, 0.08);
+  background: var(--lh-primary-bg-8);
 }
 
 .schedule-day.is-today {
-  background: #2f7bff;
+  background: var(--lh-primary);
   color: #ffffff;
   font-weight: 700;
 }
@@ -3356,9 +3356,9 @@ body {
 
 .timeline-task-id {
   font-size: 11px;
-  color: #2f7bff;
+  color: var(--lh-primary);
   font-weight: 700;
-  background: rgba(47, 123, 255, 0.08);
+  background: var(--lh-primary-bg-8);
   padding: 1px 8px;
   border-radius: 999px;
 }
@@ -3389,7 +3389,7 @@ body {
 }
 
 .timeline-dot.is-done {
-  background: linear-gradient(90deg, #6fb6ff 0%, #2f7bff 100%);
+  background: var(--lh-primary-gradient-h);
 }
 
 /* 截止预警 */
@@ -3420,8 +3420,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(47, 123, 255, 0.1);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
   border-radius: 8px;
   flex-shrink: 0;
 }
@@ -3493,20 +3493,20 @@ body {
 
 .material-item.is-overlay {
   background: #ffffff;
-  border-color: #2f7bff;
-  color: #2f7bff;
-  box-shadow: 0 12px 28px rgba(47, 123, 255, 0.25);
+  border-color: var(--lh-primary);
+  color: var(--lh-primary);
+  box-shadow: 0 12px 28px var(--lh-primary-bg-25);
   cursor: grabbing;
 }
 
 .canvas-empty.is-drop-over {
-  background: rgba(47, 123, 255, 0.06);
-  border: 2px dashed #2f7bff;
+  background: var(--lh-primary-bg-6);
+  border: 2px dashed var(--lh-primary);
   border-radius: 12px;
 }
 
 .canvas-list.is-drop-over {
-  background: rgba(47, 123, 255, 0.04);
+  background: var(--lh-primary-bg-4);
   border-radius: 12px;
 }
 
@@ -3524,8 +3524,8 @@ body {
 }
 
 .field-drag-handle:hover {
-  color: #2f7bff;
-  background: rgba(47, 123, 255, 0.08);
+  color: var(--lh-primary);
+  background: var(--lh-primary-bg-8);
 }
 
 .field-drag-handle:active {
@@ -3534,8 +3534,8 @@ body {
 
 .field-card.is-overlay {
   background: #ffffff;
-  border-color: #2f7bff;
-  box-shadow: 0 18px 36px rgba(47, 123, 255, 0.25);
+  border-color: var(--lh-primary);
+  box-shadow: 0 18px 36px var(--lh-primary-bg-25);
   padding: 14px;
   cursor: grabbing;
   font-weight: 600;
@@ -3620,8 +3620,8 @@ body {
 
 .reviewer-batch-type.ant-tag {
   border: none;
-  background: rgba(47, 123, 255, 0.1);
-  color: #2f7bff;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
   border-radius: 999px;
   padding: 0 10px;
 }
@@ -3711,8 +3711,8 @@ body {
 }
 
 .reviewer-batch-card.ant-card:hover {
-  border-color: rgba(47, 123, 255, 0.4);
-  box-shadow: 0 12px 28px rgba(47, 123, 255, 0.12);
+  border-color: var(--lh-primary-bg-40);
+  box-shadow: 0 12px 28px var(--lh-primary-bg-12);
   transform: translateY(-2px);
 }
 
@@ -3735,7 +3735,7 @@ body {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #6fb6ff, #2f7bff);
+  background: var(--lh-primary-gradient-h);
 }
 
 .reviewer-batch-foot {
@@ -3759,9 +3759,9 @@ body {
 }
 
 .reviewer-review-panel pre.review-json.highlight {
-  background: rgba(47, 123, 255, 0.06);
+  background: var(--lh-primary-bg-6);
   color: #1f2a44;
-  border: 1px solid rgba(47, 123, 255, 0.2);
+  border: 1px solid var(--lh-primary-bg-20);
 }
 
 .review-section-label {
@@ -4026,9 +4026,9 @@ body {
 }
 
 .answer-tag-group .ant-tag-checkable-checked {
-  background: rgba(47, 123, 255, 0.1);
-  color: #2f7bff;
-  border-color: #2f7bff;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
+  border-color: var(--lh-primary);
 }
 
 .answer-radio-group .ant-radio-button-wrapper {
@@ -4077,21 +4077,21 @@ body {
 .ant-pagination .ant-pagination-item:hover,
 .ant-pagination .ant-pagination-prev:hover,
 .ant-pagination .ant-pagination-next:hover {
-  border-color: #2f7bff;
-  background: rgba(47, 123, 255, 0.06);
+  border-color: var(--lh-primary);
+  background: var(--lh-primary-bg-6);
 }
 
 .ant-pagination .ant-pagination-item:hover a {
-  color: #2f7bff;
+  color: var(--lh-primary);
 }
 
 .ant-pagination .ant-pagination-item-active {
-  border-color: #2f7bff;
+  border-color: var(--lh-primary);
   background: #ffffff;
 }
 
 .ant-pagination .ant-pagination-item-active a {
-  color: #2f7bff;
+  color: var(--lh-primary);
   font-weight: 600;
 }
 
@@ -4111,3 +4111,475 @@ body {
   font-size: 13px;
   color: #64748b;
 }
+
+
+/* ========== 系统设置 · 外观 ========== */
+
+.appearance-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 4px 24px;
+}
+
+.appearance-header {
+  padding: 4px 4px 4px;
+}
+
+.appearance-back.ant-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: #475569;
+}
+
+.appearance-back.ant-btn:hover {
+  background: var(--lh-primary-bg-8);
+  color: var(--lh-primary);
+}
+
+.appearance-title-icon {
+  font-size: 22px;
+  color: var(--lh-primary);
+  margin-left: 4px;
+}
+
+.appearance-card.ant-card {
+  border-radius: 18px;
+  border: 1px solid #eef0f5;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+}
+
+.appearance-card.ant-card .ant-card-head {
+  border-bottom: 1px solid #f0f2f7;
+  min-height: 56px;
+  padding: 0 24px;
+}
+
+.appearance-card.ant-card .ant-card-head-title {
+  font-weight: 600;
+  font-size: 16px;
+  color: #1f2a44;
+}
+
+.appearance-card.ant-card .ant-card-body {
+  padding: 24px;
+}
+
+/* 选中态对勾徽章:外观所有卡共用 */
+.appearance-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #7c3aed;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  box-shadow: 0 4px 10px rgba(124, 58, 237, 0.4);
+  border: 2px solid #ffffff;
+  z-index: 1;
+}
+
+/* ========== 样式版本两张大卡 ========== */
+.style-version-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  width: 100%;
+}
+
+.style-version-tile {
+  position: relative;
+  width: 100%;
+  background: #ffffff;
+  border: 2px solid #eef0f5;
+  border-radius: 16px;
+  padding: 18px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease,
+    background 0.2s ease;
+  outline: none;
+}
+
+.style-version-tile:hover {
+  border-color: var(--lh-primary-bg-40);
+  box-shadow: 0 12px 28px var(--lh-primary-bg-12);
+  transform: translateY(-2px);
+}
+
+.style-version-tile.is-active {
+  border-color: #7c3aed;
+  background: rgba(124, 58, 237, 0.04);
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.14);
+}
+
+.style-version-preview {
+  position: relative;
+  height: 140px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #eef0f5;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 默认版本顶部加一条主色实心条;
+   渐变版本顶部加一条主色 -> 白 -> 浅色的强对比渐变条,
+   便于一眼分辨两种风格 */
+.style-version-preview::before {
+  content: '';
+  display: block;
+  height: 6px;
+  width: 100%;
+  background: var(--lh-primary);
+}
+
+.style-version-preview--gradient::before {
+  background: linear-gradient(
+    90deg,
+    var(--lh-primary) 0%,
+    var(--lh-primary-light) 30%,
+    #ffffff 55%,
+    var(--lh-primary-light) 80%,
+    var(--lh-primary) 100%
+  );
+}
+
+.style-version-preview-header {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border-bottom: 1px solid #f0f2f7;
+}
+
+.style-version-preview-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e2e8f0;
+}
+
+.style-version-preview-dot:nth-child(1) {
+  background: #fb7185;
+}
+.style-version-preview-dot:nth-child(2) {
+  background: #fbbf24;
+}
+.style-version-preview-dot:nth-child(3) {
+  background: #4ade80;
+}
+
+.style-version-preview-body {
+  flex: 1;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* 默认:纯色实心条 */
+.style-version-preview-bar {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--lh-primary);
+}
+
+.style-version-preview-bar.long {
+  width: 75%;
+}
+
+.style-version-preview-bar.mid {
+  width: 45%;
+  background: var(--lh-primary-light);
+  opacity: 0.6;
+}
+
+.style-version-preview-button {
+  margin-top: 4px;
+  display: block;
+  width: 96px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--lh-primary);
+  box-shadow: 0 6px 14px var(--lh-primary-bg-25);
+}
+
+/* 渐变版本:用 浅 -> 主 -> 深 三段渐变,角度水平,差异更明显;
+   即使在玫瑰粉这种深浅色差小的预设里也能一眼看出渐变方向 */
+.style-version-preview--gradient .style-version-preview-bar {
+  background: linear-gradient(
+    90deg,
+    var(--lh-primary-light) 0%,
+    var(--lh-primary) 50%,
+    var(--lh-primary-hover) 100%
+  );
+}
+
+.style-version-preview--gradient .style-version-preview-bar.mid {
+  background: linear-gradient(
+    90deg,
+    var(--lh-primary-light) 0%,
+    var(--lh-primary) 100%
+  );
+  opacity: 0.7;
+}
+
+.style-version-preview--gradient .style-version-preview-button {
+  background: linear-gradient(
+    135deg,
+    var(--lh-primary-light) 0%,
+    var(--lh-primary) 50%,
+    var(--lh-primary-hover) 100%
+  );
+  box-shadow: 0 8px 18px var(--lh-primary-bg-35);
+}
+
+/* 默认版本顶上的内容区底色加一抹纯色淡背景,与渐变版本的渐变光晕形成对照 */
+.style-version-preview--default .style-version-preview-body {
+  background: linear-gradient(180deg, #ffffff 0%, var(--lh-primary-bg-4) 100%);
+}
+
+.style-version-preview--gradient .style-version-preview-body {
+  background:
+    radial-gradient(circle at 20% 20%, var(--lh-primary-bg-14) 0%, transparent 55%),
+    radial-gradient(circle at 80% 80%, var(--lh-primary-bg-12) 0%, transparent 55%),
+    #ffffff;
+}
+
+.style-version-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.style-version-title {
+  font-size: 15px;
+  color: #1f2a44;
+}
+
+.style-version-desc {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+/* ========== 11 圆形主题色卡 ========== */
+.theme-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+.theme-tile {
+  position: relative;
+  background: #ffffff;
+  border: 2px solid #eef0f5;
+  border-radius: 14px;
+  padding: 18px 8px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.15s ease,
+    box-shadow 0.2s ease;
+  outline: none;
+}
+
+.theme-tile:hover {
+  border-color: var(--lh-primary-bg-40);
+  background: #fafbfd;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.theme-tile.is-active {
+  border-color: #7c3aed;
+  background: rgba(124, 58, 237, 0.05);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.16);
+}
+
+.theme-tile-circle {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.14);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-tile-check {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #7c3aed;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  box-shadow: 0 4px 10px rgba(124, 58, 237, 0.4);
+  border: 2px solid #ffffff;
+}
+
+.theme-tile-label {
+  font-size: 13px;
+  color: #1f2a44;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.theme-tile.is-active .theme-tile-label {
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+/* 窄屏:样式版本两张卡变上下排 */
+@media (max-width: 720px) {
+  .style-version-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ========== 样式版本:渐变模式整站差异化 ========== */
+/* 用 :root[data-style-version="gradient"] 选择器对若干视觉重心做渐变覆盖,
+   默认版本不变;渐变版本主按钮、装饰圆球、KPI 图标圈、登录头像背景统一切渐变。
+   优先级用 attr 选择器叠加,部分 antd 内联 background 用 !important 兜底。 */
+
+/* 0. 工作台大背景:除了左侧 Sider 和顶部 Header(它们都是白色浮卡)以外,
+   主内容区铺一层主色径向光晕渐变,呼应渐变版本主题。 */
+:root[data-style-version='gradient'] .app-shell {
+  background:
+    radial-gradient(ellipse 60% 50% at 15% 0%, var(--lh-primary-bg-14) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 60% at 100% 100%, var(--lh-primary-bg-12) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 40% at 80% 20%, var(--lh-primary-bg-8) 0%, transparent 50%),
+    #f3f5f8;
+}
+
+/* Sider 和 Header 已经是白色浮卡,不会被背景渐变干扰,无需额外处理 */
+
+/* 1. antd 主按钮:背景从纯色 -> 渐变 */
+:root[data-style-version='gradient']
+  .ant-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled) {
+  background: var(--lh-primary-gradient-h) !important;
+  border-color: transparent !important;
+}
+
+:root[data-style-version='gradient']
+  .ant-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):hover {
+  background: var(--lh-primary-gradient-h) !important;
+  filter: brightness(1.06);
+}
+
+:root[data-style-version='gradient']
+  .ant-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled):active {
+  filter: brightness(0.95);
+}
+
+/* 2. 登录页提交按钮:覆盖原 .login-submit 的纯色 background */
+:root[data-style-version='gradient'] .login-submit.ant-btn {
+  background: var(--lh-primary-gradient-h) !important;
+  border-color: transparent !important;
+}
+
+:root[data-style-version='gradient'] .login-submit.ant-btn:hover {
+  background: var(--lh-primary-gradient-h) !important;
+  filter: brightness(1.06);
+}
+
+/* 3. 登录页右上角装饰圆球:纯色蓝 -> 主色渐变 */
+:root[data-style-version='gradient'] .login-blob {
+  background: var(--lh-primary-gradient);
+}
+
+/* 4. 头像 / KPI 圆角图标:把 background 写成 var(--lh-primary) 的位置改渐变 */
+:root[data-style-version='gradient'] .ant-avatar[style*='var(--lh-primary)'] {
+  background: var(--lh-primary-gradient) !important;
+}
+
+/* 5. Labeler 工作概览大横幅:本来用硬编码企业蓝渐变,改用当前主题主色渐变 */
+:root[data-style-version='gradient'] .overview-hero {
+  background:
+    radial-gradient(circle at 90% 0%, rgba(255, 255, 255, 0.18), transparent 38%),
+    var(--lh-primary-gradient);
+}
+
+/* 6. 侧栏菜单选中态:default 已是渐变,gradient 版本叠左上角高光增强玻璃感 */
+:root[data-style-version='gradient'] .app-shell .ant-menu-light .ant-menu-item-selected {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 50%),
+    var(--lh-primary-gradient) !important;
+}
+
+/* 7. 内容区"纯主色填充"色块全部升级为渐变填充:
+   覆盖占位页大图标、日历今日、准时柱状图段、Logo Mark、登录头像、侧栏 logo 圆角、
+   AppLayout 头像 Avatar、状态点高亮、Designer 选中胶囊 等 */
+:root[data-style-version='gradient'] .owner-coming-icon,
+:root[data-style-version='gradient'] .schedule-day.is-today,
+:root[data-style-version='gradient'] .bar-seg.ontime,
+:root[data-style-version='gradient'] .app-logo-mark,
+:root[data-style-version='gradient'] .login-avatar,
+:root[data-style-version='gradient'] .state-dot.dot-published,
+:root[data-style-version='gradient'] .field-card.is-active::before,
+:root[data-style-version='gradient'] .canvas-empty.is-drop-over,
+:root[data-style-version='gradient'] .login-side-icon {
+  background: var(--lh-primary-gradient) !important;
+  color: #ffffff;
+}
+
+/* 8. 主色"浅底圆角图标背景"(KPI 图标 / 快捷入口图标 / 占位图标 / Tag pill 等)
+   从纯色低透明度 -> 主色渐变低透明度,加柔和过渡 */
+:root[data-style-version='gradient'] .kpi-icon,
+:root[data-style-version='gradient'] .shortcut-tile .anticon,
+:root[data-style-version='gradient'] .market-kpi-icon,
+:root[data-style-version='gradient'] .template-stat-icon,
+:root[data-style-version='gradient'] .reviewer-stat-icon {
+  background-image: var(--lh-primary-gradient);
+  background-clip: padding-box;
+}
+
+/* 9. 内容卡片 hover 高亮边阴影增强,让浮起更明显 */
+:root[data-style-version='gradient'] .app-content .ant-card:hover {
+  box-shadow: 0 12px 28px var(--lh-primary-bg-12);
+}
+
+/* 10. KPI 数值前缀和 Statistic 主色字体:在渐变模式下用文字渐变更有层次感 */
+:root[data-style-version='gradient'] .app-content .ant-statistic-content-prefix,
+:root[data-style-version='gradient'] .owner-stat-primary,
+:root[data-style-version='gradient'] .dataset-id,
+:root[data-style-version='gradient'] .dataset-id-large,
+:root[data-style-version='gradient'] .timeline-task-id {
+  background: var(--lh-primary-gradient-h);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* 11. 进度条主体 / 已完成段:确保使用主色渐变(部分原本是纯色) */
+:root[data-style-version='gradient'] .review-bar-seg.is-pass,
+:root[data-style-version='gradient'] .ant-progress-bg,
+:root[data-style-version='gradient'] .dispute-bar > span {
+  background: var(--lh-primary-gradient-h) !important;
+}
+
