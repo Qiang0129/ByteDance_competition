@@ -10,6 +10,7 @@ import com.labelhub.backend.annotation.AnnotationRepository.DraftRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
+import com.labelhub.backend.task.TaskService;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -26,16 +27,23 @@ public class AnnotationService {
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
   private final AnnotationRepository annotationRepository;
+  private final TaskService taskService;
   private final ObjectMapper objectMapper;
 
-  public AnnotationService(AnnotationRepository annotationRepository, ObjectMapper objectMapper) {
+  public AnnotationService(
+      AnnotationRepository annotationRepository,
+      TaskService taskService,
+      ObjectMapper objectMapper) {
     this.annotationRepository = annotationRepository;
+    this.taskService = taskService;
     this.objectMapper = objectMapper;
   }
 
   public AssignmentItemResponse getAssignmentItem(Authentication authentication, long assignmentId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
+    taskService.backfillAssignmentsForLabelerTask(labeler.id(), assignment.taskId());
+    assignment = loadAssignment(labeler.id(), assignmentId);
     SchemaContext schema = resolvePublishedSchema(assignment);
     DraftResponse draft = annotationRepository.findDraft(assignment.assignmentId())
         .map(this::toDraftResponse)

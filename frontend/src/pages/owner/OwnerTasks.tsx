@@ -4,6 +4,7 @@ import {
   ArrowRightOutlined,
   CheckCircleFilled,
   CloseOutlined,
+  DeleteOutlined,
   PauseCircleFilled,
   PlusOutlined,
   RobotOutlined,
@@ -20,6 +21,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Modal,
   Row,
   Segmented,
   Select,
@@ -276,6 +278,14 @@ export default function OwnerTasks() {
           <Button type="link" onClick={() => openDrawer(record)}>
             详情
           </Button>
+          <Button
+            type="link"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => void handleDelete(record)}
+          >
+            删除
+          </Button>
         </Space>
       ),
     },
@@ -409,6 +419,24 @@ export default function OwnerTasks() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '任务状态更新失败');
     }
+  }
+
+  async function handleDelete(row: OwnerTaskRow) {
+    Modal.confirm({
+      title: '确认删除该任务?',
+      content: `任务「${row.title}」将被永久删除,已关联的标注数据不会被清除。此操作不可撤销。`,
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await ownerApi.deleteTask(row.taskId);
+          message.success('任务已删除');
+          await loadTasks();
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : '删除失败');
+        }
+      },
+    });
   }
 
   async function handlePublishFinish(values: PublishFormValues) {

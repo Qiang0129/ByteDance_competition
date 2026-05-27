@@ -33,6 +33,13 @@ export const ownerApi = {
     });
   },
 
+  /** 删除任务(仅草稿/已结束状态允许删除) */
+  deleteTask(taskId: string): Promise<void> {
+    return apiRequest<void>(`/tasks/${taskId}`, {
+      method: 'DELETE',
+    });
+  },
+
   listAssignableLabelers(): Promise<AssignableLabeler[]> {
     return apiRequest<AssignableLabeler[]>('/tasks/assignable-labelers');
   },

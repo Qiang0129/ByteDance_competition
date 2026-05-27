@@ -130,6 +130,15 @@ public class TaskService {
     return new PageResponse<>(items, 1, items.size(), items.size());
   }
 
+  @Transactional
+  public void deleteTask(Authentication authentication, long taskId) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    int deleted = taskRepository.deleteTask(owner.id(), taskId);
+    if (deleted == 0) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
+    }
+  }
+
   public List<AssignableLabelerResponse> listAssignableLabelers(Authentication authentication) {
     requireOwner(authentication);
     return authRepository.listUsersByRoleCode("labeler").stream()
@@ -211,22 +220,48 @@ public class TaskService {
 
     TaskRecord task = taskRepository.findTask(taskId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
+    TaskMetadata metadata = readMetadata(task.rewardRuleJson());
+    boolean alreadyClaimed = taskRepository.hasTaskAssignment(taskId, labeler.id());
+    if (!"assigned".equals(metadata.resolvedStrategy())) {
+      createAssignmentsForStrategy(task, metadata, labeler.id(), !alreadyClaimed);
+    }
     return taskRepository.findAssignmentForLabelerTask(taskId, labeler.id())
         .map(this::toAssignmentResponse)
         .orElseGet(() -> createAssignmentForStrategy(task, labeler.id()));
   }
 
+  @Transactional
   public PageResponse<AssignmentResponse> listMyAssignments(
       Authentication authentication,
       String status) {
     AuthenticatedUser labeler = requireLabeler(authentication);
     String normalizedStatus = normalizeAssignmentStatus(status);
+    if (normalizedStatus == null) {
+      backfillExistingTaskAssignments(labeler.id());
+    }
     List<AssignmentResponse> items = taskRepository
         .listLabelerAssignments(labeler.id(), normalizedStatus)
         .stream()
         .map(this::toAssignmentResponse)
         .toList();
     return new PageResponse<>(items, 1, items.size(), items.size());
+  }
+
+  @Transactional
+  public void backfillAssignmentsForLabelerTask(long labelerId, long taskId) {
+    if (!taskRepository.hasTaskAssignment(taskId, labelerId) || !taskRepository.lockTask(taskId)) {
+      return;
+    }
+    TaskRecord task = taskRepository.findTask(taskId).orElse(null);
+    if (task == null || !canCreateMoreAssignments(task)) {
+      return;
+    }
+    TaskMetadata metadata = readMetadata(task.rewardRuleJson());
+    if ("assigned".equals(metadata.resolvedStrategy())) {
+      ensureStrategyAssignments(task.id(), metadata, task.quota(), task.status());
+    } else {
+      createAssignmentsForStrategy(task, metadata, labelerId, false);
+    }
   }
 
   private TaskMetadata buildTaskMetadata(
@@ -371,20 +406,36 @@ public class TaskService {
       return;
     }
 
+    List<Long> labelerIds = metadata.resolvedAssignedLabelerIds();
     for (long labelerId : metadata.resolvedAssignedLabelerIds()) {
       ensureAssignableLabeler(labelerId);
-      if (taskRepository.hasTaskAssignment(taskId, labelerId)) {
-        continue;
+    }
+
+    long existingAssignments = taskRepository.countTaskAssignments(taskId);
+    int batchSize = toBatchSize(resolveAssignableRemaining(taskId, quota));
+    if (batchSize <= 0) {
+      if (existingAssignments == 0) {
+        throw noAssignableItemOrQuota(taskId, "assign");
       }
-      if (quota != null && taskRepository.countTaskAssignments(taskId) >= quota) {
-        throw new ApiException(HttpStatus.CONFLICT, "TASK_QUOTA_EXHAUSTED", "task quota is exhausted");
+      return;
+    }
+
+    List<Long> itemIds = taskRepository.findClaimableItems(taskId, batchSize);
+    if (itemIds.isEmpty()) {
+      if (existingAssignments == 0) {
+        throw new ApiException(
+            HttpStatus.CONFLICT,
+            "NO_AVAILABLE_ITEM",
+            "task has no available item to assign");
       }
-      long itemId = taskRepository.findFirstClaimableItem(taskId)
-          .orElseThrow(() -> new ApiException(
-              HttpStatus.CONFLICT,
-              "NO_AVAILABLE_ITEM",
-              "task has no available item to assign"));
-      taskRepository.createAssignment(taskId, itemId, labelerId, LocalDateTime.now().plusHours(2));
+      return;
+    }
+
+    int startIndex = (int) (existingAssignments % labelerIds.size());
+    LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
+    for (int i = 0; i < itemIds.size(); i++) {
+      long labelerId = labelerIds.get((startIndex + i) % labelerIds.size());
+      taskRepository.createAssignment(taskId, itemIds.get(i), labelerId, lockedUntil);
     }
   }
 
@@ -461,41 +512,113 @@ public class TaskService {
   private AssignmentResponse createAssignmentForStrategy(TaskRecord task, long labelerId) {
     validateClaimableTask(task);
     TaskMetadata metadata = readMetadata(task.rewardRuleJson());
-    String strategy = metadata.resolvedStrategy();
-    if ("assigned".equals(strategy)) {
+    if ("assigned".equals(metadata.resolvedStrategy())) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "ASSIGNED_TASK_NOT_CLAIMABLE",
           "assigned task requires a pre-created assignment");
     }
 
-    if ("quota".equals(strategy)
-        && metadata.resolvedMaxClaimPerUser() != null
-        && taskRepository.countLabelerTaskAssignments(task.id(), labelerId)
-            >= metadata.resolvedMaxClaimPerUser()) {
-      throw new ApiException(
-          HttpStatus.CONFLICT,
-          "TASK_CLAIM_LIMIT_REACHED",
-          "task claim limit for current labeler is reached");
-    }
-
-    if (task.quota() != null && taskRepository.countTaskAssignments(task.id()) >= task.quota()) {
-      throw new ApiException(HttpStatus.CONFLICT, "TASK_QUOTA_EXHAUSTED", "task quota is exhausted");
-    }
-
-    long itemId = taskRepository.findFirstClaimableItem(task.id())
-        .orElseThrow(() -> new ApiException(
-            HttpStatus.CONFLICT,
-            "NO_AVAILABLE_ITEM",
-            "task has no available item to claim"));
-    long assignmentId = taskRepository.createAssignment(
-        task.id(),
-        itemId,
-        labelerId,
-        LocalDateTime.now().plusHours(2));
-    return taskRepository.findAssignment(assignmentId)
+    createAssignmentsForStrategy(task, metadata, labelerId, true);
+    return taskRepository.findAssignmentForLabelerTask(task.id(), labelerId)
         .map(this::toAssignmentResponse)
         .orElseThrow(() -> new IllegalStateException("failed to load created assignment"));
+  }
+
+  private int createAssignmentsForStrategy(
+      TaskRecord task,
+      TaskMetadata metadata,
+      long labelerId,
+      boolean failWhenNoNewAssignment) {
+    validateClaimableTask(task);
+    String strategy = metadata.resolvedStrategy();
+    if ("assigned".equals(strategy)) {
+      return 0;
+    }
+
+    long taskRemaining = resolveAssignableRemaining(task.id(), task.quota());
+    if (taskRemaining <= 0) {
+      if (failWhenNoNewAssignment) {
+        throw noAssignableItemOrQuota(task.id(), "claim");
+      }
+      return 0;
+    }
+
+    long labelerRemaining = taskRemaining;
+    if ("quota".equals(strategy) && metadata.resolvedMaxClaimPerUser() != null) {
+      long current = taskRepository.countLabelerTaskAssignments(task.id(), labelerId);
+      labelerRemaining = metadata.resolvedMaxClaimPerUser() - current;
+      if (labelerRemaining <= 0) {
+        if (failWhenNoNewAssignment) {
+          throw new ApiException(
+              HttpStatus.CONFLICT,
+              "TASK_CLAIM_LIMIT_REACHED",
+              "task claim limit for current labeler is reached");
+        }
+        return 0;
+      }
+    }
+
+    int batchSize = toBatchSize(Math.min(taskRemaining, labelerRemaining));
+    List<Long> itemIds = taskRepository.findClaimableItems(task.id(), batchSize);
+    if (itemIds.isEmpty()) {
+      if (failWhenNoNewAssignment) {
+        throw new ApiException(
+            HttpStatus.CONFLICT,
+            "NO_AVAILABLE_ITEM",
+            "task has no available item to claim");
+      }
+      return 0;
+    }
+
+    LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
+    for (long itemId : itemIds) {
+      taskRepository.createAssignment(task.id(), itemId, labelerId, lockedUntil);
+    }
+    return itemIds.size();
+  }
+
+  private void backfillExistingTaskAssignments(long labelerId) {
+    List<AssignmentRecord> existingAssignments = taskRepository.listLabelerAssignments(labelerId, null);
+    List<Long> visitedTaskIds = new ArrayList<>();
+    for (AssignmentRecord assignment : existingAssignments) {
+      if (visitedTaskIds.contains(assignment.taskId())) {
+        continue;
+      }
+      visitedTaskIds.add(assignment.taskId());
+      backfillAssignmentsForLabelerTask(labelerId, assignment.taskId());
+    }
+  }
+
+  private boolean canCreateMoreAssignments(TaskRecord task) {
+    return "published".equals(task.status())
+        && (task.deadline() == null || !task.deadline().isBefore(LocalDateTime.now()));
+  }
+
+  private long resolveAssignableRemaining(long taskId, Integer quota) {
+    long claimableItems = taskRepository.countClaimableItems(taskId);
+    if (claimableItems <= 0) {
+      return 0;
+    }
+    if (quota == null) {
+      return claimableItems;
+    }
+    long quotaRemaining = quota - taskRepository.countTaskAssignments(taskId);
+    return Math.min(Math.max(quotaRemaining, 0), claimableItems);
+  }
+
+  private int toBatchSize(long size) {
+    return (int) Math.min(size, Integer.MAX_VALUE);
+  }
+
+  private ApiException noAssignableItemOrQuota(long taskId, String action) {
+    if (taskRepository.countClaimableItems(taskId) <= 0) {
+      String message = "assign".equals(action)
+          ? "task has no available item to assign"
+          : "task has no available item to claim";
+      return new ApiException(HttpStatus.CONFLICT, "NO_AVAILABLE_ITEM", message);
+    }
+    return new ApiException(HttpStatus.CONFLICT, "TASK_QUOTA_EXHAUSTED", "task quota is exhausted");
   }
 
   private void validateClaimableTask(TaskRecord task) {

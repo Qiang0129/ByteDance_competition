@@ -10,13 +10,15 @@ interface MyTaskRow {
   key: string;
   assignmentId: string;
   taskId: string;
-  itemId: string;
   title: string;
   type: string;
   status: ItemStatus;
   progress: string;
   updatedAt: string;
   ownerName: string;
+  assignedCount: number;
+  pendingCount: number;
+  submittedCount: number;
 }
 
 const statusText: Record<ItemStatus, string> = {
@@ -37,58 +39,107 @@ const statusColor: Record<ItemStatus, string> = {
 
 const sampleRows: MyTaskRow[] = [
   {
-    key: 'sample-a-1',
+    key: 'sample-t-1',
     assignmentId: 'sample-a-1',
     taskId: 'sample-t-1',
-    itemId: 'sample-i-1',
     title: 'QA 质量评估 · 批次 Q12',
     type: 'QA Quality',
     status: 'claimed',
-    progress: '24 / 50',
+    progress: '已提交 24 / 50',
     updatedAt: '今天 14:32',
     ownerName: 'Demo Owner',
+    assignedCount: 50,
+    pendingCount: 26,
+    submittedCount: 24,
   },
   {
-    key: 'sample-a-2',
+    key: 'sample-t-2',
     assignmentId: 'sample-a-2',
     taskId: 'sample-t-2',
-    itemId: 'sample-i-2',
     title: '偏好对比 A/B · 批次 P07',
     type: 'Preference Compare',
     status: 'submitted',
-    progress: '0 / 12',
+    progress: '已提交 12 / 12',
     updatedAt: '昨天 18:01',
     ownerName: 'Demo Owner',
+    assignedCount: 12,
+    pendingCount: 0,
+    submittedCount: 12,
   },
   {
-    key: 'sample-a-3',
+    key: 'sample-t-3',
     assignmentId: 'sample-a-3',
     taskId: 'sample-t-3',
-    itemId: 'sample-i-3',
     title: '图像分类标注 · 交通标志 V4',
     type: 'Image Classification',
     status: 'claimed',
-    progress: '0 / 18',
+    progress: '已提交 0 / 18',
     updatedAt: '昨天 20:45',
     ownerName: 'Demo Owner',
+    assignedCount: 18,
+    pendingCount: 18,
+    submittedCount: 0,
   },
 ];
 
-function assignmentToRow(item: Assignment): MyTaskRow {
-  const quotaUsed = item.quotaUsed ?? 0;
-  const quotaTotal = item.quotaTotal ?? 0;
-  return {
-    key: item.assignmentId,
-    assignmentId: item.assignmentId,
-    taskId: item.taskId,
-    itemId: item.itemId,
-    title: item.taskTitle || `任务 #${item.taskId}`,
-    type: item.taskType || 'Annotation Task',
-    status: item.status,
-    progress: `${quotaUsed.toLocaleString()} / ${quotaTotal.toLocaleString()}`,
-    updatedAt: item.updatedAt || item.submittedAt || item.claimedAt || '-',
-    ownerName: item.ownerName || '-',
-  };
+function assignmentsToRows(items: Assignment[]): MyTaskRow[] {
+  const grouped = new Map<string, Assignment[]>();
+  items.forEach((item) => {
+    grouped.set(item.taskId, [...(grouped.get(item.taskId) ?? []), item]);
+  });
+
+  return Array.from(grouped.entries()).map(([taskId, assignments]) => {
+    const latest = assignments[0];
+    const entry = resolveEntryAssignment(assignments);
+    const submittedCount = assignments.filter((item) =>
+      item.status === 'submitted' || item.status === 'accepted'
+    ).length;
+    const pendingCount = assignments.filter((item) =>
+      item.status === 'claimed' || item.status === 'returned'
+    ).length;
+    const assignedCount = assignments.length;
+    const quotaTotal = latest.quotaTotal ?? assignedCount;
+
+    return {
+      key: taskId,
+      assignmentId: entry.assignmentId,
+      taskId,
+      title: latest.taskTitle || `任务 #${taskId}`,
+      type: latest.taskType || 'Annotation Task',
+      status: resolveTaskStatus(assignments),
+      progress: `已提交 ${submittedCount.toLocaleString()} / ${assignedCount.toLocaleString()} · 已领 ${assignedCount.toLocaleString()} / ${quotaTotal.toLocaleString()}`,
+      updatedAt: latest.updatedAt || latest.submittedAt || latest.claimedAt || '-',
+      ownerName: latest.ownerName || '-',
+      assignedCount,
+      pendingCount,
+      submittedCount,
+    };
+  });
+}
+
+function resolveEntryAssignment(assignments: Assignment[]) {
+  const sorted = [...assignments].sort(compareAssignmentId);
+  return (
+    sorted.find((item) => item.status === 'returned') ??
+    sorted.find((item) => item.status === 'claimed') ??
+    sorted[0]
+  );
+}
+
+function resolveTaskStatus(assignments: Assignment[]): ItemStatus {
+  if (assignments.some((item) => item.status === 'returned')) return 'returned';
+  if (assignments.some((item) => item.status === 'claimed')) return 'claimed';
+  if (assignments.every((item) => item.status === 'accepted')) return 'accepted';
+  return 'submitted';
+}
+
+function compareAssignmentId(a: Assignment, b: Assignment) {
+  const left = Number(a.assignmentId);
+  const right = Number(b.assignmentId);
+  if (Number.isFinite(left) && Number.isFinite(right)) {
+    return left - right;
+  }
+  return a.assignmentId.localeCompare(b.assignmentId);
 }
 
 export default function MyTasks() {
@@ -106,7 +157,7 @@ export default function MyTasks() {
       try {
         const response = await labelerApi.listMyAssignments();
         if (cancelled) return;
-        setRows((response.items ?? []).map(assignmentToRow));
+        setRows(assignmentsToRows(response.items ?? []));
         setUsingFallback(false);
       } catch (error) {
         if (cancelled) return;
@@ -133,7 +184,7 @@ export default function MyTasks() {
         <Space direction="vertical" size={2}>
           <span>{record.title}</span>
           <Typography.Text type="secondary">
-            Assignment {record.assignmentId} · Item {record.itemId} · Owner {record.ownerName}
+            Task {record.taskId} · Owner {record.ownerName} · 已领取 {record.assignedCount} 题 · 待答 {record.pendingCount} 题
           </Typography.Text>
         </Space>
       ),
@@ -150,7 +201,7 @@ export default function MyTasks() {
         <Tag color={statusColor[status] ?? 'default'}>{statusText[status] ?? status}</Tag>
       ),
     },
-    { title: '已领 / 配额', dataIndex: 'progress' },
+    { title: '作答进度', dataIndex: 'progress' },
     { title: '更新时间', dataIndex: 'updatedAt' },
     {
       title: '操作',
@@ -161,11 +212,8 @@ export default function MyTasks() {
             type="link"
             onClick={() => navigate(`/labeler/answer/${record.assignmentId}`)}
           >
-            继续答题
+            {record.pendingCount > 0 ? '继续答题' : '查看答卷'}
           </Button>
-          {(record.status === 'submitted' || record.status === 'accepted') && (
-            <Button type="link">查看答卷</Button>
-          )}
         </Space>
       ),
     },

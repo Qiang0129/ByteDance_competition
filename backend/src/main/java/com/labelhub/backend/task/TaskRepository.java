@@ -134,6 +134,16 @@ public class TaskRepository {
         "ORDER BY t.created_at DESC");
   }
 
+  public int deleteTask(long ownerId, long taskId) {
+    return jdbcTemplate.update(
+        """
+        DELETE FROM tasks
+        WHERE id = ? AND owner_id = ?
+        """,
+        taskId,
+        ownerId);
+  }
+
   public long countMarketTasks(
       String keyword,
       String normalizedTaskType,
@@ -191,7 +201,12 @@ public class TaskRepository {
         WHERE a.task_id = ? AND a.labeler_id = ?
         """,
         List.of(taskId, labelerId),
-        "ORDER BY a.created_at DESC LIMIT 1").stream().findFirst();
+        """
+        ORDER BY
+          CASE WHEN a.status IN ('claimed', 'returned') THEN 0 ELSE 1 END,
+          a.id ASC
+        LIMIT 1
+        """).stream().findFirst();
   }
 
   public Optional<AssignmentRecord> findAssignment(long assignmentId) {
@@ -250,7 +265,31 @@ public class TaskRepository {
     return count == null ? 0L : count;
   }
 
+  public long countClaimableItems(long taskId) {
+    Long count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM items i
+        WHERE i.task_id = ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM assignments a
+            WHERE a.item_id = i.id
+          )
+        """,
+        Long.class,
+        taskId);
+    return count == null ? 0L : count;
+  }
+
   public Optional<Long> findFirstClaimableItem(long taskId) {
+    return findClaimableItems(taskId, 1).stream().findFirst();
+  }
+
+  public List<Long> findClaimableItems(long taskId, int limit) {
+    if (limit <= 0) {
+      return List.of();
+    }
     return jdbcTemplate.query(
         """
         SELECT i.id
@@ -260,15 +299,14 @@ public class TaskRepository {
             SELECT 1
             FROM assignments a
             WHERE a.item_id = i.id
-          )
+        )
         ORDER BY i.id ASC
-        LIMIT 1
+        LIMIT ?
         FOR UPDATE
         """,
         (rs, rowNum) -> rs.getLong("id"),
-        taskId)
-        .stream()
-        .findFirst();
+        taskId,
+        limit);
   }
 
   public long createAssignment(

@@ -1,7 +1,9 @@
 package com.labelhub.backend.task;
 
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,6 +41,14 @@ public class TaskController {
   @GetMapping("/tasks")
   public PageResponse<OwnerTaskResponse> listOwnerTasks(Authentication authentication) {
     return taskService.listOwnerTasks(authentication);
+  }
+
+  @DeleteMapping("/tasks/{taskId}")
+  public ResponseEntity<Void> deleteTask(
+      Authentication authentication,
+      @PathVariable long taskId) {
+    taskService.deleteTask(authentication, taskId);
+    return ResponseEntity.noContent().build();
   }
 
   @GetMapping("/tasks/assignable-labelers")

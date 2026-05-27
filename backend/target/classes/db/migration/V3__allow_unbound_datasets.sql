@@ -1,5 +1,4 @@
--- Allow Owner to create/import datasets before binding them to a task.
--- Existing databases initialized from V1 need this manual migration.
+-- Allow datasets and imported items to exist before being bound to a task.
 
 USE labelhub;
 
@@ -7,10 +6,10 @@ ALTER TABLE items DROP FOREIGN KEY fk_items_task;
 ALTER TABLE datasets DROP FOREIGN KEY fk_datasets_task;
 
 ALTER TABLE datasets
-  MODIFY task_id BIGINT UNSIGNED DEFAULT NULL;
+  MODIFY COLUMN task_id BIGINT UNSIGNED DEFAULT NULL;
 
 ALTER TABLE items
-  MODIFY task_id BIGINT UNSIGNED DEFAULT NULL;
+  MODIFY COLUMN task_id BIGINT UNSIGNED DEFAULT NULL;
 
 ALTER TABLE datasets
   ADD CONSTRAINT fk_datasets_task
