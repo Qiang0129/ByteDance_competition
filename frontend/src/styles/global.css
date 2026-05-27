@@ -338,6 +338,15 @@ body {
   gap: 16px;
 }
 
+/* 内层 Layout(Header + Content):简单 flex 容器,
+   只负责 Header 与 Content 之间的 16px gap,不做样式装饰 */
+.app-shell > .ant-layout > .ant-layout {
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 /* 左侧白色侧栏:圆角 + 阴影,呼吸感更足 */
 .app-shell .ant-layout-sider {
   background: #ffffff;
@@ -790,13 +799,22 @@ body {
 }
 
 .app-content {
-  padding: 24px;
-  background: transparent;
+  /* 主内容区:大圆角浅灰浮卡,作为右侧"工作台画布".
+     子白卡浮在它上面,但它们的描边用与画布同色的浅灰,
+     避免形成"双层卡片"的白边视觉. */
+  padding: 20px;
+  background: #eef2f7;
+  border-radius: 22px;
+  border: 1px solid #e2e6ec;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 6px 20px rgba(15, 23, 42, 0.04);
+  overflow: visible;
 }
 
-/* 内容区卡片:统一圆角 + 柔阴影,呼应登录卡 */
+/* 内容区子卡:浮在主内容区浅灰浮卡上,边框用浅灰避免白边突兀 */
 .app-content .ant-card {
-  border: 1px solid #eef0f5;
+  border: 1px solid #e6e9ef;
   border-radius: 14px;
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
   transition: box-shadow 0.2s ease, transform 0.2s ease;
@@ -942,23 +960,63 @@ body {
   line-height: 1.7;
 }
 
+/* hero 内按钮容器:用独立 div 包裹每个按钮,彻底隔离 hover 互相影响 */
+.overview-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.overview-hero-btn-wrap {
+  display: inline-block;
+}
+
+/* hero 内白底主色字按钮:不依赖 type="primary",直接用类样式,
+   避免被渐变模式下 .ant-btn-primary 的通用规则套住 */
 .overview-hero-cta.ant-btn {
+  position: relative;
+  isolation: isolate;
   background: #ffffff;
+  background-image: none;
   color: var(--lh-primary);
-  border: none;
+  /* 用 transparent border 而不是 border:none,
+     避免 antd hover 时恢复 1px border 导致宽度变化挤动相邻按钮 */
+  border: 1px solid transparent;
   font-weight: 600;
+  height: 40px;
+  padding: 0 18px;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  transform: translateZ(0);
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .overview-hero-cta.ant-btn:hover {
-  background: #f5f8ff !important;
+  background: #f0f4ff !important;
+  background-image: none !important;
   color: var(--lh-primary-hover) !important;
+  border: 1px solid transparent !important;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+}
+
+/* 禁掉 antd Button 的 ::before/::after 波纹伪元素 */
+.overview-hero-cta.ant-btn::before,
+.overview-hero-cta.ant-btn::after,
+.overview-hero-secondary.ant-btn::before,
+.overview-hero-secondary.ant-btn::after {
+  display: none !important;
 }
 
 .overview-hero-secondary.ant-btn {
+  position: relative;
+  isolation: isolate;
   background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   color: #ffffff;
+  height: 40px;
+  padding: 0 18px;
+  transform: translateZ(0);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .overview-hero-secondary.ant-btn:hover {
@@ -1265,8 +1323,23 @@ body {
 }
 
 .shortcut-tile .anticon {
+  /* 给图标包一个圆角浅色底,提升识别度 */
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--lh-primary-bg-10);
   font-size: 20px;
   color: var(--lh-primary);
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.shortcut-tile:hover .anticon {
+  background: var(--lh-primary);
+  color: #ffffff;
+  transform: scale(1.04);
 }
 
 .shortcut-tile:hover {
@@ -2359,12 +2432,42 @@ body {
   font-size: 13px;
 }
 
+.designer-meta-panel {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.45fr) minmax(320px, 1fr);
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #eef0f5;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+  padding: 14px 16px;
+}
+
+.designer-meta-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.designer-meta-label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.designer-meta-panel .ant-input {
+  border-radius: 10px;
+}
+
 /* 三栏 grid:左 240 / 中自适应 / 右 320 */
 .designer-grid {
   display: grid;
   grid-template-columns: 240px 1fr 320px;
   gap: 12px;
   min-height: 600px;
+  /* 底部留出边距,避免最后一行卡片底部圆角被视口边缘裁切显得直角 */
+  padding-bottom: 16px;
 }
 
 .designer-left,
@@ -2691,6 +2794,9 @@ body {
 
 /* 窄屏:Designer 三栏改为单列堆叠 */
 @media (max-width: 1180px) {
+  .designer-meta-panel {
+    grid-template-columns: 1fr;
+  }
   .designer-grid {
     grid-template-columns: 1fr;
   }
@@ -4576,15 +4682,27 @@ body {
   color: #ffffff;
 }
 
-/* 8. 主色"浅底圆角图标背景"(KPI 图标 / 快捷入口图标 / 占位图标 / Tag pill 等)
-   从纯色低透明度 -> 主色渐变低透明度,加柔和过渡 */
+/* 8. 主色"浅底圆角图标背景"(KPI 图标 / 占位图标 / Tag pill 等):
+   从纯色低透明度 -> 主色渐变低透明度,加柔和过渡.
+   注意:.shortcut-tile .anticon 本身没有背景框,只是一个纯图标,
+   不能在它上面叠 background-image 渐变,否则会变成丑陋的色块. */
 :root[data-style-version='gradient'] .kpi-icon,
-:root[data-style-version='gradient'] .shortcut-tile .anticon,
 :root[data-style-version='gradient'] .market-kpi-icon,
 :root[data-style-version='gradient'] .template-stat-icon,
 :root[data-style-version='gradient'] .reviewer-stat-icon {
   background-image: var(--lh-primary-gradient);
   background-clip: padding-box;
+}
+
+/* 渐变模式下,快捷入口图标的浅底框也使用主色渐变(低透明) */
+:root[data-style-version='gradient'] .shortcut-tile .anticon {
+  background:
+    linear-gradient(135deg, var(--lh-primary-bg-14) 0%, var(--lh-primary-bg-25) 100%);
+}
+
+:root[data-style-version='gradient'] .shortcut-tile:hover .anticon {
+  background: var(--lh-primary-gradient);
+  color: #ffffff;
 }
 
 /* 9. 内容卡片 hover 高亮边阴影增强,让浮起更明显 */

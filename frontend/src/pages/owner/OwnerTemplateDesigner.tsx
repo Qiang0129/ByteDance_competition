@@ -291,6 +291,10 @@ export default function OwnerTemplateDesigner() {
     }));
   }
 
+  function updateSchemaMeta(patch: Partial<Pick<SchemaVersion, 'name' | 'description'>>) {
+    setSchema((prev) => ({ ...prev, ...patch }));
+  }
+
   function addMaterial(meta: MaterialMeta) {
     setSchema((prev) => {
       const field = createField(meta, prev.fields);
@@ -388,12 +392,22 @@ export default function OwnerTemplateDesigner() {
     }
   }
 
+  function validateTemplateMeta() {
+    if (!schema.name.trim()) {
+      message.warning('请先填写模板名称');
+      return false;
+    }
+    return true;
+  }
+
   async function saveDraft(): Promise<SchemaVersion> {
+    const name = schema.name.trim();
+    const description = schema.description?.trim();
     if (schema.versionId.startsWith('draft-')) {
       const created = await schemaApi.createStandaloneDraft({
-        name: schema.name,
+        name,
         taskId: schema.taskId,
-        description: schema.description,
+        description,
         fields: schema.fields,
       });
       setSchema(created);
@@ -406,9 +420,9 @@ export default function OwnerTemplateDesigner() {
     }
 
     const updated = await schemaApi.updateDraft(schema.versionId, {
-      name: schema.name,
+      name,
       taskId: schema.taskId,
-      description: schema.description,
+      description,
       fields: schema.fields,
     });
     setSchema(updated);
@@ -418,6 +432,7 @@ export default function OwnerTemplateDesigner() {
   }
 
   async function handleSave() {
+    if (!validateTemplateMeta()) return;
     try {
       await saveDraft();
       message.success('草稿已保存');
@@ -427,6 +442,7 @@ export default function OwnerTemplateDesigner() {
   }
 
   async function handlePublish() {
+    if (!validateTemplateMeta()) return;
     Modal.confirm({
       title: '确认发布该 Schema 版本?',
       content:
@@ -492,6 +508,29 @@ export default function OwnerTemplateDesigner() {
             保存并发布
           </Button>
         </Space>
+      </div>
+
+      <div className="designer-meta-panel">
+        <div className="designer-meta-field designer-meta-field-name">
+          <span className="designer-meta-label">模板名称</span>
+          <Input
+            value={schema.name}
+            maxLength={80}
+            disabled={schema.status === 'published'}
+            placeholder="例如: 问答质量评分模板"
+            onChange={(event) => updateSchemaMeta({ name: event.target.value })}
+          />
+        </div>
+        <div className="designer-meta-field">
+          <span className="designer-meta-label">模板描述</span>
+          <Input
+            value={schema.description ?? ''}
+            maxLength={160}
+            disabled={schema.status === 'published'}
+            placeholder="说明该模板适用的数据集、标注目标或注意事项"
+            onChange={(event) => updateSchemaMeta({ description: event.target.value })}
+          />
+        </div>
       </div>
 
       <div className="designer-subtitle">

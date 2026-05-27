@@ -134,25 +134,30 @@ export default function LabelerOverview() {
             浏览任务市场认领新的批次,在线作答会自动保存草稿;提交后将进入 AI 预审与人工审核闭环,
             打回项可在「打回项」页查看原因后重新提交。
           </Typography.Paragraph>
-          <Space size="middle">
-            <Button
-              type="primary"
-              size="large"
-              icon={<ShopOutlined />}
-              onClick={() => navigate('/labeler/market')}
-              className="overview-hero-cta"
-            >
-              进入任务市场
-            </Button>
-            <Button
-              size="large"
-              icon={<EditOutlined />}
-              onClick={() => navigate('/labeler/drafts')}
-              className="overview-hero-secondary"
-            >
-              查看草稿
-            </Button>
-          </Space>
+          <div className="overview-hero-actions">
+            {/* 不用 type="primary" 避免在渐变模式下被通用主按钮渐变规则盖住,
+               用 .overview-hero-cta 类自定义白底主色字 */}
+            <div className="overview-hero-btn-wrap">
+              <Button
+                size="large"
+                icon={<ShopOutlined />}
+                onClick={() => navigate('/labeler/market')}
+                className="overview-hero-cta"
+              >
+                进入任务市场
+              </Button>
+            </div>
+            <div className="overview-hero-btn-wrap">
+              <Button
+                size="large"
+                icon={<EditOutlined />}
+                onClick={() => navigate('/labeler/drafts')}
+                className="overview-hero-secondary"
+              >
+                查看草稿
+              </Button>
+            </div>
+          </div>
         </div>
 
         <div className="overview-hero-stats">
