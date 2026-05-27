@@ -73,8 +73,18 @@ export function AppRoutes() {
         <Route path="/reviewer/disputes" element={<ReviewerDisputes />} />
         <Route path="/reviewer/reports" element={<ReviewerReports />} />
 
-        {/* 系统设置:外观主题选择,所有角色共用 */}
-        <Route path="/settings/appearance" element={<AppearanceSettings />} />
+        {/* 系统设置:外观主题选择,所有角色共用同一个组件,
+           但通过给每个角色挂独立路径,保留 URL 中的角色前缀,
+           AppLayout 的 resolveSection 据此正确判断当前角色。 */}
+        <Route path="/owner/settings/appearance" element={<AppearanceSettings />} />
+        <Route path="/labeler/settings/appearance" element={<AppearanceSettings />} />
+        <Route path="/reviewer/settings/appearance" element={<AppearanceSettings />} />
+        {/* 旧路径兼容:已分发到老用户书签的 /settings/appearance,
+           回落到 owner 端避免 404 */}
+        <Route
+          path="/settings/appearance"
+          element={<Navigate to="/owner/settings/appearance" replace />}
+        />
       </Route>
 
       <Route path="*" element={<NotFound />} />

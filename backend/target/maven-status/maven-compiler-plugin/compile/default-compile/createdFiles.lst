@@ -30,6 +30,7 @@ com\labelhub\backend\schema\SchemaVersionResponse.class
 com\labelhub\backend\auth\AuthUserResponse.class
 com\labelhub\backend\task\AssignmentResponse.class
 com\labelhub\backend\annotation\DraftRequest.class
+com\labelhub\backend\annotation\AnnotationRepository$AnnotationRecord.class
 com\labelhub\backend\annotation\AnnotationRepository$SchemaSnapshotRecord.class
 com\labelhub\backend\task\AssignmentRecord.class
 com\labelhub\backend\dataset\DatasetRecord.class

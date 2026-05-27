@@ -7,9 +7,13 @@ public record AssignmentItemResponse(
     String taskId,
     String taskTitle,
     String itemId,
+    String status,
+    boolean editable,
+    String deadline,
     String schemaVersionId,
     JsonNode rawPayload,
     JsonNode fields,
     AssignmentPositionResponse position,
     String returnReason,
-    DraftResponse draft) {}
+    DraftResponse draft,
+    AnnotationResponse latestAnnotation) {}

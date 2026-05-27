@@ -212,7 +212,7 @@ export default function MyTasks() {
             type="link"
             onClick={() => navigate(`/labeler/answer/${record.assignmentId}`)}
           >
-            {record.pendingCount > 0 ? '继续答题' : '查看答卷'}
+            {record.pendingCount > 0 ? '继续答题' : '查看/修改答卷'}
           </Button>
         </Space>
       ),

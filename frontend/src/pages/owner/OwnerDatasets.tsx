@@ -650,7 +650,7 @@ export default function OwnerDatasets() {
               className="dataset-meta-card"
               title={
                 <Space size={8}>
-                  <DatabaseOutlined style={{ color: '#2f7bff' }} />
+                  <DatabaseOutlined style={{ color: 'var(--lh-primary)' }} />
                   <span>{activeDataset.name}</span>
                   <DatasetKindTag kind={activeDataset.kind} />
                 </Space>

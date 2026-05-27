@@ -31,6 +31,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { labelerApi } from '../../api/labeler';
 import type { AssignmentItem } from '../../types/labeler';
+import { useThemeColors } from '../../theme/useThemeColors';
 
 /**
  * Labeler 答题页(Renderer)。
@@ -48,6 +49,7 @@ const DRAFT_DEBOUNCE_MS = 1500;
 export default function AnswerPage() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
+  const themeColors = useThemeColors();
   const { message } = AntdApp.useApp();
 
   const [item, setItem] = useState<AssignmentItem | null>(null);
@@ -58,12 +60,18 @@ export default function AnswerPage() {
   const [savingDraft, setSavingDraft] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
 
   // 用 ref 把答案与 assignmentId 同步给 setTimeout 回调,避免闭包问题
   const answerRef = useRef(answer);
   const assignmentIdRef = useRef(assignmentId);
+  const editableRef = useRef(false);
+  const dirtyRef = useRef(false);
+  const canEdit = item ? item.editable ?? isEditableStatus(item.status) : false;
   answerRef.current = answer;
   assignmentIdRef.current = assignmentId;
+  editableRef.current = canEdit;
+  dirtyRef.current = dirty;
 
   /** 拉取题目 */
   useEffect(() => {
@@ -98,11 +106,18 @@ export default function AnswerPage() {
     };
 
     function applyItem(data: AssignmentItem) {
-      setItem(data);
-      // 优先使用草稿;打回项 returnReason 单独显示
-      const initial = data.draft?.answerJson ?? {};
+      const normalized: AssignmentItem = {
+        ...data,
+        status: data.status ?? (data.latestAnnotation ? 'submitted' : 'claimed'),
+      };
+      setItem(normalized);
+      // 可编辑时优先恢复草稿;已锁定时优先展示正式提交答案。
+      const initial = normalized.editable === false
+        ? normalized.latestAnnotation?.answerJson ?? normalized.draft?.answerJson ?? {}
+        : normalized.draft?.answerJson ?? normalized.latestAnnotation?.answerJson ?? {};
       setAnswer(initial);
-      setDraftSavedAt(data.draft?.updatedAt ?? null);
+      setDraftSavedAt(normalized.draft?.updatedAt ?? null);
+      setDirty(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignmentId]);
@@ -111,13 +126,15 @@ export default function AnswerPage() {
   useEffect(() => {
     if (!assignmentId) return;
     if (!item) return;
+    if (!canEdit) return;
+    if (!dirty) return;
     if (Object.keys(answer).length === 0) return;
     const timer = window.setTimeout(() => {
       void persistDraft();
     }, DRAFT_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [answer]);
+  }, [answer, canEdit, dirty]);
 
   /** 离开页面前主动保存一次 */
   useEffect(() => {
@@ -125,6 +142,8 @@ export default function AnswerPage() {
       // 卸载时:同步发一次草稿(浏览器关闭走 sendBeacon 更靠谱,这里走普通请求)
       const aid = assignmentIdRef.current;
       if (!aid) return;
+      if (!editableRef.current) return;
+      if (!dirtyRef.current) return;
       const payload = answerRef.current;
       if (Object.keys(payload).length === 0) return;
       void labelerApi.saveDraft(aid, payload).catch(() => {
@@ -135,6 +154,8 @@ export default function AnswerPage() {
 
   const persistDraft = useCallback(async () => {
     if (!assignmentId) return;
+    if (!editableRef.current) return;
+    if (!dirtyRef.current) return;
     setSavingDraft(true);
     try {
       await labelerApi.saveDraft(assignmentId, answer);
@@ -148,7 +169,9 @@ export default function AnswerPage() {
   }, [answer, assignmentId]);
 
   function updateField(fieldName: string, value: unknown) {
+    if (!canEdit) return;
     setAnswer((prev) => ({ ...prev, [fieldName]: value }));
+    setDirty(true);
     // 编辑后清掉该字段的旧报错
     setErrors((prev) => {
       if (!prev[fieldName]) return prev;
@@ -197,6 +220,10 @@ export default function AnswerPage() {
 
   async function handleSubmit() {
     if (!item) return;
+    if (!canEdit) {
+      message.info('当前题目已超过截止时间或已完成审核,只能查看答案。');
+      return;
+    }
     if (!validate()) {
       message.warning('请按提示修正后再提交');
       return;
@@ -238,6 +265,10 @@ export default function AnswerPage() {
   }
 
   function handleClose() {
+    if (!canEdit) {
+      navigate('/labeler/my-tasks');
+      return;
+    }
     Modal.confirm({
       title: '退出答题?',
       content: '当前草稿已自动保存,可在「草稿箱」继续作答。',
@@ -269,6 +300,8 @@ export default function AnswerPage() {
     item.position.total === 0
       ? 0
       : Math.round((item.position.index / item.position.total) * 100);
+  const statusLabel = assignmentStatusText(item.status);
+  const submitButtonText = item.status === 'submitted' ? '重新提交' : '提交并继续';
 
   return (
     <Space direction="vertical" size="large" className="page-stack answer-page">
@@ -292,16 +325,25 @@ export default function AnswerPage() {
             ]}
           />
           {usingFallback && <Tag color="gold">演示模式</Tag>}
+          <Tag color={canEdit ? 'processing' : 'blue'}>{statusLabel}</Tag>
         </Space>
         <Space size={12} wrap>
           <span className="answer-draft-tip">
-            {savingDraft ? (
+            {!canEdit ? (
+              <>
+                <CheckCircleFilled style={{ color: 'var(--lh-primary)' }} /> 已锁定,当前为查看模式
+              </>
+            ) : savingDraft ? (
               <>
                 <CloudSyncOutlined spin /> 草稿保存中...
               </>
             ) : draftSavedAt ? (
               <>
                 <CheckCircleFilled style={{ color: '#22c55e' }} /> 已保存于 {draftSavedAt}
+              </>
+            ) : item.status === 'submitted' ? (
+              <>
+                <SaveOutlined /> 截止前可修改,编辑后将自动保存
               </>
             ) : (
               <>
@@ -312,11 +354,19 @@ export default function AnswerPage() {
           <Button onClick={handlePrev} disabled={!item.position.prevAssignmentId}>
             <ArrowLeftOutlined /> 上一题
           </Button>
-          <Button onClick={handleSkip}>
-            跳过 <ArrowRightOutlined />
+          <Button
+            onClick={handleSkip}
+            disabled={!item.position.nextAssignmentId}
+          >
+            下一题 <ArrowRightOutlined />
           </Button>
-          <Button type="primary" loading={submitting} onClick={() => void handleSubmit()}>
-            提交并继续
+          <Button
+            type="primary"
+            loading={submitting}
+            disabled={!canEdit}
+            onClick={() => void handleSubmit()}
+          >
+            {canEdit ? submitButtonText : '已锁定'}
           </Button>
         </Space>
       </div>
@@ -325,7 +375,7 @@ export default function AnswerPage() {
       <Progress
         percent={progressPct}
         showInfo={false}
-        strokeColor={{ from: '#6fb6ff', to: '#2f7bff' }}
+        strokeColor={themeColors.progress}
         className="answer-progress"
       />
 
@@ -366,6 +416,7 @@ export default function AnswerPage() {
                   field={field}
                   value={answer[field.fieldName]}
                   error={errors[field.fieldName]}
+                  readOnly={!canEdit}
                   onChange={(value) => updateField(field.fieldName, value)}
                 />
               ))}
@@ -396,6 +447,25 @@ function getSubmitErrorMessage(error: unknown) {
   }
 
   return '提交失败,请稍后重试。';
+}
+
+function isEditableStatus(status?: string) {
+  return status === 'claimed' || status === 'returned' || status === 'submitted';
+}
+
+function assignmentStatusText(status?: string) {
+  switch (status) {
+    case 'claimed':
+      return '进行中';
+    case 'returned':
+      return '已打回';
+    case 'submitted':
+      return '已提交';
+    case 'accepted':
+      return '已通过';
+    default:
+      return status || '未知状态';
+  }
 }
 
 /* ============ 原题渲染 ============ */
@@ -446,11 +516,13 @@ function FieldRenderer({
   field,
   value,
   error,
+  readOnly,
   onChange,
 }: {
   field: AssignmentItem['fields'][number];
   value: unknown;
   error?: string;
+  readOnly: boolean;
   onChange: (value: unknown) => void;
 }) {
   if (field.kind === 'show-item') {
@@ -487,6 +559,7 @@ function FieldRenderer({
                 onChange={(event) => onChange(event.target.value)}
                 maxLength={field.maxLength}
                 status={error ? 'error' : undefined}
+                disabled={readOnly}
               />
             );
           case 'text-multi':
@@ -498,6 +571,7 @@ function FieldRenderer({
                 onChange={(event) => onChange(event.target.value)}
                 maxLength={field.maxLength}
                 status={error ? 'error' : undefined}
+                disabled={readOnly}
               />
             );
           case 'rich-text':
@@ -508,6 +582,7 @@ function FieldRenderer({
                 value={(value as string) ?? ''}
                 onChange={(event) => onChange(event.target.value)}
                 status={error ? 'error' : undefined}
+                disabled={readOnly}
               />
             );
           case 'single-choice':
@@ -516,6 +591,7 @@ function FieldRenderer({
                 value={value as string}
                 onChange={(event) => onChange(event.target.value)}
                 className="answer-radio-group"
+                disabled={readOnly}
               >
                 <Space wrap>
                   {(field.options ?? []).map((opt) => (
@@ -531,6 +607,7 @@ function FieldRenderer({
               <Checkbox.Group
                 value={(value as string[]) ?? []}
                 onChange={(values) => onChange(values)}
+                disabled={readOnly}
               >
                 <Space wrap size={[8, 8]}>
                   {(field.options ?? []).map((opt) => (
@@ -551,7 +628,9 @@ function FieldRenderer({
                     <Tag.CheckableTag
                       key={opt.value}
                       checked={active}
+                      className={readOnly ? 'answer-tag-readonly' : undefined}
                       onChange={(checked) => {
+                        if (readOnly) return;
                         const next = checked
                           ? Array.from(new Set([...list, opt.value]))
                           : list.filter((v) => v !== opt.value);
@@ -573,6 +652,7 @@ function FieldRenderer({
                 onChange={(event) => onChange(event.target.value)}
                 style={{ fontFamily: 'monospace' }}
                 status={error ? 'error' : undefined}
+                disabled={readOnly}
               />
             );
           default:

@@ -14,6 +14,8 @@ import {
 import { Avatar, Button, Card, Col, Progress, Row, Space, Tag, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
 
+import { useThemeColors } from '../../theme/useThemeColors';
+
 /**
  * Labeler 工作概览。
  * 信息架构对齐《项目实施计划书》4.3 与《LabelHub Project Implementation Plan EN》4.3:
@@ -117,6 +119,7 @@ const reviewTotal = reviewDistribution.reduce((sum, item) => sum + item.value, 0
 
 export default function LabelerOverview() {
   const navigate = useNavigate();
+  const themeColors = useThemeColors();
 
   return (
     <Space direction="vertical" size="large" className="page-stack labeler-overview">
@@ -203,7 +206,7 @@ export default function LabelerOverview() {
               <Typography.Text type="secondary">目标 30 条 · 当前 26 条</Typography.Text>
             }
           >
-            <Progress percent={87} strokeColor={{ from: '#6fb6ff', to: '#2f7bff' }} />
+            <Progress percent={87} strokeColor={themeColors.progress} />
 
             <Row gutter={16} className="overview-progress-meta">
               <Col span={8}>
@@ -232,7 +235,7 @@ export default function LabelerOverview() {
             className="overview-review-card"
             title={
               <Space size={8}>
-                <RobotOutlined style={{ color: '#2f7bff' }} />
+                <RobotOutlined style={{ color: 'var(--lh-primary)' }} />
                 AI 审核分布
               </Space>
             }
@@ -296,7 +299,7 @@ export default function LabelerOverview() {
                           percent={Math.round(100 - ratio)}
                           showInfo={false}
                           size="small"
-                          strokeColor="#2f7bff"
+                          strokeColor={themeColors.primary}
                         />
                         <span className="batch-item-quota">
                           剩余 <strong>{batch.quotaLeft}</strong> / {batch.quotaTotal}
@@ -378,7 +381,7 @@ export default function LabelerOverview() {
                 <Avatar
                   size={28}
                   icon={<RobotOutlined />}
-                  style={{ background: 'rgba(47,123,255,0.12)', color: '#2f7bff' }}
+                  style={{ background: 'var(--lh-primary-bg-12)', color: 'var(--lh-primary)' }}
                 />
                 <span>提交后由 AI Agent 入队评分,失败可重试,最终由审核员裁决。</span>
               </div>

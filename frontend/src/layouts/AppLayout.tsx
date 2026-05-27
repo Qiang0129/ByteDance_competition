@@ -76,6 +76,8 @@ const segmentLabel: Record<string, string> = {
   ai: 'AI 审核',
   disputes: '争议样本',
   reports: '审核报表',
+  settings: '系统设置',
+  appearance: '外观主题',
 };
 
 /**
@@ -335,7 +337,7 @@ export default function AppLayout() {
     }
 
     if (key === 'appearance') {
-      navigate('/settings/appearance');
+      navigate(`/${section}/settings/appearance`);
       return;
     }
 

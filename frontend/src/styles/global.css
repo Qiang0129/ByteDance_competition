@@ -4031,6 +4031,11 @@ body {
   border-color: var(--lh-primary);
 }
 
+.answer-tag-group .answer-tag-readonly {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .answer-radio-group .ant-radio-button-wrapper {
   border-radius: 999px !important;
   margin: 0 8px 8px 0;
@@ -4467,13 +4472,26 @@ body {
    优先级用 attr 选择器叠加,部分 antd 内联 background 用 !important 兜底。 */
 
 /* 0. 工作台大背景:除了左侧 Sider 和顶部 Header(它们都是白色浮卡)以外,
-   主内容区铺一层主色径向光晕渐变,呼应渐变版本主题。 */
+   主内容区铺一层主色径向光晕渐变,呼应渐变版本主题。
+   用四层径向 + 一层线性 + 提高透明度,确保不同主色都能明显感知。 */
 :root[data-style-version='gradient'] .app-shell {
   background:
-    radial-gradient(ellipse 60% 50% at 15% 0%, var(--lh-primary-bg-14) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 60% at 100% 100%, var(--lh-primary-bg-12) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 40% at 80% 20%, var(--lh-primary-bg-8) 0%, transparent 50%),
-    #f3f5f8;
+    radial-gradient(ellipse 70% 55% at 12% -5%, var(--lh-primary-bg-35) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 70% at 100% 105%, var(--lh-primary-bg-32) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 45% at 85% 18%, var(--lh-primary-bg-25) 0%, transparent 55%),
+    radial-gradient(ellipse 45% 40% at 0% 65%, var(--lh-primary-bg-20) 0%, transparent 60%),
+    linear-gradient(160deg, var(--lh-primary-bg-10) 0%, transparent 50%, var(--lh-primary-bg-12) 100%),
+    #f0f4fa;
+}
+
+/* 真正大面积可见的是右侧主内容区 .app-content,在渐变模式下给它叠加双层径向光晕,
+   这样空白区(任务表格之外)能直接感知到主题光晕,不被卡片遮挡 */
+:root[data-style-version='gradient'] .app-content {
+  background:
+    radial-gradient(ellipse 60% 60% at 15% 0%, var(--lh-primary-bg-32) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 65% at 100% 100%, var(--lh-primary-bg-28) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 50% at 80% 20%, var(--lh-primary-bg-18) 0%, transparent 50%),
+    transparent;
 }
 
 /* Sider 和 Header 已经是白色浮卡,不会被背景渐变干扰,无需额外处理 */
@@ -4482,7 +4500,8 @@ body {
 :root[data-style-version='gradient']
   .ant-btn.ant-btn-primary:not(:disabled):not(.ant-btn-disabled) {
   background: var(--lh-primary-gradient-h) !important;
-  border-color: transparent !important;
+  background-clip: padding-box !important;
+  border: none !important;
 }
 
 :root[data-style-version='gradient']
@@ -4496,10 +4515,20 @@ body {
   filter: brightness(0.95);
 }
 
+/* antd Button 的 ::before / ::after 在渐变背景下会暴露 1~2px 边缘瑕疵,
+   渐变模式直接隐藏这两个伪元素,代价仅是失去点击波纹动画 */
+:root[data-style-version='gradient'] .ant-btn.ant-btn-primary::before,
+:root[data-style-version='gradient'] .ant-btn.ant-btn-primary::after,
+:root[data-style-version='gradient'] .login-submit.ant-btn::before,
+:root[data-style-version='gradient'] .login-submit.ant-btn::after {
+  display: none !important;
+}
+
 /* 2. 登录页提交按钮:覆盖原 .login-submit 的纯色 background */
 :root[data-style-version='gradient'] .login-submit.ant-btn {
   background: var(--lh-primary-gradient-h) !important;
-  border-color: transparent !important;
+  background-clip: padding-box !important;
+  border: none !important;
 }
 
 :root[data-style-version='gradient'] .login-submit.ant-btn:hover {
@@ -4583,3 +4612,70 @@ body {
   background: var(--lh-primary-gradient-h) !important;
 }
 
+
+
+/* ========== Designer 选项编辑器 ========== */
+
+.options-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.options-editor-empty {
+  font-size: 12px;
+  padding: 4px 2px 0;
+  color: #94a3b8;
+}
+
+.options-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.options-editor-index {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.options-editor-row .ant-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.options-editor-remove.ant-btn {
+  flex: 0 0 auto;
+  color: #94a3b8;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.options-editor-remove.ant-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.options-editor-add.ant-btn {
+  margin-top: 4px;
+  border-radius: 10px;
+  color: var(--lh-primary);
+  border-color: var(--lh-primary-bg-40);
+}
+
+.options-editor-add.ant-btn:hover {
+  color: var(--lh-primary);
+  border-color: var(--lh-primary);
+  background: var(--lh-primary-bg-6);
+}

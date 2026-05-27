@@ -111,21 +111,22 @@ export default function Login() {
       <span className="login-blob login-blob-large" aria-hidden />
       <span className="login-blob login-blob-small" aria-hidden />
 
-      {/* 底部波浪 */}
+      {/* 底部波浪:fill 用 currentColor + style 注入主题主色,实现切换跟随 */}
       <svg
         className="login-wave"
         viewBox="0 0 1440 220"
         preserveAspectRatio="none"
         aria-hidden
+        style={{ color: 'var(--lh-primary)' }}
       >
         <path
           d="M0,140 C220,40 480,220 720,140 C960,60 1200,210 1440,120 L1440,220 L0,220 Z"
-          fill="#2f7bff"
+          fill="currentColor"
           opacity="0.18"
         />
         <path
           d="M0,170 C240,90 500,240 740,170 C980,100 1220,230 1440,150 L1440,220 L0,220 Z"
-          fill="#2f7bff"
+          fill="currentColor"
         />
       </svg>
 

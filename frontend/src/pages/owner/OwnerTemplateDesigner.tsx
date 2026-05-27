@@ -899,21 +899,10 @@ function PropertyPanel({
                 {(field.kind === 'single-choice' ||
                   field.kind === 'multi-choice' ||
                   field.kind === 'tags') && (
-                  <Field label="选项(逗号分隔)">
-                    <Input
-                      value={(field.options ?? []).map((o) => o.label).join(',')}
-                      onChange={(event) => {
-                        const labels = event.target.value
-                          .split(/[,，]/)
-                          .map((s) => s.trim())
-                          .filter(Boolean);
-                        onChange({
-                          options: labels.map((label, idx) => ({
-                            value: field.options?.[idx]?.value ?? `opt_${idx + 1}`,
-                            label,
-                          })),
-                        });
-                      }}
+                  <Field label="选项">
+                    <OptionsEditor
+                      options={field.options ?? []}
+                      onChange={(next) => onChange({ options: next })}
                     />
                   </Field>
                 )}
@@ -1007,6 +996,70 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="property-field">
       <div className="property-field-label">{label}</div>
       <div className="property-field-control">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * 选项编辑器:一项一个独立 Input,右侧有删除按钮,底部"添加选项"。
+ * - value 自动保留原 value(便于已有数据持续映射),不存在时按 `opt_${idx+1}` 兜底
+ * - 空 label 仍允许输入中状态保留,在序列化保存时由上层做 trim/过滤
+ */
+function OptionsEditor({
+  options,
+  onChange,
+}: {
+  options: Array<{ value: string; label: string }>;
+  onChange: (next: Array<{ value: string; label: string }>) => void;
+}) {
+  const updateAt = (idx: number, patch: Partial<{ value: string; label: string }>) => {
+    const next = options.map((opt, i) => (i === idx ? { ...opt, ...patch } : opt));
+    onChange(next);
+  };
+
+  const removeAt = (idx: number) => {
+    onChange(options.filter((_, i) => i !== idx));
+  };
+
+  const addOne = () => {
+    const idx = options.length;
+    onChange([...options, { value: `opt_${idx + 1}`, label: '' }]);
+  };
+
+  return (
+    <div className="options-editor">
+      {options.length === 0 && (
+        <Typography.Text type="secondary" className="options-editor-empty">
+          暂无选项,点击下方"添加选项"开始编辑。
+        </Typography.Text>
+      )}
+      {options.map((opt, idx) => (
+        <div key={idx} className="options-editor-row">
+          <span className="options-editor-index">{idx + 1}</span>
+          <Input
+            placeholder={`选项 ${idx + 1}`}
+            value={opt.label}
+            onChange={(event) => updateAt(idx, { label: event.target.value })}
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<CloseOutlined />}
+            onClick={() => removeAt(idx)}
+            aria-label={`删除选项 ${idx + 1}`}
+            className="options-editor-remove"
+          />
+        </div>
+      ))}
+      <Button
+        type="dashed"
+        block
+        icon={<PlusOutlined />}
+        onClick={addOne}
+        className="options-editor-add"
+      >
+        添加选项
+      </Button>
     </div>
   );
 }

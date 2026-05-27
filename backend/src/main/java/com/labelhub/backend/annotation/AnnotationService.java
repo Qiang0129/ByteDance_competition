@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.labelhub.backend.annotation.AnnotationRepository.AssignmentItemRecord;
+import com.labelhub.backend.annotation.AnnotationRepository.AnnotationRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.DraftRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord;
 import com.labelhub.backend.auth.ApiException;
@@ -48,17 +49,26 @@ public class AnnotationService {
     DraftResponse draft = annotationRepository.findDraft(assignment.assignmentId())
         .map(this::toDraftResponse)
         .orElse(null);
+    String returnReason = annotationRepository.findLatestReturnReason(assignment.assignmentId())
+        .orElse(null);
+    AnnotationResponse latestAnnotation = annotationRepository.findLatestAnnotation(assignment.assignmentId())
+        .map(record -> toAnnotationResponse(record, returnReason))
+        .orElse(null);
     return new AssignmentItemResponse(
         Long.toString(assignment.assignmentId()),
         Long.toString(assignment.taskId()),
         assignment.taskTitle(),
         Long.toString(assignment.itemId()),
+        assignment.assignmentStatus(),
+        isEditableAssignment(assignment),
+        formatDateTime(assignment.taskDeadline()),
         Long.toString(schema.id()),
         buildRawPayload(assignment),
         schema.fields(),
         resolvePosition(assignment),
-        annotationRepository.findLatestReturnReason(assignment.assignmentId()).orElse(null),
-        draft);
+        returnReason,
+        draft,
+        latestAnnotation);
   }
 
   public DraftResponse getDraft(Authentication authentication, long assignmentId) {
@@ -137,15 +147,31 @@ public class AnnotationService {
   }
 
   private void ensureEditableAssignment(AssignmentItemRecord assignment) {
+    if (isEditableAssignment(assignment)) {
+      return;
+    }
     String status = assignment.assignmentStatus() == null
         ? ""
         : assignment.assignmentStatus().toLowerCase(Locale.ROOT);
-    if (!List.of("claimed", "returned").contains(status)) {
+    if (!List.of("claimed", "returned", "submitted").contains(status)) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "ASSIGNMENT_NOT_EDITABLE",
           "assignment is not editable");
     }
+    throw new ApiException(HttpStatus.CONFLICT, "TASK_EXPIRED", "task deadline has passed");
+  }
+
+  private boolean isEditableAssignment(AssignmentItemRecord assignment) {
+    String status = assignment.assignmentStatus() == null
+        ? ""
+        : assignment.assignmentStatus().toLowerCase(Locale.ROOT);
+    return List.of("claimed", "returned", "submitted").contains(status)
+        && !isDeadlineExpired(assignment.taskDeadline());
+  }
+
+  private boolean isDeadlineExpired(LocalDateTime deadline) {
+    return deadline != null && deadline.isBefore(LocalDateTime.now());
   }
 
   private void ensurePublishedTask(AssignmentItemRecord assignment) {
@@ -251,6 +277,23 @@ public class AnnotationService {
         Long.toString(record.assignmentId()),
         readJson(record.answerJson()),
         formatDateTime(record.updatedAt()));
+  }
+
+  private AnnotationResponse toAnnotationResponse(AnnotationRecord record, String returnReason) {
+    return new AnnotationResponse(
+        Long.toString(record.id()),
+        Long.toString(record.assignmentId()),
+        Long.toString(record.schemaVersionId()),
+        readJson(record.answerJson()),
+        normalizeAnnotationStatus(record.status()),
+        record.revisionNo(),
+        returnReason);
+  }
+
+  private String normalizeAnnotationStatus(String status) {
+    return status == null || status.isBlank()
+        ? "SUBMITTED"
+        : status.toUpperCase(Locale.ROOT);
   }
 
   private JsonNode requireAnswerObject(JsonNode answerJson) {

@@ -122,6 +122,12 @@ export interface AssignmentItem {
   taskId: string;
   taskTitle: string;
   itemId: string;
+  /** 当前作业项状态,用于区分可编辑答题和只读查看 */
+  status: ItemStatus;
+  /** 后端根据状态和任务截止时间计算出的编辑权限 */
+  editable?: boolean;
+  /** 任务截止时间,用于页面提示 */
+  deadline?: string;
   schemaVersionId: string;
   /** 原题数据(根据 media_type 渲染:text / image / video / markdown) */
   rawPayload: {
@@ -162,6 +168,8 @@ export interface AssignmentItem {
   returnReason?: string;
   /** 当前已存的草稿(可空) */
   draft?: { answerJson: Record<string, unknown>; updatedAt: string };
+  /** 最新一版正式提交答案,用于已提交题目回显和打回修改基线 */
+  latestAnnotation?: Annotation | null;
 }
 
 /** 任务市场分页查询参数 */

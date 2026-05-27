@@ -371,7 +371,7 @@ export default function TaskMarket() {
           <Card className="market-kpi-card">
             <div
               className="market-kpi-icon"
-              style={{ background: 'rgba(47, 123, 255, 0.1)', color: '#2f7bff' }}
+              style={{ background: 'var(--lh-primary-bg-10)', color: 'var(--lh-primary)' }}
             >
               <AppstoreOutlined />
             </div>

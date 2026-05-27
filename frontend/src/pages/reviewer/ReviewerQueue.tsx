@@ -340,7 +340,7 @@ function BatchReviewPanel({ batchId }: { batchId: string }) {
           <Card
             title={
               <Space size={8}>
-                <RobotOutlined style={{ color: '#2f7bff' }} />
+                <RobotOutlined style={{ color: 'var(--lh-primary)' }} />
                 AI 预审结果
               </Space>
             }

@@ -87,7 +87,7 @@ export default function ReviewerReports() {
             </div>
             <div className="bar-legend">
               <span>
-                <i className="dot" style={{ background: '#2f7bff' }} />通过
+                <i className="dot" style={{ background: 'var(--lh-primary)' }} />通过
               </span>
               <span>
                 <i className="dot" style={{ background: '#f59e0b' }} />打回

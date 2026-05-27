@@ -3,6 +3,9 @@
   "taskId": "T-2041",
   "taskTitle": "商品标题清洗 v3 · 抖音电商",
   "itemId": "Q0014",
+  "status": "claimed",
+  "editable": true,
+  "deadline": null,
   "schemaVersionId": "r12",
   "rawPayload": {
     "media_type": "text",
@@ -70,5 +73,6 @@
     "nextAssignmentId": "S-2041-015"
   },
   "returnReason": null,
-  "draft": null
+  "draft": null,
+  "latestAnnotation": null
 }

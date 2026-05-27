@@ -66,6 +66,33 @@ public class AnnotationRepository {
         .findFirst();
   }
 
+  public Optional<AnnotationRecord> findLatestAnnotation(long assignmentId) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          id,
+          assignment_id,
+          schema_version_id,
+          CAST(answer_json AS CHAR) AS answer_json,
+          status,
+          revision_no
+        FROM annotations
+        WHERE assignment_id = ?
+        ORDER BY revision_no DESC, id DESC
+        LIMIT 1
+        """,
+        (rs, rowNum) -> new AnnotationRecord(
+            rs.getLong("id"),
+            rs.getLong("assignment_id"),
+            rs.getLong("schema_version_id"),
+            rs.getString("answer_json"),
+            rs.getString("status"),
+            rs.getInt("revision_no")),
+        assignmentId)
+        .stream()
+        .findFirst();
+  }
+
   public DraftRecord upsertDraft(long assignmentId, String answerJson) {
     jdbcTemplate.update(
         """
@@ -202,6 +229,7 @@ public class AnnotationRepository {
           a.status AS assignment_status,
           t.title AS task_title,
           t.status AS task_status,
+          t.deadline AS task_deadline,
           CAST(t.reward_rule AS CHAR) AS reward_rule_json,
           i.item_status,
           CAST(i.raw_payload AS CHAR) AS raw_payload_json,
@@ -234,6 +262,7 @@ public class AnnotationRepository {
             rs.getString("assignment_status"),
             rs.getString("task_title"),
             rs.getString("task_status"),
+            toLocalDateTime(rs.getTimestamp("task_deadline")),
             rs.getString("reward_rule_json"),
             rs.getString("item_status"),
             rs.getString("raw_payload_json"),
@@ -267,6 +296,7 @@ public class AnnotationRepository {
       String assignmentStatus,
       String taskTitle,
       String taskStatus,
+      LocalDateTime taskDeadline,
       String rewardRuleJson,
       String itemStatus,
       String rawPayloadJson,
@@ -288,4 +318,12 @@ public class AnnotationRepository {
       long assignmentId,
       String answerJson,
       LocalDateTime updatedAt) {}
+
+  public record AnnotationRecord(
+      long id,
+      long assignmentId,
+      long schemaVersionId,
+      String answerJson,
+      String status,
+      int revisionNo) {}
 }

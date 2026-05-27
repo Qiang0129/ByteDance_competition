@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { reviewerApi } from '../../api/reviewer';
 import type { ReviewBatch, ReviewerOverview as ReviewerOverviewMeta } from '../../types/reviewer';
+import { useThemeColors } from '../../theme/useThemeColors';
 
 /**
  * Reviewer 工作概览。
@@ -43,6 +44,7 @@ const sampleOverview: ReviewerOverviewMeta = {
 
 export default function ReviewerOverview() {
   const navigate = useNavigate();
+  const themeColors = useThemeColors();
   const [overview, setOverview] = useState<ReviewerOverviewMeta>(sampleOverview);
   const [batches, setBatches] = useState<ReviewBatch[]>([]);
   const [usingFallback, setUsingFallback] = useState(true);
@@ -203,7 +205,7 @@ export default function ReviewerOverview() {
                         percent={ratio}
                         showInfo={false}
                         size="small"
-                        strokeColor={{ from: '#6fb6ff', to: '#2f7bff' }}
+                        strokeColor={themeColors.progress}
                       />
                     </div>
                   );

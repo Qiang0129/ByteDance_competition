@@ -534,7 +534,7 @@ function RecentActivitiesCard({ items }: { items: RecentTaskActivity[] }) {
       <Space direction="vertical" size={0} style={{ width: '100%' }}>
         {items.map((item) => (
           <div key={item.taskId} className="activity-row">
-            <Avatar size={36} icon={<UserOutlined />} style={{ background: '#2f7bff' }} />
+            <Avatar size={36} icon={<UserOutlined />} style={{ background: 'var(--lh-primary)' }} />
             <div className="activity-text">
               <div className="activity-name">{item.ownerName}</div>
               <div className="activity-task">{item.taskTitle}</div>
@@ -556,7 +556,7 @@ function LeaveTableCard({ performance }: { performance: LabelerPerformance[] }) 
       sorter: (a, b) => a.name.localeCompare(b.name),
       render: (_, record) => (
         <Space>
-          <Avatar size={32} icon={<UserOutlined />} style={{ background: '#2f7bff' }} />
+          <Avatar size={32} icon={<UserOutlined />} style={{ background: 'var(--lh-primary)' }} />
           <div>
             <div className="leave-name">{record.name}</div>
             <div className="leave-role">{record.role}</div>
@@ -688,7 +688,7 @@ function DisputeStatsCard() {
           <div className="dispute-label">抽检比例</div>
           <div className="dispute-value">{(sampling * 100).toFixed(0)}%</div>
           <div className="dispute-bar">
-            <span style={{ width: `${sampling * 100}%`, background: '#2f7bff' }} />
+            <span style={{ width: `${sampling * 100}%`, background: 'var(--lh-primary)' }} />
           </div>
         </div>
         <div className="dispute-cell">
@@ -812,7 +812,7 @@ function PerformanceCard({ performance }: { performance: LabelerPerformance[] })
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         {performance.map((p) => (
           <div key={p.labelerId} className="perf-row">
-            <Avatar size={36} icon={<UserOutlined />} style={{ background: '#2f7bff' }} />
+            <Avatar size={36} icon={<UserOutlined />} style={{ background: 'var(--lh-primary)' }} />
             <div className="perf-text">
               <div className="perf-name">{p.name}</div>
               <div className="perf-role">{p.role}</div>
@@ -899,7 +899,7 @@ function SubmissionTimelineCard({ items }: { items: SubmissionTimelineMonth[] })
       </div>
       <div className="bar-legend">
         <span>
-          <i className="dot" style={{ background: '#2f7bff' }} />准时
+          <i className="dot" style={{ background: 'var(--lh-primary)' }} />准时
         </span>
         <span>
           <i className="dot" style={{ background: '#f59e0b' }} />延迟
