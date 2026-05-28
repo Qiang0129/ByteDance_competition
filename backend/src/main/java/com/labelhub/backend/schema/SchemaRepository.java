@@ -113,12 +113,56 @@ public class SchemaRepository {
         schemaId);
   }
 
+  public void withdraw(long schemaId) {
+    jdbcTemplate.update(
+        """
+        UPDATE task_schema_versions
+        SET status = 'draft',
+            published_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        schemaId);
+  }
+
+  public int countTaskReferences(long schemaId) {
+    Integer count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM tasks
+        WHERE CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(reward_rule, '$.schemaVersionId')), '') AS UNSIGNED) = ?
+        """,
+        Integer.class,
+        schemaId);
+    return count == null ? 0 : count;
+  }
+
+  public int countAnnotationReferences(long schemaId) {
+    Integer count = jdbcTemplate.queryForObject(
+        "SELECT COUNT(*) FROM annotations WHERE schema_version_id = ?",
+        Integer.class,
+        schemaId);
+    return count == null ? 0 : count;
+  }
+
+  public int deleteDraft(long ownerId, long schemaId) {
+    return jdbcTemplate.update(
+        """
+        DELETE FROM task_schema_versions
+        WHERE id = ?
+          AND created_by = ?
+          AND status = 'draft'
+        """,
+        schemaId,
+        ownerId);
+  }
+
   private List<SchemaRecord> querySchemas(String whereClause, List<Object> args, String suffix) {
     String sql = """
         SELECT
           tsv.id,
-          tsv.task_id,
-          t.title AS task_title,
+          COALESCE(tsv.task_id, referenced_task.id) AS display_task_id,
+          COALESCE(t.title, referenced_task.title) AS display_task_title,
           tsv.version,
           CAST(tsv.schema_json AS CHAR) AS schema_json,
           tsv.status,
@@ -129,6 +173,14 @@ public class SchemaRepository {
           tsv.published_at
         FROM task_schema_versions tsv
         LEFT JOIN tasks t ON t.id = tsv.task_id
+        LEFT JOIN tasks referenced_task ON referenced_task.id = (
+          SELECT rt.id
+          FROM tasks rt
+          WHERE rt.owner_id = tsv.created_by
+            AND CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(rt.reward_rule, '$.schemaVersionId')), '') AS UNSIGNED) = tsv.id
+          ORDER BY COALESCE(rt.updated_at, rt.created_at) DESC, rt.id DESC
+          LIMIT 1
+        )
         LEFT JOIN users u ON u.id = tsv.created_by
         """ + whereClause + " " + suffix;
 
@@ -136,8 +188,8 @@ public class SchemaRepository {
         sql,
         (rs, rowNum) -> new SchemaRecord(
             rs.getLong("id"),
-            toLong(rs.getObject("task_id")),
-            rs.getString("task_title"),
+            toLong(rs.getObject("display_task_id")),
+            rs.getString("display_task_title"),
             rs.getInt("version"),
             rs.getString("schema_json"),
             rs.getString("status"),

@@ -3,6 +3,7 @@ import {
   AppstoreOutlined,
   CheckCircleFilled,
   CopyOutlined,
+  DeleteOutlined,
   EditOutlined,
   ExportOutlined,
   PlusOutlined,
@@ -15,6 +16,7 @@ import {
   Col,
   Empty,
   Input,
+  Modal,
   Row,
   Segmented,
   Space,
@@ -24,6 +26,7 @@ import {
 } from 'antd';
 import { useNavigate } from 'react-router-dom';
 
+import { ApiError } from '../../api/client';
 import { schemaApi } from '../../api/schema';
 import type { SchemaSummary } from '../../types/schema';
 
@@ -98,6 +101,8 @@ export default function OwnerTemplates() {
       await schemaApi.createStandaloneDraft({
         name: `${source.name} 副本`,
         description: source.description,
+        datasetId: source.datasetId,
+        datasetName: source.datasetName,
         fields: source.fields,
       });
       message.success(`已复制模板「${template.name}」为新草稿`);
@@ -105,6 +110,24 @@ export default function OwnerTemplates() {
     } catch {
       message.error('复制模板失败,请确认当前模板存在且后端接口可用。');
     }
+  }
+
+  function handleDelete(template: SchemaSummary) {
+    Modal.confirm({
+      title: '确认删除该草稿模板?',
+      content: `模板「${template.name}」删除后不可恢复。若该模板已被任务或标注数据引用,后端会拒绝删除以保护历史数据。`,
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await schemaApi.deleteSchema(template.versionId);
+          message.success('草稿模板已删除');
+          await loadSchemas();
+        } catch (error) {
+          message.error(getApiErrorMessage(error, '模板删除失败'));
+        }
+      },
+    });
   }
 
   return (
@@ -194,6 +217,7 @@ export default function OwnerTemplates() {
                 template={template}
                 onOpen={() => handleOpen(template)}
                 onDuplicate={() => void handleDuplicate(template)}
+                onDelete={() => handleDelete(template)}
               />
             </Col>
           ))}
@@ -207,10 +231,12 @@ function TemplateCard({
   template,
   onOpen,
   onDuplicate,
+  onDelete,
 }: {
   template: SchemaSummary;
   onOpen: () => void;
   onDuplicate: () => void;
+  onDelete: () => void;
 }) {
   const isPublished = template.status === 'published';
   return (
@@ -258,10 +284,27 @@ function TemplateCard({
             导出
           </Button>
         </Tooltip>
+        {!isPublished && (
+          <Tooltip title="删除草稿模板">
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={onDelete}>
+              删除
+            </Button>
+          </Tooltip>
+        )}
         <Button type="primary" size="small" onClick={onOpen}>
           打开 Designer
         </Button>
       </div>
     </Card>
   );
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.payload && typeof error.payload === 'object') {
+    const payload = error.payload as { message?: unknown };
+    if (typeof payload.message === 'string' && payload.message) {
+      return payload.message;
+    }
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
 }

@@ -1,3 +1,5 @@
+import type { SchemaField } from './schema';
+
 /**
  * Labeler 端业务类型定义。
  * 字段以《LabelHub Project Implementation Plan EN》5.1 数据模型与 5.2 API spec 为准,
@@ -138,25 +140,7 @@ export interface AssignmentItem {
     [key: string]: unknown;
   };
   /** Schema 字段定义,Renderer 按此渲染表单 */
-  fields: Array<{
-    id: string;
-    fieldName: string;
-    label: string;
-    kind:
-      | 'text-single'
-      | 'text-multi'
-      | 'rich-text'
-      | 'single-choice'
-      | 'multi-choice'
-      | 'tags'
-      | 'json-editor'
-      | 'show-item';
-    placeholder?: string;
-    required?: boolean;
-    maxLength?: number;
-    options?: Array<{ value: string; label: string }>;
-    showText?: string;
-  }>;
+  fields: SchemaField[];
   /** 当前 assignment 在批次中的索引,用于 prev/next 按钮 */
   position: {
     index: number;

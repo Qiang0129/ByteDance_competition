@@ -6,6 +6,7 @@
 import { apiRequest } from './client';
 import type {
   CreateSchemaDraftRequest,
+  SchemaValidationResult,
   SchemaSummary,
   SchemaVersion,
   UpdateSchemaDraftRequest,
@@ -39,6 +40,14 @@ export const schemaApi = {
     });
   },
 
+  /** 校验模板结构,用于 Designer 保存/发布前检查 */
+  validate(payload: CreateSchemaDraftRequest): Promise<SchemaValidationResult> {
+    return apiRequest<SchemaValidationResult>('/schemas/validate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   /** 保存草稿 */
   updateDraft(versionId: string, payload: UpdateSchemaDraftRequest): Promise<SchemaVersion> {
     return apiRequest<SchemaVersion>(`/schemas/${versionId}/draft`, {
@@ -51,6 +60,20 @@ export const schemaApi = {
   publish(versionId: string): Promise<SchemaVersion> {
     return apiRequest<SchemaVersion>(`/schemas/${versionId}/publish`, {
       method: 'POST',
+    });
+  },
+
+  /** 收回已发布版本:同一 versionId 回到 draft,可继续原地编辑 */
+  withdraw(versionId: string): Promise<SchemaVersion> {
+    return apiRequest<SchemaVersion>(`/schemas/${versionId}/withdraw`, {
+      method: 'POST',
+    });
+  },
+
+  /** 删除草稿模板。已发布模板需先收回发布,被任务或标注引用时后端会拒绝。 */
+  deleteSchema(versionId: string): Promise<void> {
+    return apiRequest<void>(`/schemas/${versionId}`, {
+      method: 'DELETE',
     });
   },
 };

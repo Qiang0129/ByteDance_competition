@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
@@ -30,6 +30,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { labelerApi } from '../../api/labeler';
+import { LabelHubFormRenderer } from '../../modules/schema';
 import type { AssignmentItem } from '../../types/labeler';
 import { useThemeColors } from '../../theme/useThemeColors';
 
@@ -68,6 +69,21 @@ export default function AnswerPage() {
   const editableRef = useRef(false);
   const dirtyRef = useRef(false);
   const canEdit = item ? item.editable ?? isEditableStatus(item.status) : false;
+  const rawAnswerFallback = useMemo(() => {
+    const submittedAnswer = item?.latestAnnotation?.answerJson;
+    if (!item || !submittedAnswer || typeof submittedAnswer !== 'object') {
+      return null;
+    }
+    const currentFieldNames = new Set(
+      item.fields
+        .filter((field) => field.kind !== 'show-item' && field.fieldName)
+        .map((field) => field.fieldName),
+    );
+    const hasUnmatchedAnswerKey = Object.keys(submittedAnswer).some(
+      (key) => !currentFieldNames.has(key),
+    );
+    return hasUnmatchedAnswerKey ? submittedAnswer : null;
+  }, [item]);
   answerRef.current = answer;
   assignmentIdRef.current = assignmentId;
   editableRef.current = canEdit;
@@ -410,16 +426,29 @@ export default function AnswerPage() {
             className="answer-section"
           >
             <Space direction="vertical" size={20} style={{ width: '100%' }}>
-              {item.fields.map((field) => (
-                <FieldRenderer
-                  key={field.id}
-                  field={field}
-                  value={answer[field.fieldName]}
-                  error={errors[field.fieldName]}
-                  readOnly={!canEdit}
-                  onChange={(value) => updateField(field.fieldName, value)}
+              <LabelHubFormRenderer
+                schema={item.fields}
+                rawPayload={item.rawPayload}
+                value={answer}
+                readonly={!canEdit}
+                onChange={(next) => {
+                  setAnswer(next);
+                  setDirty(true);
+                  setErrors({});
+                }}
+              />
+              {rawAnswerFallback ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="当前模板字段与已提交答案不完全匹配"
+                  description={
+                    <pre className="answer-json">
+                      {JSON.stringify(rawAnswerFallback, null, 2)}
+                    </pre>
+                  }
                 />
-              ))}
+              ) : null}
             </Space>
           </Card>
         </Col>

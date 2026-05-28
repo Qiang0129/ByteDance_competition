@@ -14,5 +14,9 @@ public record CreateSchemaDraftRequest(
 
     String taskId,
 
+    String datasetId,
+
+    String datasetName,
+
     @NotNull(message = "fields is required")
     JsonNode fields) {}

@@ -29,20 +29,27 @@ import {
   DragOverlay,
   PointerSensor,
   closestCenter,
+  pointerWithin,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import type {
+  CollisionDetection,
+  DragCancelEvent,
+  DragEndEvent,
+  DragOverEvent,
+  DragStartEvent,
+} from '@dnd-kit/core';
 import {
   SortableContext,
-  arrayMove,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  Alert,
   App as AntdApp,
   Button,
   Drawer,
@@ -58,15 +65,25 @@ import {
   Typography,
 } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 
 import { ApiError } from '../../api/client';
+import { datasetApi } from '../../api/dataset';
 import { schemaApi } from '../../api/schema';
+import { LabelHubFormRenderer, validateSchemaFields } from '../../modules/schema';
+import type { DatasetItem, DatasetMeta } from '../../types/dataset';
 import type {
   MaterialCategory,
   MaterialKind,
   MaterialMeta,
+  SchemaDiagnostic,
   SchemaField,
+  SchemaReactionAction,
+  SchemaReactionOperator,
+  SchemaReactionRule,
   SchemaVersion,
+  SchemaValidatorRule,
+  SchemaValidatorType,
 } from '../../types/schema';
 
 /**
@@ -124,6 +141,43 @@ const groupedMaterials: Array<{ category: MaterialCategory; items: MaterialMeta[
   items: materials.filter((m) => m.category === category),
 }));
 
+type DropPosition = 'before' | 'after';
+
+type DropIndicator = {
+  fieldId: string;
+  position: DropPosition;
+};
+
+type DesignerDragPayload =
+  | { type: 'material'; meta: MaterialMeta }
+  | { type: 'field'; fieldId: string };
+
+const CANVAS_DROPPABLE_ID = 'canvas-droppable';
+
+const designerCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length === 0) {
+    return args.pointerCoordinates ? [] : closestCenter(args);
+  }
+
+  const directFieldCollisions = pointerCollisions.filter(
+    (collision) => String(collision.id) !== CANVAS_DROPPABLE_ID,
+  );
+  if (directFieldCollisions.length > 0) {
+    return directFieldCollisions;
+  }
+
+  const fieldContainers = args.droppableContainers.filter(
+    (container) => String(container.id) !== CANVAS_DROPPABLE_ID,
+  );
+  const closestFieldCollisions = closestCenter({
+    ...args,
+    droppableContainers: fieldContainers,
+  });
+
+  return closestFieldCollisions.length > 0 ? closestFieldCollisions : pointerCollisions;
+};
+
 /** 默认样例字段(对齐图里那套商品清洗模板) */
 const defaultDemoFields: SchemaField[] = [
   {
@@ -131,6 +185,7 @@ const defaultDemoFields: SchemaField[] = [
     kind: 'show-item',
     fieldName: 'origin_title',
     label: '原始商品标题(展示项)',
+    sourcePath: 'origin_title',
     showText: '超柔软纯棉男女款居家服套装 春秋季睡衣大码情侣家居服',
   },
   {
@@ -141,6 +196,10 @@ const defaultDemoFields: SchemaField[] = [
     placeholder: '请填写清洗后的标题(最多 35 字符)',
     required: true,
     maxLength: 35,
+    validators: [
+      { type: 'regex', pattern: '^[^@#$]+$', message: '不能包含 @ # $ 等符号' },
+      { type: 'noEmoji', message: '不能包含 Emoji' },
+    ],
     validations: { regex: '^[^@#$]+$', customFn: 'noEmoji(value)' },
   },
   {
@@ -156,8 +215,14 @@ const defaultDemoFields: SchemaField[] = [
       { value: 'digital', label: '3C 数码' },
       { value: 'beauty', label: '美妆个护' },
     ],
-    linkages: [
-      { when: 'category == "fresh"', hide: ['size_table'], show: ['shelf_life'] },
+    reactions: [
+      {
+        sourceField: 'category',
+        operator: 'eq',
+        value: 'fresh',
+        targetField: 'keywords',
+        action: 'required',
+      },
     ],
   },
   {
@@ -206,6 +271,9 @@ function createField(meta: MaterialMeta, existing: SchemaField[]): SchemaField {
           ]
         : undefined,
     showText: meta.kind === 'show-item' ? '展示项内容,标注员只能查看' : undefined,
+    sourcePath: meta.kind === 'show-item' ? 'prompt' : undefined,
+    validators: meta.kind === 'json-editor' ? [{ type: 'jsonObject' }] : undefined,
+    helpText: meta.kind === 'llm-trigger' ? 'LLM 调用入口已预留,真实模型调用将在 AI Agent 阶段接入。' : undefined,
   };
 }
 
@@ -218,6 +286,15 @@ function getApiErrorMessage(error: unknown, fallback: string) {
   }
   return fallback;
 }
+
+const fallbackPreviewPayload: Record<string, unknown> = {
+  media_type: 'text',
+  prompt: '请判断下面回答是否准确、完整、格式合规。',
+  origin_title: '超柔软纯棉男女款居家服套装 春秋季睡衣大码情侣家居服',
+  model_answer: '这是一条用于 Designer 预览的样例回答。',
+  reference: '参考答案会在真实数据集中由 raw_payload 提供。',
+  tags: ['demo', 'preview'],
+};
 
 export default function OwnerTemplateDesigner() {
   const navigate = useNavigate();
@@ -234,6 +311,8 @@ export default function OwnerTemplateDesigner() {
     taskTitle: undefined,
     name: isNew ? '新建模板' : '商品清洗 · v3',
     description: 'Schema 与渲染解耦:左物料 → 中画布 → 右属性,产物为可序列化 JSON Schema。',
+    datasetId: undefined,
+    datasetName: undefined,
     status: 'draft',
     fields: isNew ? [] : defaultDemoFields,
     updatedAt: new Date().toISOString(),
@@ -244,11 +323,17 @@ export default function OwnerTemplateDesigner() {
     schema.fields[0]?.id ?? null,
   );
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewDatasets, setPreviewDatasets] = useState<DatasetMeta[]>([]);
+  const [previewDatasetId, setPreviewDatasetId] = useState<string>();
+  const [previewItems, setPreviewItems] = useState<DatasetItem[]>([]);
+  const [previewItemIndex, setPreviewItemIndex] = useState(0);
+  const [previewAnswer, setPreviewAnswer] = useState<Record<string, unknown>>({});
   const [exportOpen, setExportOpen] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
   /** 拖拽中的物料/字段,用于 DragOverlay 渲染半透明跟随物 */
   const [draggingMaterial, setDraggingMaterial] = useState<MaterialMeta | null>(null);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
 
   /** dnd-kit 传感器:按下 8px 才激活,避免与点击事件冲突 */
   const sensors = useSensors(
@@ -279,23 +364,95 @@ export default function OwnerTemplateDesigner() {
     };
   }, [versionId, isNew, message]);
 
+  useEffect(() => {
+    if (previewDatasets.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await datasetApi.listDatasets();
+        if (cancelled) return;
+        setPreviewDatasets(resp.items ?? []);
+      } catch {
+        if (!cancelled) {
+          message.warning('数据集列表加载失败,预览将使用内置示例数据。');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewDatasets.length, message]);
+
+  useEffect(() => {
+    if (schema.datasetId && !previewDatasetId) {
+      setPreviewDatasetId(schema.datasetId);
+    }
+  }, [schema.datasetId, previewDatasetId]);
+
+  useEffect(() => {
+    if (!previewDatasetId) {
+      setPreviewItems([]);
+      setPreviewItemIndex(0);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await datasetApi.listItems(previewDatasetId);
+        if (cancelled) return;
+        setPreviewItems(items);
+        setPreviewItemIndex(0);
+      } catch {
+        if (!cancelled) {
+          setPreviewItems([]);
+          message.warning('数据集条目加载失败,预览将使用内置示例数据。');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewDatasetId, message]);
+
   const activeField = useMemo(
     () => schema.fields.find((f) => f.id === activeFieldId) ?? null,
     [schema.fields, activeFieldId],
   );
+  const schemaCheck = useMemo(() => validateSchemaFields(schema.fields), [schema.fields]);
+  const previewRawPayload = useMemo(
+    () => normalizePreviewItem(previewItems[previewItemIndex]) ?? fallbackPreviewPayload,
+    [previewItems, previewItemIndex],
+  );
+  const rawPathOptions = useMemo(
+    () => extractRawPaths(previewRawPayload).map((path) => ({ label: path, value: path })),
+    [previewRawPayload],
+  );
+  const datasetOptions = useMemo(
+    () =>
+      previewDatasets.map((dataset) => ({
+        label: `${dataset.name} · ${dataset.itemCount} 条`,
+        value: dataset.id,
+      })),
+    [previewDatasets],
+  );
+  const isPublished = schema.status === 'published';
 
   function updateField(fieldId: string, patch: Partial<SchemaField>) {
+    if (isPublished) return;
     setSchema((prev) => ({
       ...prev,
       fields: prev.fields.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
     }));
   }
 
-  function updateSchemaMeta(patch: Partial<Pick<SchemaVersion, 'name' | 'description'>>) {
+  function updateSchemaMeta(
+    patch: Partial<Pick<SchemaVersion, 'name' | 'description' | 'datasetId' | 'datasetName'>>,
+  ) {
     setSchema((prev) => ({ ...prev, ...patch }));
   }
 
   function addMaterial(meta: MaterialMeta) {
+    if (isPublished) return;
     setSchema((prev) => {
       const field = createField(meta, prev.fields);
       return { ...prev, fields: [...prev.fields, field] };
@@ -303,6 +460,7 @@ export default function OwnerTemplateDesigner() {
   }
 
   function removeField(fieldId: string) {
+    if (isPublished) return;
     setSchema((prev) => {
       const next = prev.fields.filter((f) => f.id !== fieldId);
       return { ...prev, fields: next };
@@ -313,6 +471,7 @@ export default function OwnerTemplateDesigner() {
   }
 
   function moveField(fieldId: string, direction: -1 | 1) {
+    if (isPublished) return;
     setSchema((prev) => {
       const idx = prev.fields.findIndex((f) => f.id === fieldId);
       if (idx < 0) return prev;
@@ -325,13 +484,65 @@ export default function OwnerTemplateDesigner() {
     });
   }
 
+  function readDragPayload(event: DragStartEvent | DragOverEvent | DragEndEvent | DragCancelEvent) {
+    return event.active.data.current as DesignerDragPayload | undefined;
+  }
+
+  function getDraggedCenterY(event: DragOverEvent | DragEndEvent) {
+    const activeRect = event.active.rect.current.translated ?? event.active.rect.current.initial;
+    return activeRect ? activeRect.top + activeRect.height / 2 : null;
+  }
+
+  function clearDragState() {
+    setDraggingMaterial(null);
+    setDraggingFieldId(null);
+    setDropIndicator(null);
+  }
+
+  function resolveDropIndicator(event: DragOverEvent | DragEndEvent): DropIndicator | null {
+    const { active, over } = event;
+    if (!over) return null;
+
+    const activeData = readDragPayload(event);
+    const overId = String(over.id);
+
+    if (overId === CANVAS_DROPPABLE_ID) {
+      const lastField = schema.fields[schema.fields.length - 1];
+      if (!lastField) return null;
+      if (activeData?.type === 'field' && activeData.fieldId === lastField.id) return null;
+      return { fieldId: lastField.id, position: 'after' };
+    }
+
+    const overField = schema.fields.find((field) => field.id === overId);
+    if (!overField) return null;
+    if (activeData?.type === 'field' && activeData.fieldId === overField.id) return null;
+
+    const draggedCenterY = getDraggedCenterY(event);
+    const overCenterY = over.rect.top + over.rect.height / 2;
+
+    return {
+      fieldId: overField.id,
+      position: draggedCenterY != null && draggedCenterY > overCenterY ? 'after' : 'before',
+    };
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    const nextIndicator = resolveDropIndicator(event);
+    setDropIndicator((prev) => {
+      if (
+        prev?.fieldId === nextIndicator?.fieldId &&
+        prev?.position === nextIndicator?.position
+      ) {
+        return prev;
+      }
+      return nextIndicator;
+    });
+  }
+
   /** dnd-kit drag start */
   function handleDragStart(event: DragStartEvent) {
-    const { active } = event;
-    const data = active.data.current as
-      | { type: 'material'; meta: MaterialMeta }
-      | { type: 'field'; fieldId: string }
-      | undefined;
+    const data = readDragPayload(event);
+    setDropIndicator(null);
     if (data?.type === 'material') {
       setDraggingMaterial(data.meta);
     } else if (data?.type === 'field') {
@@ -339,21 +550,23 @@ export default function OwnerTemplateDesigner() {
     }
   }
 
+  function handleDragCancel(_: DragCancelEvent) {
+    clearDragState();
+  }
+
   /** dnd-kit drag end:三种情况
    *  1. 物料 → 画布字段卡 / 画布空白:按目标位置插入
-   *  2. 字段 → 字段:arrayMove 调整顺序
+   *  2. 字段 → 字段:按插入提示线调整顺序
    *  3. 拖到 canvas 外:取消
    */
   function handleDragEnd(event: DragEndEvent) {
-    setDraggingMaterial(null);
-    setDraggingFieldId(null);
-    const { active, over } = event;
+    const placement = resolveDropIndicator(event);
+    clearDragState();
+    if (isPublished) return;
+    const { over } = event;
     if (!over) return;
 
-    const activeData = active.data.current as
-      | { type: 'material'; meta: MaterialMeta }
-      | { type: 'field'; fieldId: string }
-      | undefined;
+    const activeData = readDragPayload(event);
     const overId = String(over.id);
 
     if (activeData?.type === 'material') {
@@ -361,13 +574,13 @@ export default function OwnerTemplateDesigner() {
       setSchema((prev) => {
         const field = createField(activeData.meta, prev.fields);
         const next = prev.fields.slice();
-        if (overId === 'canvas-droppable') {
+        if (overId === CANVAS_DROPPABLE_ID) {
           next.push(field);
         } else {
-          // overId 是某个字段的 id,插到它前面
-          const idx = next.findIndex((f) => f.id === overId);
+          const targetId = placement?.fieldId ?? overId;
+          const idx = next.findIndex((f) => f.id === targetId);
           if (idx === -1) next.push(field);
-          else next.splice(idx, 0, field);
+          else next.splice(idx + (placement?.position === 'after' ? 1 : 0), 0, field);
         }
         return { ...prev, fields: next };
       });
@@ -379,22 +592,48 @@ export default function OwnerTemplateDesigner() {
       setSchema((prev) => {
         const fromIdx = prev.fields.findIndex((f) => f.id === activeData.fieldId);
         if (fromIdx === -1) return prev;
-        let toIdx: number;
-        if (overId === 'canvas-droppable') {
-          toIdx = prev.fields.length - 1;
+        let insertIdx: number;
+        if (overId === CANVAS_DROPPABLE_ID) {
+          insertIdx = prev.fields.length;
         } else {
-          toIdx = prev.fields.findIndex((f) => f.id === overId);
-          if (toIdx === -1) return prev;
+          if (!placement) return prev;
+          const overIdx = prev.fields.findIndex((f) => f.id === placement.fieldId);
+          if (overIdx === -1) return prev;
+          insertIdx = overIdx + (placement.position === 'after' ? 1 : 0);
         }
-        if (fromIdx === toIdx) return prev;
-        return { ...prev, fields: arrayMove(prev.fields, fromIdx, toIdx) };
+        const next = prev.fields.slice();
+        const [item] = next.splice(fromIdx, 1);
+        const normalizedInsertIdx = fromIdx < insertIdx ? insertIdx - 1 : insertIdx;
+        if (fromIdx === normalizedInsertIdx) return prev;
+        next.splice(normalizedInsertIdx, 0, item);
+        return { ...prev, fields: next };
       });
     }
   }
 
-  function validateTemplateMeta() {
+  async function validateTemplateBeforePersist() {
     if (!schema.name.trim()) {
       message.warning('请先填写模板名称');
+      return false;
+    }
+    if (!schemaCheck.valid) {
+      message.error(`Schema 检查未通过: ${schemaCheck.errors[0]?.message ?? '请修正错误后再保存'}`);
+      return false;
+    }
+    try {
+      const backendCheck = await schemaApi.validate({
+        name: schema.name.trim(),
+        description: schema.description?.trim(),
+        datasetId: schema.datasetId ?? '',
+        datasetName: schema.datasetName ?? '',
+        fields: schema.fields,
+      });
+      if (!backendCheck.valid) {
+        message.error(`后端 Schema 检查未通过: ${backendCheck.errors[0]?.message ?? '请修正错误后再保存'}`);
+        return false;
+      }
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '后端 Schema 检查失败,请确认后端已启动。'));
       return false;
     }
     return true;
@@ -407,6 +646,8 @@ export default function OwnerTemplateDesigner() {
       const created = await schemaApi.createStandaloneDraft({
         name,
         taskId: schema.taskId,
+        datasetId: schema.datasetId ?? '',
+        datasetName: schema.datasetName ?? '',
         description,
         fields: schema.fields,
       });
@@ -422,6 +663,8 @@ export default function OwnerTemplateDesigner() {
     const updated = await schemaApi.updateDraft(schema.versionId, {
       name,
       taskId: schema.taskId,
+      datasetId: schema.datasetId ?? '',
+      datasetName: schema.datasetName ?? '',
       description,
       fields: schema.fields,
     });
@@ -432,7 +675,7 @@ export default function OwnerTemplateDesigner() {
   }
 
   async function handleSave() {
-    if (!validateTemplateMeta()) return;
+    if (!(await validateTemplateBeforePersist())) return;
     try {
       await saveDraft();
       message.success('草稿已保存');
@@ -442,11 +685,11 @@ export default function OwnerTemplateDesigner() {
   }
 
   async function handlePublish() {
-    if (!validateTemplateMeta()) return;
+    if (!(await validateTemplateBeforePersist())) return;
     Modal.confirm({
       title: '确认发布该 Schema 版本?',
       content:
-        '发布后此版本将冻结,绑定的任务将按此版本渲染答题界面;后续修改需要新建草稿。',
+        '发布后此版本将进入只读状态,绑定的任务将按此版本渲染答题界面;需要修改时可先收回发布。',
       okText: '立即发布',
       onOk: async () => {
         try {
@@ -462,14 +705,37 @@ export default function OwnerTemplateDesigner() {
     });
   }
 
+  async function handleWithdraw() {
+    Modal.confirm({
+      title: '确认收回发布?',
+      content:
+        '收回后该模板回到草稿状态,绑定该模板的任务会暂停新认领和提交;已提交标注数据不会删除。',
+      okText: '收回发布',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const withdrawn = await schemaApi.withdraw(schema.versionId);
+          setSchema(withdrawn);
+          setActiveFieldId(withdrawn.fields[0]?.id ?? null);
+          setUsingFallback(false);
+          message.success('模板已收回,现在可以继续编辑');
+        } catch (error) {
+          message.error(getApiErrorMessage(error, '收回发布失败,请确认模板状态。'));
+        }
+      },
+    });
+  }
+
   const submittableCount = schema.fields.filter((f) => f.kind !== 'show-item' && f.kind !== 'group' && f.kind !== 'multi-tab').length;
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={designerCollisionDetection}
       onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       <div className="designer-shell">
       {/* 顶部工具栏 */}
@@ -485,8 +751,8 @@ export default function OwnerTemplateDesigner() {
           <Typography.Title level={4} className="designer-title">
             模板搭建器(Designer)
           </Typography.Title>
-          <Tag color={schema.status === 'published' ? 'success' : 'processing'}>
-            {schema.status === 'published' ? '已发布' : '草稿'}
+          <Tag color={isPublished ? 'success' : 'processing'}>
+            {isPublished ? '已发布' : '草稿'}
           </Tag>
           {usingFallback && <Tag color="gold">详情加载失败</Tag>}
         </Space>
@@ -501,12 +767,17 @@ export default function OwnerTemplateDesigner() {
           <Button icon={<ExportOutlined />} onClick={() => setExportOpen(true)}>
             导出 Schema JSON
           </Button>
-          <Button icon={<SaveOutlined />} onClick={() => void handleSave()}>
+          <Button icon={<SaveOutlined />} disabled={isPublished} onClick={() => void handleSave()}>
             保存草稿
           </Button>
-          <Button type="primary" icon={<CheckOutlined />} onClick={handlePublish}>
+          <Button type="primary" icon={<CheckOutlined />} disabled={isPublished} onClick={handlePublish}>
             保存并发布
           </Button>
+          {isPublished && (
+            <Button danger onClick={() => void handleWithdraw()}>
+              收回发布
+            </Button>
+          )}
         </Space>
       </div>
 
@@ -516,7 +787,7 @@ export default function OwnerTemplateDesigner() {
           <Input
             value={schema.name}
             maxLength={80}
-            disabled={schema.status === 'published'}
+            disabled={isPublished}
             placeholder="例如: 问答质量评分模板"
             onChange={(event) => updateSchemaMeta({ name: event.target.value })}
           />
@@ -526,9 +797,29 @@ export default function OwnerTemplateDesigner() {
           <Input
             value={schema.description ?? ''}
             maxLength={160}
-            disabled={schema.status === 'published'}
+            disabled={isPublished}
             placeholder="说明该模板适用的数据集、标注目标或注意事项"
             onChange={(event) => updateSchemaMeta({ description: event.target.value })}
+          />
+        </div>
+        <div className="designer-meta-field">
+          <span className="designer-meta-label">关联数据集</span>
+          <Select
+            allowClear
+            showSearch
+            disabled={isPublished}
+            placeholder="选择模板默认数据集"
+            options={datasetOptions}
+            value={schema.datasetId || undefined}
+            optionFilterProp="label"
+            onChange={(value) => {
+              const selected = previewDatasets.find((dataset) => dataset.id === value);
+              updateSchemaMeta({
+                datasetId: value ?? '',
+                datasetName: selected?.name ?? '',
+              });
+              setPreviewDatasetId(value ?? undefined);
+            }}
           />
         </div>
       </div>
@@ -538,6 +829,8 @@ export default function OwnerTemplateDesigner() {
         <strong> {schema.fields.length} </strong>
         个字段({submittableCount} 个参与提交)。
       </div>
+
+      <SchemaCheckPanel result={schemaCheck} />
 
       <div className="designer-grid">
         {/* 左:物料区 */}
@@ -576,6 +869,7 @@ export default function OwnerTemplateDesigner() {
                   <Canvas
                     fields={schema.fields}
                     activeFieldId={activeFieldId}
+                    dropIndicator={dropIndicator}
                     onSelect={setActiveFieldId}
                     onMove={moveField}
                     onRemove={removeField}
@@ -602,6 +896,8 @@ export default function OwnerTemplateDesigner() {
           {activeField ? (
             <PropertyPanel
               field={activeField}
+              fields={schema.fields}
+              rawPathOptions={rawPathOptions}
               onChange={(patch) => updateField(activeField.id, patch)}
             />
           ) : (
@@ -621,7 +917,42 @@ export default function OwnerTemplateDesigner() {
         onClose={() => setPreviewOpen(false)}
         closeIcon={<CloseOutlined />}
       >
-        <PreviewRenderer fields={schema.fields} />
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message="预览使用与 Labeler 答题页相同的 Formily Renderer。"
+            description="选择数据集样本后,ShowItem 会从 raw_payload 的绑定路径读取真实题目数据。"
+          />
+          <Space wrap style={{ width: '100%' }}>
+            <Select
+              allowClear
+              showSearch
+              style={{ minWidth: 260 }}
+              placeholder="选择数据集样本"
+              value={previewDatasetId}
+              options={datasetOptions}
+              onChange={(value) => setPreviewDatasetId(value)}
+            />
+            <Select
+              style={{ minWidth: 160 }}
+              placeholder="选择样本条目"
+              value={previewItemIndex}
+              disabled={previewItems.length === 0}
+              options={previewItems.slice(0, 50).map((_, index) => ({
+                label: `第 ${index + 1} 条`,
+                value: index,
+              }))}
+              onChange={(value) => setPreviewItemIndex(value)}
+            />
+          </Space>
+          <LabelHubFormRenderer
+            schema={schema.fields}
+            rawPayload={previewRawPayload}
+            value={previewAnswer}
+            onChange={setPreviewAnswer}
+          />
+        </Space>
       </Drawer>
 
       {/* 导出 Modal */}
@@ -646,19 +977,22 @@ export default function OwnerTemplateDesigner() {
       </Modal>
       </div>
 
-      {/* 拖拽时的浮动跟随物 */}
-      <DragOverlay dropAnimation={null}>
-        {draggingMaterial ? (
-          <div className="material-item is-overlay">
-            <span className="material-icon">{materialIconMap[draggingMaterial.kind]}</span>
-            <span className="material-label">{draggingMaterial.label}</span>
-          </div>
-        ) : draggingFieldId ? (
-          <div className="field-card is-overlay">
-            {schema.fields.find((f) => f.id === draggingFieldId)?.label ?? '字段'}
-          </div>
-        ) : null}
-      </DragOverlay>
+      {createPortal(
+        /* DragOverlay 使用 fixed 定位,挂到 body 可避开外层入场动画 transform 导致的坐标偏移。 */
+        <DragOverlay dropAnimation={null}>
+          {draggingMaterial ? (
+            <div className="material-item is-overlay">
+              <span className="material-icon">{materialIconMap[draggingMaterial.kind]}</span>
+              <span className="material-label">{draggingMaterial.label}</span>
+            </div>
+          ) : draggingFieldId ? (
+            <div className="field-card is-overlay">
+              {schema.fields.find((f) => f.id === draggingFieldId)?.label ?? '字段'}
+            </div>
+          ) : null}
+        </DragOverlay>,
+        document.body,
+      )}
     </DndContext>
   );
 }
@@ -667,6 +1001,7 @@ export default function OwnerTemplateDesigner() {
 function Canvas({
   fields,
   activeFieldId,
+  dropIndicator,
   onSelect,
   onMove,
   onRemove,
@@ -674,12 +1009,13 @@ function Canvas({
 }: {
   fields: SchemaField[];
   activeFieldId: string | null;
+  dropIndicator: DropIndicator | null;
   onSelect: (id: string) => void;
   onMove: (id: string, dir: -1 | 1) => void;
   onRemove: (id: string) => void;
   onAdd: () => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: 'canvas-droppable' });
+  const { setNodeRef, isOver } = useDroppable({ id: CANVAS_DROPPABLE_ID });
 
   if (fields.length === 0) {
     return (
@@ -702,6 +1038,7 @@ function Canvas({
             key={field.id}
             field={field}
             active={field.id === activeFieldId}
+            dropPosition={dropIndicator?.fieldId === field.id ? dropIndicator.position : null}
             isFirst={idx === 0}
             isLast={idx === fields.length - 1}
             onSelect={() => onSelect(field.id)}
@@ -721,6 +1058,7 @@ function Canvas({
 function FieldCard({
   field,
   active,
+  dropPosition,
   isFirst,
   isLast,
   onSelect,
@@ -730,6 +1068,7 @@ function FieldCard({
 }: {
   field: SchemaField;
   active: boolean;
+  dropPosition: DropPosition | null;
   isFirst: boolean;
   isLast: boolean;
   onSelect: () => void;
@@ -752,9 +1091,12 @@ function FieldCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`field-card ${active ? 'is-active' : ''}`}
+      className={`field-card ${active ? 'is-active' : ''} ${
+        dropPosition ? `is-drop-${dropPosition}` : ''
+      }`}
       onClick={onSelect}
     >
+      {dropPosition === 'before' && <span className="field-drop-indicator is-before" />}
       <div className="field-card-head">
         <div className="field-card-title-row">
           <span
@@ -801,6 +1143,7 @@ function FieldCard({
         字段名:<code>{field.fieldName}</code> · {fieldKindLabel(field.kind)}
       </div>
       <div className="field-card-preview">{renderFieldPreview(field)}</div>
+      {dropPosition === 'after' && <span className="field-drop-indicator is-after" />}
     </div>
   );
 }
@@ -884,11 +1227,42 @@ function renderFieldPreview(field: SchemaField) {
 /** 右侧属性配置 */
 function PropertyPanel({
   field,
+  fields,
+  rawPathOptions,
   onChange,
 }: {
   field: SchemaField;
+  fields: SchemaField[];
+  rawPathOptions: Array<{ label: string; value: string }>;
   onChange: (patch: Partial<SchemaField>) => void;
 }) {
+  const fieldOptions = fields
+    .filter((item) => item.fieldName)
+    .map((item) => ({ label: `${item.label} (${item.fieldName})`, value: item.fieldName }));
+  const validators = field.validators ?? [];
+  const regexRule = validators.find((rule) => rule.type === 'regex');
+  const customRule = validators.find((rule) => rule.type !== 'regex');
+  const upsertValidator = (rule: SchemaValidatorRule) => {
+    const next = validators.filter((item) => item.type !== rule.type);
+    if (rule.type !== 'regex') {
+      onChange({ validators: [...next.filter((item) => item.type === 'regex'), rule] });
+      return;
+    }
+    onChange({
+      validators: [...next, rule],
+      validations: { ...field.validations, regex: rule.pattern },
+    });
+  };
+  const removeValidator = (type: SchemaValidatorType) => {
+    const next = validators.filter((rule) => rule.type !== type);
+    onChange({
+      validators: next,
+      validations:
+        type === 'regex'
+          ? { ...field.validations, regex: undefined }
+          : { ...field.validations, customFn: undefined },
+    });
+  };
   return (
     <div className="property-panel">
       <Typography.Text className="property-panel-title">属性配置 · {field.fieldName}</Typography.Text>
@@ -924,6 +1298,12 @@ function PropertyPanel({
                     onChange={(event) => onChange({ placeholder: event.target.value })}
                   />
                 </Field>
+                <Field label="帮助说明">
+                  <Input
+                    value={field.helpText ?? ''}
+                    onChange={(event) => onChange({ helpText: event.target.value })}
+                  />
+                </Field>
                 {(field.kind === 'text-single' || field.kind === 'text-multi') && (
                   <Field label="最大长度">
                     <Input
@@ -946,13 +1326,25 @@ function PropertyPanel({
                   </Field>
                 )}
                 {field.kind === 'show-item' && (
-                  <Field label="展示文本">
-                    <Input.TextArea
-                      rows={3}
-                      value={field.showText ?? ''}
-                      onChange={(event) => onChange({ showText: event.target.value })}
-                    />
-                  </Field>
+                  <>
+                    <Field label="绑定 raw 字段">
+                      <Select
+                        allowClear
+                        showSearch
+                        placeholder="选择 raw_payload 字段路径"
+                        options={rawPathOptions}
+                        value={field.sourcePath}
+                        onChange={(value) => onChange({ sourcePath: value })}
+                      />
+                    </Field>
+                    <Field label="兜底展示文本">
+                      <Input.TextArea
+                        rows={3}
+                        value={field.showText ?? ''}
+                        onChange={(event) => onChange({ showText: event.target.value })}
+                      />
+                    </Field>
+                  </>
                 )}
               </Space>
             ),
@@ -964,29 +1356,66 @@ function PropertyPanel({
               <Space direction="vertical" size={12} style={{ width: '100%' }}>
                 <Field label="正则">
                   <Input
-                    value={field.validations?.regex ?? ''}
-                    onChange={(event) =>
-                      onChange({
-                        validations: { ...field.validations, regex: event.target.value },
-                      })
-                    }
+                    value={regexRule?.pattern ?? field.validations?.regex ?? ''}
+                    onChange={(event) => {
+                      const pattern = event.target.value;
+                      if (!pattern) {
+                        removeValidator('regex');
+                        return;
+                      }
+                      upsertValidator({ type: 'regex', pattern, message: '格式不符合要求' });
+                    }}
                   />
                 </Field>
-                <Field label="自定义函数">
+                <Field label="白名单校验">
                   <Select
                     allowClear
-                    placeholder="选择白名单中的校验函数"
+                    placeholder="选择后端白名单校验"
                     options={[
-                      { label: 'noEmoji(value)', value: 'noEmoji(value)' },
-                      { label: 'lengthBetween(value, 4, 35)', value: 'lengthBetween(value, 4, 35)' },
-                      { label: 'isJsonObject(value)', value: 'isJsonObject(value)' },
+                      { label: '禁止 Emoji', value: 'noEmoji' },
+                      { label: '必须是 JSON 对象', value: 'jsonObject' },
+                      { label: '长度区间', value: 'lengthBetween' },
                     ]}
-                    value={field.validations?.customFn}
-                    onChange={(value) =>
-                      onChange({ validations: { ...field.validations, customFn: value } })
-                    }
+                    value={customRule?.type}
+                    onChange={(value?: SchemaValidatorType) => {
+                      if (!value) {
+                        if (customRule) removeValidator(customRule.type);
+                        return;
+                      }
+                      upsertValidator(
+                        value === 'lengthBetween'
+                          ? { type: value, min: 1, max: field.maxLength ?? 100 }
+                          : { type: value },
+                      );
+                    }}
                   />
                 </Field>
+                {customRule?.type === 'lengthBetween' && (
+                  <Space size={8}>
+                    <Input
+                      type="number"
+                      addonBefore="最小"
+                      value={customRule.min ?? ''}
+                      onChange={(event) =>
+                        upsertValidator({
+                          ...customRule,
+                          min: Number(event.target.value) || 0,
+                        })
+                      }
+                    />
+                    <Input
+                      type="number"
+                      addonBefore="最大"
+                      value={customRule.max ?? ''}
+                      onChange={(event) =>
+                        upsertValidator({
+                          ...customRule,
+                          max: Number(event.target.value) || undefined,
+                        })
+                      }
+                    />
+                  </Space>
+                )}
               </Space>
             ),
           },
@@ -994,34 +1423,11 @@ function PropertyPanel({
             key: 'linkage',
             label: '联动',
             children: (
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                {(field.linkages ?? []).map((rule, idx) => (
-                  <div key={idx} className="linkage-rule">
-                    <div className="linkage-rule-when">当 <code>{rule.when}</code> 时</div>
-                    {rule.hide && rule.hide.length > 0 && (
-                      <div>隐藏 {rule.hide.map((f) => <code key={f}>{f}</code>)}</div>
-                    )}
-                    {rule.show && rule.show.length > 0 && (
-                      <div>显示 {rule.show.map((f) => <code key={f}>{f}</code>)}</div>
-                    )}
-                  </div>
-                ))}
-                <Button
-                  type="dashed"
-                  icon={<PlusOutlined />}
-                  block
-                  onClick={() =>
-                    onChange({
-                      linkages: [
-                        ...(field.linkages ?? []),
-                        { when: 'fieldName == "value"', hide: [], show: [] },
-                      ],
-                    })
-                  }
-                >
-                  新增联动规则
-                </Button>
-              </Space>
+              <ReactionRulesEditor
+                rules={field.reactions ?? []}
+                fieldOptions={fieldOptions}
+                onChange={(reactions) => onChange({ reactions })}
+              />
             ),
           },
         ]}
@@ -1103,6 +1509,181 @@ function OptionsEditor({
   );
 }
 
+function SchemaCheckPanel({ result }: { result: { valid: boolean; errors: SchemaDiagnostic[]; warnings: SchemaDiagnostic[] } }) {
+  const diagnostics = [...result.errors, ...result.warnings];
+  return (
+    <div className={`schema-check-panel ${result.valid ? 'is-valid' : 'has-error'}`}>
+      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+        <Space wrap>
+          <Tag color={result.valid ? 'success' : 'error'}>
+            {result.valid ? 'Schema 检查通过' : `Schema 有 ${result.errors.length} 个错误`}
+          </Tag>
+          {result.warnings.length > 0 && <Tag color="gold">{result.warnings.length} 个警告</Tag>}
+          <Typography.Text type="secondary">
+            发布前会强制执行同一套检查,保证 Designer 与 Renderer 使用的 Schema 可运行。
+          </Typography.Text>
+        </Space>
+        {diagnostics.length > 0 && (
+          <div className="schema-check-list">
+            {diagnostics.slice(0, 4).map((item, index) => (
+              <div key={`${item.code}-${item.fieldName ?? index}`} className="schema-check-item">
+                <Tag color={item.level === 'error' ? 'error' : 'gold'}>{item.code}</Tag>
+                <span>{item.message}</span>
+              </div>
+            ))}
+            {diagnostics.length > 4 && (
+              <Typography.Text type="secondary">还有 {diagnostics.length - 4} 条检查结果...</Typography.Text>
+            )}
+          </div>
+        )}
+      </Space>
+    </div>
+  );
+}
+
+function ReactionRulesEditor({
+  rules,
+  fieldOptions,
+  onChange,
+}: {
+  rules: SchemaReactionRule[];
+  fieldOptions: Array<{ label: string; value: string }>;
+  onChange: (next: SchemaReactionRule[]) => void;
+}) {
+  const updateAt = (idx: number, patch: Partial<SchemaReactionRule>) => {
+    onChange(rules.map((rule, i) => (i === idx ? { ...rule, ...patch } : rule)));
+  };
+  const removeAt = (idx: number) => {
+    onChange(rules.filter((_, i) => i !== idx));
+  };
+  const addRule = () => {
+    onChange([
+      ...rules,
+      {
+        sourceField: fieldOptions[0]?.value ?? '',
+        operator: 'eq',
+        value: '',
+        targetField: fieldOptions[1]?.value ?? fieldOptions[0]?.value ?? '',
+        action: 'hidden',
+      },
+    ]);
+  };
+
+  // 操作符 / 动作选项,集中维护避免重复
+  const operatorOptions = [
+    { label: '等于', value: 'eq' },
+    { label: '不等于', value: 'ne' },
+    { label: '为空', value: 'empty' },
+    { label: '不为空', value: 'notEmpty' },
+    { label: '包含', value: 'includes' },
+  ];
+  const actionOptions = [
+    { label: '显示', value: 'visible' },
+    { label: '隐藏', value: 'hidden' },
+    { label: '必填', value: 'required' },
+    { label: '非必填', value: 'optional' },
+  ];
+
+  return (
+    <div className="reaction-editor">
+      {rules.length === 0 && (
+        <div className="reaction-editor-empty">
+          <Typography.Text type="secondary">
+            暂无联动规则。点击下方"新增联动规则"开始配置。
+          </Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            规则会在 Designer 预览和 Labeler Renderer 中同时生效。
+          </Typography.Text>
+        </div>
+      )}
+      {rules.map((rule, idx) => {
+        const needValue = !['empty', 'notEmpty'].includes(rule.operator);
+        return (
+          <div key={idx} className="linkage-rule">
+            <div className="linkage-rule-head">
+              <span className="linkage-rule-index">规则 {idx + 1}</span>
+              <Button
+                size="small"
+                type="text"
+                icon={<CloseOutlined />}
+                onClick={() => removeAt(idx)}
+                className="linkage-rule-remove"
+                aria-label={`删除规则 ${idx + 1}`}
+              />
+            </div>
+
+            {/* IF 条件块 */}
+            <div className="linkage-rule-section">
+              <span className="linkage-rule-tag is-when">IF</span>
+              <div className="linkage-rule-row">
+                <Field label="来源字段">
+                  <Select
+                    placeholder="选择字段"
+                    options={fieldOptions}
+                    value={rule.sourceField}
+                    onChange={(value) => updateAt(idx, { sourceField: value })}
+                  />
+                </Field>
+                <Field label="比较">
+                  <Select
+                    options={operatorOptions}
+                    value={rule.operator}
+                    onChange={(value: SchemaReactionOperator) =>
+                      updateAt(idx, { operator: value })
+                    }
+                  />
+                </Field>
+                {needValue && (
+                  <Field label="匹配值">
+                    <Input
+                      placeholder="例如:是"
+                      value={String(rule.value ?? '')}
+                      onChange={(event) => updateAt(idx, { value: event.target.value })}
+                    />
+                  </Field>
+                )}
+              </div>
+            </div>
+
+            {/* THEN 动作块 */}
+            <div className="linkage-rule-section">
+              <span className="linkage-rule-tag is-then">THEN</span>
+              <div className="linkage-rule-row">
+                <Field label="目标字段">
+                  <Select
+                    placeholder="选择字段"
+                    options={fieldOptions}
+                    value={rule.targetField}
+                    onChange={(value) => updateAt(idx, { targetField: value })}
+                  />
+                </Field>
+                <Field label="动作">
+                  <Select
+                    options={actionOptions}
+                    value={rule.action}
+                    onChange={(value: SchemaReactionAction) =>
+                      updateAt(idx, { action: value })
+                    }
+                  />
+                </Field>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <Button
+        type="dashed"
+        icon={<PlusOutlined />}
+        block
+        onClick={addRule}
+        className="reaction-editor-add"
+      >
+        新增联动规则
+      </Button>
+    </div>
+  );
+}
+
 function ReviewPlaceholder() {
   return (
     <div className="canvas-empty">
@@ -1128,4 +1709,33 @@ function PreviewRenderer({ fields }: { fields: SchemaField[] }) {
       ))}
     </Space>
   );
+}
+
+function normalizePreviewItem(item?: DatasetItem): Record<string, unknown> | null {
+  if (!item || typeof item !== 'object') return null;
+  const rawPayload = (item as Record<string, unknown>).rawPayload;
+  if (rawPayload && typeof rawPayload === 'object') {
+    return rawPayload as Record<string, unknown>;
+  }
+  return item as Record<string, unknown>;
+}
+
+function extractRawPaths(payload: Record<string, unknown>) {
+  const paths = new Set<string>(['prompt', 'origin_title', 'model_answer', 'reference', 'content_markdown']);
+  const walk = (value: unknown, prefix: string) => {
+    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+      if (prefix) paths.add(prefix);
+      return;
+    }
+    Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
+      const next = prefix ? `${prefix}.${key}` : key;
+      if (child != null && typeof child === 'object' && !Array.isArray(child)) {
+        walk(child, next);
+      } else {
+        paths.add(next);
+      }
+    });
+  };
+  walk(payload, '');
+  return Array.from(paths).sort();
 }

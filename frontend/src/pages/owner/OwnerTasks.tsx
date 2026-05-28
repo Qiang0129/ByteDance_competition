@@ -108,6 +108,7 @@ export default function OwnerTasks() {
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const submitStateRef = useRef<TaskState>('published');
+  const lastSchemaSelectionRef = useRef<string | undefined>();
 
   const selectedStrategy = Form.useWatch('strategy', form);
   const selectedDatasetId = Form.useWatch('datasetId', form);
@@ -162,6 +163,25 @@ export default function OwnerTasks() {
       form.setFieldValue('schemaVersionId', activeRow.schemaVersionId);
     }
   }, [activeRow, drawerOpen, form, publishedSchemas]);
+
+  useEffect(() => {
+    if (!drawerOpen) {
+      lastSchemaSelectionRef.current = undefined;
+      return;
+    }
+    if (!selectedSchemaVersionId) {
+      lastSchemaSelectionRef.current = undefined;
+      return;
+    }
+    if (lastSchemaSelectionRef.current === selectedSchemaVersionId) {
+      return;
+    }
+    lastSchemaSelectionRef.current = selectedSchemaVersionId;
+    const schema = publishedSchemas.find((item) => item.versionId === selectedSchemaVersionId);
+    if (schema?.datasetId) {
+      form.setFieldValue('datasetId', schema.datasetId);
+    }
+  }, [drawerOpen, form, publishedSchemas, selectedSchemaVersionId]);
 
   const labelerOptions = assignableLabelers.map((labeler) => ({
     label: `${labeler.displayName} (${labeler.username})`,
@@ -365,6 +385,7 @@ export default function OwnerTasks() {
   function openDrawer(row?: OwnerTaskRow) {
     setActiveRow(row ?? null);
     submitStateRef.current = row?.state ?? 'published';
+    lastSchemaSelectionRef.current = row?.schemaVersionId || undefined;
     form.setFieldsValue(toFormValues(row));
     setDrawerOpen(true);
   }
@@ -723,6 +744,11 @@ export default function OwnerTasks() {
                   {selectedSchema.versionNumber} · {selectedSchema.fieldCount} 个字段 · 更新于{' '}
                   {selectedSchema.updatedAt}
                 </Typography.Text>
+                {selectedSchema.datasetName ? (
+                  <Typography.Text type="secondary">
+                    模板默认数据集：{selectedSchema.datasetName}
+                  </Typography.Text>
+                ) : null}
               </Space>
             </Card>
           ) : null}

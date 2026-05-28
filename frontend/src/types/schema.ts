@@ -37,6 +37,47 @@ export interface MaterialMeta {
   submittable: boolean;
 }
 
+export type SchemaValidatorType = 'regex' | 'noEmoji' | 'jsonObject' | 'lengthBetween';
+export type SchemaReactionOperator = 'eq' | 'ne' | 'empty' | 'notEmpty' | 'includes';
+export type SchemaReactionAction = 'visible' | 'hidden' | 'required' | 'optional';
+
+/** 结构化校验规则。customFn 旧字段会在运行时兼容为这里的白名单规则。 */
+export interface SchemaValidatorRule {
+  type: SchemaValidatorType;
+  pattern?: string;
+  min?: number;
+  max?: number;
+  message?: string;
+}
+
+/** 字段联动规则:当 sourceField 满足条件时,对 targetField 执行动作。 */
+export interface SchemaReactionRule {
+  sourceField: string;
+  operator: SchemaReactionOperator;
+  value?: unknown;
+  targetField: string;
+  action: SchemaReactionAction;
+}
+
+export interface SchemaFieldLayout {
+  span?: number;
+  group?: string;
+  tab?: string;
+}
+
+export interface SchemaDiagnostic {
+  level: 'error' | 'warning';
+  code: string;
+  message: string;
+  fieldName?: string;
+}
+
+export interface SchemaValidationResult {
+  valid: boolean;
+  errors: SchemaDiagnostic[];
+  warnings: SchemaDiagnostic[];
+}
+
 /** Schema 字段 */
 export interface SchemaField {
   /** 内部稳定 ID,前端用,提交时不必传 */
@@ -56,6 +97,20 @@ export interface SchemaField {
   options?: Array<{ value: string; label: string }>;
   /** ShowItem 的展示内容 */
   showText?: string;
+  /** ShowItem 从 raw_payload 读取的字段路径,例如 prompt / metadata.title */
+  sourcePath?: string;
+  /** 组件透传配置,运行时会映射到 antd6 适配组件 */
+  componentProps?: Record<string, unknown>;
+  /** 结构化校验规则 */
+  validators?: SchemaValidatorRule[];
+  /** 结构化联动规则 */
+  reactions?: SchemaReactionRule[];
+  /** 布局信息,用于分组和多 Tab 的后续扩展 */
+  layout?: SchemaFieldLayout;
+  /** 默认值 */
+  defaultValue?: unknown;
+  /** 字段帮助说明 */
+  helpText?: string;
   /** 校验规则 */
   validations?: {
     regex?: string;
@@ -86,6 +141,10 @@ export interface SchemaVersion {
   name: string;
   /** 模板描述 */
   description?: string;
+  /** 模板默认关联的数据集 ID,任务发布页选择模板时会自动带入 */
+  datasetId?: string;
+  /** 模板默认关联的数据集名称,由后端根据 datasetId 派生 */
+  datasetName?: string;
   status: 'draft' | 'published';
   fields: SchemaField[];
   updatedAt: string;
@@ -99,6 +158,8 @@ export interface SchemaSummary {
   name: string;
   taskId?: string;
   taskTitle?: string;
+  datasetId?: string;
+  datasetName?: string;
   status: 'draft' | 'published';
   fieldCount: number;
   updatedAt: string;
@@ -109,6 +170,8 @@ export interface SchemaSummary {
 export interface CreateSchemaDraftRequest {
   name: string;
   taskId?: string;
+  datasetId?: string;
+  datasetName?: string;
   description?: string;
   fields: SchemaField[];
 }
@@ -117,6 +180,8 @@ export interface CreateSchemaDraftRequest {
 export interface UpdateSchemaDraftRequest {
   name?: string;
   taskId?: string;
+  datasetId?: string;
+  datasetName?: string;
   description?: string;
   fields: SchemaField[];
 }

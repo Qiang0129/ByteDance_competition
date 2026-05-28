@@ -221,6 +221,7 @@ public class TaskService {
     TaskRecord task = taskRepository.findTask(taskId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
     TaskMetadata metadata = readMetadata(task.rewardRuleJson());
+    validateClaimableTask(task, metadata);
     boolean alreadyClaimed = taskRepository.hasTaskAssignment(taskId, labeler.id());
     if (!"assigned".equals(metadata.resolvedStrategy())) {
       createAssignmentsForStrategy(task, metadata, labeler.id(), !alreadyClaimed);
@@ -257,6 +258,14 @@ public class TaskService {
       return;
     }
     TaskMetadata metadata = readMetadata(task.rewardRuleJson());
+    try {
+      validateClaimableTask(task, metadata);
+    } catch (ApiException exception) {
+      if ("SCHEMA_WITHDRAWN".equals(exception.getCode())) {
+        return;
+      }
+      throw exception;
+    }
     if ("assigned".equals(metadata.resolvedStrategy())) {
       ensureStrategyAssignments(task.id(), metadata, task.quota(), task.status());
     } else {
@@ -510,8 +519,8 @@ public class TaskService {
   }
 
   private AssignmentResponse createAssignmentForStrategy(TaskRecord task, long labelerId) {
-    validateClaimableTask(task);
     TaskMetadata metadata = readMetadata(task.rewardRuleJson());
+    validateClaimableTask(task, metadata);
     if ("assigned".equals(metadata.resolvedStrategy())) {
       throw new ApiException(
           HttpStatus.CONFLICT,
@@ -530,7 +539,7 @@ public class TaskService {
       TaskMetadata metadata,
       long labelerId,
       boolean failWhenNoNewAssignment) {
-    validateClaimableTask(task);
+    validateClaimableTask(task, metadata);
     String strategy = metadata.resolvedStrategy();
     if ("assigned".equals(strategy)) {
       return 0;
@@ -621,12 +630,24 @@ public class TaskService {
     return new ApiException(HttpStatus.CONFLICT, "TASK_QUOTA_EXHAUSTED", "task quota is exhausted");
   }
 
-  private void validateClaimableTask(TaskRecord task) {
+  private void validateClaimableTask(TaskRecord task, TaskMetadata metadata) {
     if (!"published".equals(task.status())) {
       throw new ApiException(HttpStatus.CONFLICT, "TASK_NOT_PUBLISHED", "task is not published");
     }
     if (task.deadline() != null && task.deadline().isBefore(LocalDateTime.now())) {
       throw new ApiException(HttpStatus.CONFLICT, "TASK_EXPIRED", "task deadline has passed");
+    }
+    Long schemaVersionId = resolveEffectiveSchemaVersionId(task, metadata);
+    if (schemaVersionId == null) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found");
+    }
+    SchemaRecord schema = schemaRepository.findOwnerSchema(task.ownerId(), schemaVersionId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found"));
+    if (!"published".equals(schema.status())) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "SCHEMA_WITHDRAWN",
+          "task schema has been withdrawn");
     }
   }
 

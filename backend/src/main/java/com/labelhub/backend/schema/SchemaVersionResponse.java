@@ -9,6 +9,8 @@ public record SchemaVersionResponse(
     String taskTitle,
     String name,
     String description,
+    String datasetId,
+    String datasetName,
     String status,
     JsonNode fields,
     String updatedAt,

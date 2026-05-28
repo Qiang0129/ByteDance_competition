@@ -6,6 +6,8 @@ public record SchemaSummaryResponse(
     String name,
     String taskId,
     String taskTitle,
+    String datasetId,
+    String datasetName,
     String status,
     int fieldCount,
     String updatedAt,

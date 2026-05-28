@@ -45,6 +45,7 @@ import {
   workspaceRolePath,
 } from '../utils/authNavigation';
 import { PageErrorBoundary } from './PageErrorBoundary';
+import ColorModeSwitcher from './ColorModeSwitcher';
 
 const { Header, Sider, Content } = Layout;
 
@@ -439,8 +440,9 @@ export default function AppLayout() {
           {/* 中间留白 */}
           <div className="app-header-middle" />
 
-          {/* 右侧:用户下拉 */}
+          {/* 右侧:色彩模式切换 + 用户下拉 */}
           <div className="app-header-right">
+            <ColorModeSwitcher />
             <Dropdown
               menu={{ items: userMenu, onClick: handleUserMenuClick }}
               placement="bottomRight"

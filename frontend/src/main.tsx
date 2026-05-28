@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { App as AntdApp, ConfigProvider } from 'antd';
+import { App as AntdApp, ConfigProvider, theme as antdTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import 'antd/dist/reset.css';
 
@@ -11,15 +11,18 @@ import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 
 /**
  * antd ConfigProvider 包装层:
- * 在 ThemeProvider 内部读取当前预设,把 colorPrimary 注入 antd token,
- * 这样 Button / Tag / Input 等 antd 组件的主色会跟随主题切换。
+ * 在 ThemeProvider 内部读取当前预设和色彩模式,把 colorPrimary 注入 antd token,
+ * 并在 dark 模式下启用 antd 暗色算法.这样 Button / Tag / Input / Table 等 antd
+ * 组件的主色和背景层级会跟随主题切换.
  */
 function ThemedApp() {
-  const { preset } = useTheme();
+  const { preset, resolvedColorMode } = useTheme();
+  const isDark = resolvedColorMode === 'dark';
   return (
     <ConfigProvider
       locale={zhCN}
       theme={{
+        algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
           colorPrimary: preset.primary,
           borderRadius: 8,
@@ -28,14 +31,14 @@ function ThemedApp() {
         },
         components: {
           Layout: {
-            headerBg: '#ffffff',
-            bodyBg: '#f3f5f8',
+            // 暗色模式让 Layout body 跟随 antd dark token
+            headerBg: isDark ? '#1a1d24' : '#ffffff',
+            bodyBg: isDark ? '#13151b' : '#f3f5f8',
             siderBg: 'transparent',
           },
           Menu: {
             darkItemBg: 'transparent',
             darkSubMenuItemBg: 'transparent',
-            // 这里使用 rgba 而不是 hex,用 ConfigProvider 不能拿到主色透明度,改由 CSS 兜底
             darkItemSelectedBg: 'rgba(47, 123, 255, 0.18)',
             darkItemSelectedColor: '#ffffff',
           },

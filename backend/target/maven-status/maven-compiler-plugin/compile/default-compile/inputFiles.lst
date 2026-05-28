@@ -39,10 +39,14 @@ F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\jav
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\LabelHubBackendApplication.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\CreateSchemaDraftRequest.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaController.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaDefinitionValidator.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaDiagnosticResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaRecord.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaRepository.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaService.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaSummaryResponse.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaValidationRequest.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaValidationResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\SchemaVersionResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\schema\UpdateSchemaDraftRequest.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\task\AssignableLabelerResponse.java
