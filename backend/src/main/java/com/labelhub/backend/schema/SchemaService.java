@@ -164,24 +164,16 @@ public class SchemaService {
   @Transactional
   public void deleteDraft(Authentication authentication, long versionId) {
     AuthenticatedUser owner = requireOwner(authentication);
-    SchemaRecord current = loadOwnerSchema(owner.id(), versionId);
+    SchemaRecord current = schemaRepository.findOwnerSchemaIncludingDeleted(owner.id(), versionId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found"));
+    if (current.deletedAt() != null) {
+      return;
+    }
     if (!"draft".equals(current.status())) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_NOT_DRAFT",
           "only draft schema can be deleted");
-    }
-    if (schemaRepository.countTaskReferences(versionId) > 0) {
-      throw new ApiException(
-          HttpStatus.CONFLICT,
-          "SCHEMA_IN_USE",
-          "schema is referenced by a task and cannot be deleted");
-    }
-    if (schemaRepository.countAnnotationReferences(versionId) > 0) {
-      throw new ApiException(
-          HttpStatus.CONFLICT,
-          "SCHEMA_IN_USE",
-          "schema has submitted annotations and cannot be deleted");
     }
     int deleted = schemaRepository.deleteDraft(owner.id(), versionId);
     if (deleted == 0) {

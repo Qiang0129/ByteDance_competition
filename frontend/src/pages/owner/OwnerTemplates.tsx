@@ -115,7 +115,7 @@ export default function OwnerTemplates() {
   function handleDelete(template: SchemaSummary) {
     Modal.confirm({
       title: '确认删除该草稿模板?',
-      content: `模板「${template.name}」删除后不可恢复。若该模板已被任务或标注数据引用,后端会拒绝删除以保护历史数据。`,
+      content: `模板「${template.name}」删除后将从模板列表隐藏,新任务不能再选择它;已绑定任务和历史标注不受影响。`,
       okText: '确认删除',
       okButtonProps: { danger: true },
       onOk: async () => {

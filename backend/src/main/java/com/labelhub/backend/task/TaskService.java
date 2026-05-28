@@ -325,9 +325,9 @@ public class TaskService {
       return null;
     }
     long schemaVersionId = parseLongId(schemaVersionIdValue, "INVALID_SCHEMA_VERSION_ID");
-    SchemaRecord schema = schemaRepository.findOwnerSchema(ownerId, schemaVersionId)
+    SchemaRecord schema = schemaRepository.findOwnerSchemaIncludingDeleted(ownerId, schemaVersionId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found"));
-    if (!"published".equals(schema.status())) {
+    if (!"published".equals(schema.status()) && schema.deletedAt() == null) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_NOT_PUBLISHED",
@@ -641,9 +641,9 @@ public class TaskService {
     if (schemaVersionId == null) {
       throw new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found");
     }
-    SchemaRecord schema = schemaRepository.findOwnerSchema(task.ownerId(), schemaVersionId)
+    SchemaRecord schema = schemaRepository.findOwnerSchemaIncludingDeleted(task.ownerId(), schemaVersionId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found"));
-    if (!"published".equals(schema.status())) {
+    if (!"published".equals(schema.status()) && schema.deletedAt() == null) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_WITHDRAWN",

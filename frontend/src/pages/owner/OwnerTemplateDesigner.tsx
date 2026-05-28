@@ -355,7 +355,7 @@ export default function OwnerTemplateDesigner() {
       } catch {
         if (!cancelled) {
           setUsingFallback(true);
-          message.error('模板详情加载失败,请确认后端已启动并已执行 V4 数据库迁移。');
+          message.error('模板不存在或已删除。');
         }
       }
     })();
@@ -782,7 +782,7 @@ export default function OwnerTemplateDesigner() {
       </div>
 
       <div className="designer-meta-panel">
-        <div className="designer-meta-field designer-meta-field-name">
+        <div className="designer-meta-field">
           <span className="designer-meta-label">模板名称</span>
           <Input
             value={schema.name}

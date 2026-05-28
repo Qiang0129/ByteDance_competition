@@ -36,7 +36,7 @@ public class AnnotationRepository {
   public Optional<SchemaSnapshotRecord> findSchema(long schemaVersionId) {
     return jdbcTemplate.query(
         """
-        SELECT id, version, CAST(schema_json AS CHAR) AS schema_json, status
+        SELECT id, version, CAST(schema_json AS CHAR) AS schema_json, status, deleted_at
         FROM task_schema_versions
         WHERE id = ?
         """,
@@ -44,7 +44,8 @@ public class AnnotationRepository {
             rs.getLong("id"),
             rs.getInt("version"),
             rs.getString("schema_json"),
-            rs.getString("status")),
+            rs.getString("status"),
+            toLocalDateTime(rs.getTimestamp("deleted_at"))),
         schemaVersionId)
         .stream()
         .findFirst();
@@ -239,7 +240,8 @@ public class AnnotationRepository {
           tsv.id AS fallback_schema_version_id,
           tsv.version AS fallback_schema_version,
           CAST(tsv.schema_json AS CHAR) AS fallback_schema_json,
-          tsv.status AS fallback_schema_status
+          tsv.status AS fallback_schema_status,
+          tsv.deleted_at AS fallback_schema_deleted_at
         FROM assignments a
         JOIN tasks t ON t.id = a.task_id
         JOIN items i ON i.id = a.item_id
@@ -272,7 +274,8 @@ public class AnnotationRepository {
             toLong(rs.getObject("fallback_schema_version_id")),
             toInteger(rs.getObject("fallback_schema_version")),
             rs.getString("fallback_schema_json"),
-            rs.getString("fallback_schema_status")),
+            rs.getString("fallback_schema_status"),
+            toLocalDateTime(rs.getTimestamp("fallback_schema_deleted_at"))),
         args.toArray());
   }
 
@@ -306,13 +309,15 @@ public class AnnotationRepository {
       Long fallbackSchemaVersionId,
       Integer fallbackSchemaVersion,
       String fallbackSchemaJson,
-      String fallbackSchemaStatus) {}
+      String fallbackSchemaStatus,
+      LocalDateTime fallbackSchemaDeletedAt) {}
 
   public record SchemaSnapshotRecord(
       long id,
       int version,
       String schemaJson,
-      String status) {}
+      String status,
+      LocalDateTime deletedAt) {}
 
   public record DraftRecord(
       long assignmentId,

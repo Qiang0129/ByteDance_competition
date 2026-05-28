@@ -70,7 +70,7 @@ public class AnnotationService {
         assignment.taskTitle(),
         Long.toString(assignment.itemId()),
         assignment.assignmentStatus(),
-        schema.published() && isEditableAssignment(assignment),
+        schema.runtimeUsable() && isEditableAssignment(assignment),
         formatDateTime(assignment.taskDeadline()),
         Long.toString(schema.id()),
         buildRawPayload(assignment),
@@ -211,13 +211,14 @@ public class AnnotationService {
           assignment.fallbackSchemaVersionId(),
           assignment.fallbackSchemaVersion() == null ? 1 : assignment.fallbackSchemaVersion(),
           assignment.fallbackSchemaJson(),
-          assignment.fallbackSchemaStatus());
+          assignment.fallbackSchemaStatus(),
+          assignment.fallbackSchemaDeletedAt());
     } else {
       throw new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found");
     }
 
-    boolean published = "published".equals(schema.status());
-    if (requirePublished && !published) {
+    boolean runtimeUsable = "published".equals(schema.status()) || schema.deletedAt() != null;
+    if (requirePublished && !runtimeUsable) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_WITHDRAWN",
@@ -228,7 +229,7 @@ public class AnnotationService {
     ArrayNode fieldArray = fields.isArray()
         ? fields.deepCopy()
         : objectMapper.createArrayNode();
-    return new SchemaContext(schema.id(), fieldArray, published);
+    return new SchemaContext(schema.id(), fieldArray, runtimeUsable);
   }
 
   private Long readMetadataSchemaVersionId(String rewardRuleJson) {
@@ -629,5 +630,5 @@ public class AnnotationService {
     return principal;
   }
 
-  private record SchemaContext(long id, ArrayNode fields, boolean published) {}
+  private record SchemaContext(long id, ArrayNode fields, boolean runtimeUsable) {}
 }

@@ -13,4 +13,5 @@ public record SchemaRecord(
     String createdByName,
     LocalDateTime createdAt,
     LocalDateTime updatedAt,
-    LocalDateTime publishedAt) {}
+    LocalDateTime publishedAt,
+    LocalDateTime deletedAt) {}

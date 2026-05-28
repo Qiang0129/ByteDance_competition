@@ -2434,13 +2434,15 @@ body {
 
 .designer-meta-panel {
   display: grid;
-  grid-template-columns: minmax(260px, 0.45fr) minmax(320px, 1fr);
-  gap: 12px;
+  /* 一行三列:模板名称 / 模板描述 / 关联数据集,等分宽度 */
+  grid-template-columns: 1fr 1.5fr 1fr;
+  gap: 16px;
   background: #ffffff;
   border: 1px solid #eef0f5;
   border-radius: 14px;
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
-  padding: 14px 16px;
+  padding: 14px 18px;
+  align-items: end;
 }
 
 .designer-meta-field {
@@ -2452,12 +2454,21 @@ body {
 
 .designer-meta-label {
   color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 }
 
-.designer-meta-panel .ant-input {
+.designer-meta-panel .ant-input,
+.designer-meta-panel .ant-select .ant-select-selector {
   border-radius: 10px;
+  height: 36px;
+}
+
+.designer-meta-panel .ant-select .ant-select-selector {
+  display: flex;
+  align-items: center;
 }
 
 /* 三栏 grid:左 240 / 中自适应 / 右 320 */
@@ -5357,4 +5368,1307 @@ body {
 
 :root[data-color-mode='dark'] .ant-dropdown-menu-item:hover {
   background: #232730 !important;
+}
+
+
+/* ========== 暗色模式可读性修复(全局文字与辅助元素) ========== */
+
+/* 全局所有标题 / 文字硬编码深色统一覆盖为浅色 */
+:root[data-color-mode='dark'] .app-content,
+:root[data-color-mode='dark'] .app-content .ant-typography,
+:root[data-color-mode='dark'] .app-content h1,
+:root[data-color-mode='dark'] .app-content h2,
+:root[data-color-mode='dark'] .app-content h3,
+:root[data-color-mode='dark'] .app-content h4,
+:root[data-color-mode='dark'] .app-content h5,
+:root[data-color-mode='dark'] .app-content p,
+:root[data-color-mode='dark'] .app-content span,
+:root[data-color-mode='dark'] .app-content label,
+:root[data-color-mode='dark'] .app-content strong,
+:root[data-color-mode='dark'] .app-content code,
+:root[data-color-mode='dark'] .app-content em {
+  color: #e5e7eb;
+}
+
+/* 主标题加亮一档 */
+:root[data-color-mode='dark'] .app-content .ant-typography-title,
+:root[data-color-mode='dark'] .app-content h1.ant-typography,
+:root[data-color-mode='dark'] .app-content h2.ant-typography,
+:root[data-color-mode='dark'] .app-content h3.ant-typography,
+:root[data-color-mode='dark'] .app-content h4.ant-typography {
+  color: #f5f7fb !important;
+}
+
+/* 次级文字、说明文字 */
+:root[data-color-mode='dark'] .app-content .ant-typography-secondary,
+:root[data-color-mode='dark'] .app-content .ant-typography.ant-typography-secondary,
+:root[data-color-mode='dark'] .ant-typography-caption,
+:root[data-color-mode='dark'] .ant-form-item-extra,
+:root[data-color-mode='dark'] .ant-form-item-explain,
+:root[data-color-mode='dark'] .app-content .types-hint,
+:root[data-color-mode='dark'] .app-content .overview-meta-label,
+:root[data-color-mode='dark'] .app-content .kpi-title {
+  color: #9ca3af !important;
+}
+
+/* KPI / Statistic 数值:在暗色下仍要醒目,改为白色 */
+:root[data-color-mode='dark'] .app-content .ant-statistic-content,
+:root[data-color-mode='dark'] .app-content .kpi-value,
+:root[data-color-mode='dark'] .app-content .owner-stat-value,
+:root[data-color-mode='dark'] .app-content .overview-meta-value,
+:root[data-color-mode='dark'] .app-content .overview-hero-stat-value {
+  color: #f8fafc !important;
+}
+
+:root[data-color-mode='dark'] .app-content .ant-statistic-title,
+:root[data-color-mode='dark'] .app-content .owner-stat-label {
+  color: #94a3b8 !important;
+}
+
+/* Card 头部标题 */
+:root[data-color-mode='dark'] .app-content .ant-card-head {
+  background: #1a1d24;
+  border-bottom-color: #262a33;
+}
+
+:root[data-color-mode='dark'] .app-content .ant-card-head-title {
+  color: #f5f7fb;
+}
+
+:root[data-color-mode='dark'] .app-content .ant-card-extra {
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .app-content .ant-card-extra a {
+  color: var(--lh-primary-light);
+}
+
+/* 任务/数据集/模板等卡片内的深色文字 */
+:root[data-color-mode='dark'] .owner-task-name,
+:root[data-color-mode='dark'] .owner-task-quota-numbers strong,
+:root[data-color-mode='dark'] .owner-task-state,
+:root[data-color-mode='dark'] .dataset-list-name,
+:root[data-color-mode='dark'] .batch-item-title,
+:root[data-color-mode='dark'] .activity-name,
+:root[data-color-mode='dark'] .perf-name,
+:root[data-color-mode='dark'] .leave-name,
+:root[data-color-mode='dark'] .dataset-id-large,
+:root[data-color-mode='dark'] .market-card .ant-typography,
+:root[data-color-mode='dark'] .template-card .ant-typography,
+:root[data-color-mode='dark'] .reviewer-batch-card .ant-typography {
+  color: #f5f7fb !important;
+}
+
+:root[data-color-mode='dark'] .owner-task-meta,
+:root[data-color-mode='dark'] .owner-task-quota-numbers,
+:root[data-color-mode='dark'] .dataset-list-meta,
+:root[data-color-mode='dark'] .batch-item-desc,
+:root[data-color-mode='dark'] .batch-item-quota,
+:root[data-color-mode='dark'] .batch-item-deadline {
+  color: #94a3b8 !important;
+}
+
+/* 表格 cell 文字、空状态 */
+:root[data-color-mode='dark'] .ant-table-tbody > tr > td {
+  color: #e5e7eb !important;
+}
+
+:root[data-color-mode='dark'] .ant-table .ant-empty-description {
+  color: #94a3b8;
+}
+
+/* 分页文字 */
+:root[data-color-mode='dark'] .ant-pagination,
+:root[data-color-mode='dark'] .ant-pagination .ant-pagination-item a,
+:root[data-color-mode='dark'] .ant-pagination-total-text {
+  color: #cbd5e1 !important;
+}
+
+:root[data-color-mode='dark'] .ant-pagination .ant-pagination-item {
+  background: #20242d;
+  border-color: #2c313b;
+}
+
+:root[data-color-mode='dark'] .ant-pagination .ant-pagination-item-active {
+  background: #1a1d24;
+  border-color: var(--lh-primary);
+}
+
+:root[data-color-mode='dark'] .ant-pagination .ant-pagination-item-active a {
+  color: var(--lh-primary-light);
+}
+
+:root[data-color-mode='dark'] .ant-pagination-prev .ant-pagination-item-link,
+:root[data-color-mode='dark'] .ant-pagination-next .ant-pagination-item-link {
+  background: #20242d;
+  border-color: #2c313b;
+  color: #cbd5e1;
+}
+
+/* Tag 在暗色下的文字反差 */
+:root[data-color-mode='dark'] .ant-tag {
+  background: #20242d;
+  border-color: #2c313b;
+  color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] .ant-tag-success {
+  background: rgba(34, 197, 94, 0.18) !important;
+  border-color: rgba(34, 197, 94, 0.35) !important;
+  color: #4ade80 !important;
+}
+
+:root[data-color-mode='dark'] .ant-tag-warning,
+:root[data-color-mode='dark'] .ant-tag-gold {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+  color: #fbbf24 !important;
+}
+
+:root[data-color-mode='dark'] .ant-tag-error {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  color: #f87171 !important;
+}
+
+:root[data-color-mode='dark'] .ant-tag-blue,
+:root[data-color-mode='dark'] .ant-tag-processing {
+  background: var(--lh-primary-bg-18) !important;
+  border-color: var(--lh-primary-bg-40) !important;
+  color: var(--lh-primary-light) !important;
+}
+
+/* 工具栏 / 筛选区 */
+:root[data-color-mode='dark'] .owner-toolbar.ant-card,
+:root[data-color-mode='dark'] .market-toolbar.ant-card,
+:root[data-color-mode='dark'] .reviewer-toolbar.ant-card {
+  background: #1a1d24;
+}
+
+/* 设计器物料组标题、字段卡 meta */
+:root[data-color-mode='dark'] .material-group-title,
+:root[data-color-mode='dark'] .field-card-label,
+:root[data-color-mode='dark'] .field-card-meta {
+  color: #cbd5e1 !important;
+}
+
+/* Designer 字段卡背景 */
+:root[data-color-mode='dark'] .field-card {
+  background: #20242d;
+}
+
+:root[data-color-mode='dark'] .field-card.is-active {
+  background: #1d2330;
+  border-color: var(--lh-primary);
+}
+
+/* 联动规则:section 块在暗色下的浅底改深底 */
+:root[data-color-mode='dark'] .linkage-rule-section {
+  background: #20242d;
+  border-color: #2c313b;
+}
+
+:root[data-color-mode='dark'] .linkage-rule-row .property-field-label {
+  color: #94a3b8;
+}
+
+/* 字段编辑器整体的属性面板 */
+:root[data-color-mode='dark'] .property-panel-title,
+:root[data-color-mode='dark'] .property-field-label {
+  color: #cbd5e1 !important;
+}
+
+/* Tabs 选中态在暗色下加粗 */
+:root[data-color-mode='dark'] .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--lh-primary-light) !important;
+}
+
+:root[data-color-mode='dark'] .ant-tabs-ink-bar {
+  background: var(--lh-primary-light) !important;
+}
+
+/* 描述列表 / Statistic prefix */
+:root[data-color-mode='dark'] .ant-descriptions-item-label {
+  color: #94a3b8;
+}
+
+:root[data-color-mode='dark'] .ant-descriptions-item-content {
+  color: #e5e7eb;
+}
+
+/* 进度条文字 */
+:root[data-color-mode='dark'] .ant-progress-text {
+  color: #e5e7eb !important;
+}
+
+/* 搜索框 / Header 搜索 */
+:root[data-color-mode='dark'] .app-header-search.ant-input-affix-wrapper {
+  background: #20242d;
+  border-color: #2c313b;
+}
+
+:root[data-color-mode='dark'] .app-header-search.ant-input-affix-wrapper input {
+  background: transparent;
+  color: #e5e7eb;
+}
+
+/* AppLayout Header 折叠按钮 / 工具按钮 */
+:root[data-color-mode='dark'] .app-header-toggle.ant-btn,
+:root[data-color-mode='dark'] .app-header-color-mode.ant-btn {
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .app-header-toggle.ant-btn:hover,
+:root[data-color-mode='dark'] .app-header-color-mode.ant-btn:hover {
+  background: #20242d;
+  color: var(--lh-primary-light);
+}
+
+/* 用户信息文案 */
+:root[data-color-mode='dark'] .app-header-profile-role {
+  color: #94a3b8;
+}
+
+:root[data-color-mode='dark'] .app-header-profile-name {
+  color: #f5f7fb;
+}
+
+/* hero 横幅在暗色下不变(本来就是主色渐变),
+   但 hero 内的 .overview-hero-cta(白底主色字按钮)在暗色下要保持白底 */
+:root[data-color-mode='dark'] .overview-hero-cta.ant-btn {
+  background: #ffffff;
+  color: var(--lh-primary);
+}
+
+:root[data-color-mode='dark'] .overview-hero-cta.ant-btn:hover {
+  background: #f0f4ff !important;
+  color: var(--lh-primary-hover) !important;
+}
+
+/* 数据集 / 任务列表里的浅蓝底 hover 在暗色下用主色低透明度 */
+:root[data-color-mode='dark'] .ant-table-tbody > tr.owner-task-row:hover > td,
+:root[data-color-mode='dark'] .ant-table-tbody > tr:hover > td {
+  background: var(--lh-primary-bg-12) !important;
+}
+
+/* Empty 描述 */
+:root[data-color-mode='dark'] .ant-empty-description {
+  color: #94a3b8;
+}
+
+/* Switch 关闭态在暗色下的灰底 */
+:root[data-color-mode='dark'] .ant-switch:not(.ant-switch-checked) {
+  background: #2c313b;
+}
+
+/* 模态框 / 抽屉:title / footer / divider */
+:root[data-color-mode='dark'] .ant-modal-title,
+:root[data-color-mode='dark'] .ant-drawer-title {
+  color: #f5f7fb;
+}
+
+:root[data-color-mode='dark'] .ant-modal-footer,
+:root[data-color-mode='dark'] .ant-drawer-footer {
+  border-top-color: #262a33 !important;
+  background: #1a1d24;
+}
+
+:root[data-color-mode='dark'] .ant-divider {
+  border-color: #262a33;
+}
+
+/* 段控件 Segmented */
+:root[data-color-mode='dark'] .ant-segmented {
+  background: #20242d;
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .ant-segmented-item-selected {
+  background: #1a1d24;
+  color: #f5f7fb;
+}
+
+/* Markdown 预览代码块 */
+:root[data-color-mode='dark'] .dataset-md-link {
+  color: var(--lh-primary-light);
+}
+
+:root[data-color-mode='dark'] pre.review-json,
+:root[data-color-mode='dark'] .field-show-text {
+  background: #0d0f14 !important;
+  color: #e5e7eb !important;
+  border-color: #262a33 !important;
+}
+
+/* Designer subtitle 浅蓝条 */
+:root[data-color-mode='dark'] .designer-subtitle {
+  background: #20242d;
+  color: #cbd5e1;
+}
+
+/* AI 通过 / 拒绝 等配色保留语义对比,但避免文字看不见 */
+:root[data-color-mode='dark'] .review-legend-label {
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .review-legend-value {
+  color: #f5f7fb;
+}
+
+/* 操作列文字按钮 */
+:root[data-color-mode='dark'] .ant-btn-link {
+  color: var(--lh-primary-light);
+}
+
+:root[data-color-mode='dark'] .ant-btn-link:hover {
+  color: var(--lh-primary);
+  background: var(--lh-primary-bg-12);
+}
+
+/* 默认 ghost / default Button */
+:root[data-color-mode='dark'] .ant-btn-default,
+:root[data-color-mode='dark'] .ant-btn:not(.ant-btn-primary):not(.ant-btn-link):not(.ant-btn-text):not(.ant-btn-dashed) {
+  background: #20242d;
+  border-color: #2c313b;
+  color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] .ant-btn-default:hover {
+  background: #262a33;
+  border-color: var(--lh-primary);
+  color: var(--lh-primary-light);
+}
+
+:root[data-color-mode='dark'] .ant-btn-text {
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .ant-btn-text:hover {
+  background: #20242d;
+  color: var(--lh-primary-light);
+}
+
+/* 数据预览表头 */
+:root[data-color-mode='dark'] .dataset-preview-toolbar,
+:root[data-color-mode='dark'] .dataset-preview-search {
+  background: #20242d;
+}
+
+
+/* ========== 暗色模式补丁:第二轮深度修复 ========== */
+
+/* 1. 渐变文字在暗色下失明:取消 background-clip:text,改用主色浅 */
+:root[data-color-mode='dark'][data-style-version='gradient'] .app-content .ant-statistic-content-prefix,
+:root[data-color-mode='dark'][data-style-version='gradient'] .owner-stat-primary,
+:root[data-color-mode='dark'][data-style-version='gradient'] .dataset-id,
+:root[data-color-mode='dark'][data-style-version='gradient'] .dataset-id-large,
+:root[data-color-mode='dark'][data-style-version='gradient'] .timeline-task-id {
+  background: transparent !important;
+  -webkit-text-fill-color: var(--lh-primary-light) !important;
+  color: var(--lh-primary-light) !important;
+}
+
+/* 2. KPI 卡数字本身(非渐变)在暗色下要白,但 Reviewer 报表用了
+      style 内联 color={accent} 的彩色数值,接管这部分 */
+:root[data-color-mode='dark'] .reviewer-stat-card .reviewer-stat-value,
+:root[data-color-mode='dark'] .reviewer-stat-value {
+  filter: brightness(1.4) saturate(0.9);
+}
+
+/* 3. 数据集 / 模板列表里 hover 浅蓝底改深底 */
+:root[data-color-mode='dark'] .dataset-list-item:hover,
+:root[data-color-mode='dark'] .batch-item:hover,
+:root[data-color-mode='dark'] .market-card.ant-card:hover,
+:root[data-color-mode='dark'] .template-card.ant-card:hover,
+:root[data-color-mode='dark'] .reviewer-batch-card.ant-card:hover {
+  background: #20242d;
+  border-color: var(--lh-primary-bg-40);
+}
+
+:root[data-color-mode='dark'] .dataset-list-item.is-active {
+  background: linear-gradient(135deg, var(--lh-primary-bg-12) 0%, var(--lh-primary-bg-18) 100%);
+  border-color: var(--lh-primary);
+}
+
+/* 4. 数据集字段列表 / 配额条 / 数据预览表头 / 草稿区背景 */
+:root[data-color-mode='dark'] .dataset-fields-list,
+:root[data-color-mode='dark'] .dataset-fields-list pre,
+:root[data-color-mode='dark'] .owner-task-quota-bar,
+:root[data-color-mode='dark'] .review-bar,
+:root[data-color-mode='dark'] .market-progress {
+  background: #0d0f14;
+}
+
+:root[data-color-mode='dark'] .dataset-fields-list code {
+  background: var(--lh-primary-bg-18);
+  color: var(--lh-primary-light);
+}
+
+/* 5. 数据集字段元数据(必填红 tag 等) */
+:root[data-color-mode='dark'] .dataset-field-row,
+:root[data-color-mode='dark'] .dataset-field-name,
+:root[data-color-mode='dark'] .dataset-field-meta {
+  color: #cbd5e1;
+}
+
+/* 6. Designer 字段卡里的"必填" tag、字段名、meta */
+:root[data-color-mode='dark'] .field-card-name,
+:root[data-color-mode='dark'] .field-card-title {
+  color: #f5f7fb !important;
+}
+
+:root[data-color-mode='dark'] .field-card-meta code {
+  background: var(--lh-primary-bg-18);
+  color: var(--lh-primary-light);
+}
+
+/* 7. Designer 物料 / Tab tip / 选项条目 */
+:root[data-color-mode='dark'] .material-item {
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .material-item:hover {
+  background: var(--lh-primary-bg-12);
+  border-color: var(--lh-primary-bg-40);
+  color: var(--lh-primary-light);
+}
+
+:root[data-color-mode='dark'] .designer-tab-tip,
+:root[data-color-mode='dark'] .options-editor-empty {
+  color: #94a3b8;
+}
+
+:root[data-color-mode='dark'] .options-editor-row .ant-input {
+  background: #20242d !important;
+  border-color: #2c313b !important;
+}
+
+/* 8. 答题页(AnswerPage)题目数据卡:浅蓝底改深底 */
+:root[data-color-mode='dark'] .answer-meta-card,
+:root[data-color-mode='dark'] .answer-meta-row,
+:root[data-color-mode='dark'] .answer-section,
+:root[data-color-mode='dark'] .answer-prompt {
+  background: #1a1d24;
+  border-color: #262a33;
+  color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] .answer-meta-label {
+  color: #94a3b8;
+}
+
+:root[data-color-mode='dark'] .answer-meta-value {
+  color: #f5f7fb;
+}
+
+:root[data-color-mode='dark'] .answer-progress {
+  background: #0d0f14;
+}
+
+/* 选项 Tag 在暗色下:checkable 状态强对比 */
+:root[data-color-mode='dark'] .ant-tag-checkable {
+  background: #20242d;
+  color: #cbd5e1;
+  border: 1px solid #2c313b !important;
+}
+
+:root[data-color-mode='dark'] .ant-tag-checkable:hover {
+  color: var(--lh-primary-light);
+  border-color: var(--lh-primary) !important;
+}
+
+:root[data-color-mode='dark'] .ant-tag-checkable.ant-tag-checkable-checked {
+  background: var(--lh-primary-bg-25) !important;
+  color: var(--lh-primary-light) !important;
+  border-color: var(--lh-primary) !important;
+}
+
+:root[data-color-mode='dark'] .answer-tag-group .ant-tag-checkable-checked {
+  background: var(--lh-primary-bg-25) !important;
+  color: var(--lh-primary-light) !important;
+  border-color: var(--lh-primary) !important;
+}
+
+/* 9. 工作概览的 hero 数字 / 标签栏 / KPI 浅蓝色块 */
+:root[data-color-mode='dark'] .overview-hero {
+  /* 横幅本身就是主色渐变,无需改;但内部数字标签要保持白色 */
+}
+
+/* 10. KPI 浅底色块图标(.kpi-icon / .market-kpi-icon 等):
+       它们本来 inline style background 用了 #eff6ff 浅蓝,在暗色下变成白方块 */
+:root[data-color-mode='dark'] .app-content [style*='#eff6ff'],
+:root[data-color-mode='dark'] .app-content [style*='#ffffff'][style*='background'] {
+  /* 用 attribute 选择器较脆弱,这里仅做兜底说明,
+     实际更稳的方案是给页面加专属 class,以下选择器仅匹配最明显的几例 */
+}
+
+/* 快捷入口图标 hover 之外的默认底色加深 */
+:root[data-color-mode='dark'] .shortcut-tile {
+  background: #1a1d24;
+  border-color: #262a33;
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .shortcut-tile:hover {
+  background: var(--lh-primary-bg-12);
+  border-color: var(--lh-primary);
+  color: var(--lh-primary-light);
+}
+
+:root[data-color-mode='dark'] .shortcut-tile .anticon {
+  background: var(--lh-primary-bg-18);
+  color: var(--lh-primary-light);
+}
+
+:root[data-color-mode='dark'] .shortcut-tile:hover .anticon {
+  background: var(--lh-primary);
+  color: #ffffff;
+}
+
+/* 11. 任务市场空状态 / Empty 在深底上的图片 */
+:root[data-color-mode='dark'] .ant-empty-img-default,
+:root[data-color-mode='dark'] .ant-empty-img-simple {
+  filter: brightness(0.6) invert(0.9);
+}
+
+/* 12. Header 顶部 sticky 玻璃态在暗色下保持深玻璃 */
+:root[data-color-mode='dark'] .app-header.is-scrolled {
+  background: rgba(26, 29, 36, 0.7);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+}
+
+/* 13. 数据看板 (OwnerDashboard) 的所有非 antd 自定义模块 */
+:root[data-color-mode='dark'] .activity-row,
+:root[data-color-mode='dark'] .perf-row,
+:root[data-color-mode='dark'] .leave-card,
+:root[data-color-mode='dark'] .timeline-task,
+:root[data-color-mode='dark'] .schedule-day,
+:root[data-color-mode='dark'] .dispute-card,
+:root[data-color-mode='dark'] .alert-row {
+  background: #1a1d24;
+  border-color: #262a33;
+  color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] .schedule-day {
+  background: #20242d;
+}
+
+:root[data-color-mode='dark'] .schedule-day.is-today {
+  background: var(--lh-primary) !important;
+  color: #ffffff !important;
+}
+
+/* 14. 状态点高亮(.dot-published 等)发光环在深色下减弱 */
+:root[data-color-mode='dark'] .state-dot.dot-published {
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3);
+}
+
+/* 15. 边框分隔线整体压暗 */
+:root[data-color-mode='dark'] .ant-list-item,
+:root[data-color-mode='dark'] .app-content .ant-table-tbody > tr > td,
+:root[data-color-mode='dark'] .ant-card-head,
+:root[data-color-mode='dark'] .ant-modal-header,
+:root[data-color-mode='dark'] .ant-drawer-header,
+:root[data-color-mode='dark'] .login-demo-panel,
+:root[data-color-mode='dark'] .ant-divider-horizontal {
+  border-color: #262a33 !important;
+}
+
+/* 16. 数据集 / 任务管理 / 表格 hover 行去掉浅蓝 */
+:root[data-color-mode='dark'] .ant-table-tbody > tr:hover > td {
+  background: #20242d !important;
+}
+
+/* 17. 下拉菜单悬停背景 */
+:root[data-color-mode='dark'] .ant-select-dropdown,
+:root[data-color-mode='dark'] .ant-select-dropdown .ant-select-item {
+  background: #1a1d24;
+  color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] .ant-select-dropdown .ant-select-item-option-active,
+:root[data-color-mode='dark'] .ant-select-dropdown .ant-select-item-option-selected {
+  background: var(--lh-primary-bg-18) !important;
+  color: var(--lh-primary-light);
+}
+
+/* 18. Tooltip / Popover */
+:root[data-color-mode='dark'] .ant-tooltip-inner {
+  background: #1a1d24;
+  color: #e5e7eb;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-color-mode='dark'] .ant-tooltip-arrow::before {
+  background: #1a1d24;
+}
+
+/* 19. Form label */
+:root[data-color-mode='dark'] .ant-form-item-label > label {
+  color: #cbd5e1;
+}
+
+/* 20. Notification / Message */
+:root[data-color-mode='dark'] .ant-message-notice-content,
+:root[data-color-mode='dark'] .ant-notification-notice {
+  background: #1a1d24 !important;
+  color: #e5e7eb !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-color-mode='dark'] .ant-notification-notice-message {
+  color: #f5f7fb !important;
+}
+
+:root[data-color-mode='dark'] .ant-notification-notice-description {
+  color: #cbd5e1 !important;
+}
+
+/* 21. dataset-id 在数据集页头部用了渐变文字,暗色下退回主色浅 */
+:root[data-color-mode='dark'] .dataset-id,
+:root[data-color-mode='dark'] .dataset-id-large,
+:root[data-color-mode='dark'] .timeline-task-id,
+:root[data-color-mode='dark'] .app-content .ant-statistic-content-prefix,
+:root[data-color-mode='dark'] .owner-stat-primary {
+  color: var(--lh-primary-light) !important;
+  -webkit-text-fill-color: var(--lh-primary-light) !important;
+  background: var(--lh-primary-bg-18) !important;
+  background-clip: padding-box !important;
+  -webkit-background-clip: padding-box !important;
+}
+
+/* 22. KPI 浅蓝色背景图标方块(LabelerOverview / OwnerDashboard 中):
+       业务页用 inline style 给 .kpi-icon 设了浅蓝底,暗色下要换深一档 */
+:root[data-color-mode='dark'] .kpi-icon,
+:root[data-color-mode='dark'] .market-kpi-icon,
+:root[data-color-mode='dark'] .template-stat-icon,
+:root[data-color-mode='dark'] .reviewer-stat-icon {
+  background: var(--lh-primary-bg-18) !important;
+  color: var(--lh-primary-light) !important;
+}
+
+/* 23. Reviewer 报表用 inline style color={accent} 的数字 */
+:root[data-color-mode='dark'] .reviewer-stat-value {
+  color: #f5f7fb !important;
+}
+
+/* 24. types-pill 多类型胶囊用了 inline style 浅色底 */
+:root[data-color-mode='dark'] .types-pill {
+  filter: brightness(0.7) saturate(1.2);
+}
+
+/* 25. 答题页 progress 默认底色 */
+:root[data-color-mode='dark'] .ant-progress-inner {
+  background: #20242d !important;
+}
+
+
+/* ========== 暗色模式:终极通配文字修复 ========== */
+/* 之前逐条覆盖永远覆盖不完,这里用通配选择器一次性把所有文字改浅,
+   再对少数需要保持深色的元素(白底按钮文字 / hero 白字等)做例外. */
+
+:root[data-color-mode='dark'] {
+  /* 全局默认文字色 */
+  color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] *:not(.overview-hero *):not(.login-page *):not(.overview-hero-cta *) {
+  /* 通配:所有元素文字改浅,除了 hero 横幅(本来就是白字)和登录页 */
+  color: inherit;
+  border-color: #262a33;
+}
+
+/* 重新声明暗色下的文字层级 */
+:root[data-color-mode='dark'] body,
+:root[data-color-mode='dark'] #root {
+  color: #e5e7eb;
+}
+
+/* 标题更亮 */
+:root[data-color-mode='dark'] h1,
+:root[data-color-mode='dark'] h2,
+:root[data-color-mode='dark'] h3,
+:root[data-color-mode='dark'] h4,
+:root[data-color-mode='dark'] h5,
+:root[data-color-mode='dark'] .ant-typography h1,
+:root[data-color-mode='dark'] .ant-typography h2,
+:root[data-color-mode='dark'] .ant-typography h3,
+:root[data-color-mode='dark'] .ant-typography h4 {
+  color: #f8fafc !important;
+}
+
+/* 正文 */
+:root[data-color-mode='dark'] p,
+:root[data-color-mode='dark'] span,
+:root[data-color-mode='dark'] div,
+:root[data-color-mode='dark'] li,
+:root[data-color-mode='dark'] td,
+:root[data-color-mode='dark'] th,
+:root[data-color-mode='dark'] label,
+:root[data-color-mode='dark'] .ant-typography {
+  color: #e5e7eb;
+}
+
+/* 次级文字 */
+:root[data-color-mode='dark'] .ant-typography-secondary,
+:root[data-color-mode='dark'] .ant-form-item-extra,
+:root[data-color-mode='dark'] .ant-empty-description,
+:root[data-color-mode='dark'] small,
+:root[data-color-mode='dark'] .ant-table-footer {
+  color: #94a3b8 !important;
+}
+
+/* 链接 */
+:root[data-color-mode='dark'] a {
+  color: var(--lh-primary-light);
+}
+
+/* 确保 antd 组件内部文字也跟随 */
+:root[data-color-mode='dark'] .ant-card-body,
+:root[data-color-mode='dark'] .ant-card-head-title,
+:root[data-color-mode='dark'] .ant-card-extra,
+:root[data-color-mode='dark'] .ant-list-item,
+:root[data-color-mode='dark'] .ant-descriptions-item-label,
+:root[data-color-mode='dark'] .ant-descriptions-item-content,
+:root[data-color-mode='dark'] .ant-form-item-label > label,
+:root[data-color-mode='dark'] .ant-statistic-title,
+:root[data-color-mode='dark'] .ant-statistic-content,
+:root[data-color-mode='dark'] .ant-table-cell,
+:root[data-color-mode='dark'] .ant-tabs-tab-btn,
+:root[data-color-mode='dark'] .ant-breadcrumb,
+:root[data-color-mode='dark'] .ant-breadcrumb a,
+:root[data-color-mode='dark'] .ant-menu-item,
+:root[data-color-mode='dark'] .ant-select-selection-item,
+:root[data-color-mode='dark'] .ant-select-selection-placeholder,
+:root[data-color-mode='dark'] .ant-input,
+:root[data-color-mode='dark'] .ant-input-affix-wrapper > input,
+:root[data-color-mode='dark'] .ant-picker,
+:root[data-color-mode='dark'] .ant-radio-wrapper,
+:root[data-color-mode='dark'] .ant-checkbox-wrapper {
+  color: #e5e7eb !important;
+}
+
+/* 所有背景为白色的容器在暗色下改深 */
+:root[data-color-mode='dark'] .ant-card,
+:root[data-color-mode='dark'] .ant-modal-content,
+:root[data-color-mode='dark'] .ant-drawer-body,
+:root[data-color-mode='dark'] .ant-popover-inner,
+:root[data-color-mode='dark'] .ant-dropdown-menu,
+:root[data-color-mode='dark'] .ant-select-dropdown,
+:root[data-color-mode='dark'] .ant-picker-panel-container,
+:root[data-color-mode='dark'] .ant-message-notice-content,
+:root[data-color-mode='dark'] .ant-notification-notice {
+  background: #1a1d24 !important;
+  border-color: #262a33 !important;
+}
+
+/* 所有 input / select 深底 */
+:root[data-color-mode='dark'] .ant-input,
+:root[data-color-mode='dark'] .ant-input-affix-wrapper,
+:root[data-color-mode='dark'] .ant-select-selector,
+:root[data-color-mode='dark'] .ant-input-number,
+:root[data-color-mode='dark'] .ant-input-textarea textarea,
+:root[data-color-mode='dark'] .ant-picker {
+  background: #20242d !important;
+  border-color: #2c313b !important;
+}
+
+/* placeholder */
+:root[data-color-mode='dark'] input::placeholder,
+:root[data-color-mode='dark'] textarea::placeholder,
+:root[data-color-mode='dark'] .ant-select-selection-placeholder {
+  color: #64748b !important;
+}
+
+/* 表格 */
+:root[data-color-mode='dark'] .ant-table {
+  background: #1a1d24 !important;
+}
+
+:root[data-color-mode='dark'] .ant-table-thead > tr > th,
+:root[data-color-mode='dark'] .ant-table-thead > tr > td {
+  background: #20242d !important;
+  color: #cbd5e1 !important;
+  border-bottom: 1px solid #262a33 !important;
+}
+
+:root[data-color-mode='dark'] .ant-table-tbody > tr > td {
+  background: #1a1d24 !important;
+  border-bottom: 1px solid #1f2228 !important;
+}
+
+:root[data-color-mode='dark'] .ant-table-tbody > tr:hover > td {
+  background: #20242d !important;
+}
+
+/* 例外:hero 横幅内文字保持白色 */
+:root[data-color-mode='dark'] .overview-hero,
+:root[data-color-mode='dark'] .overview-hero * {
+  color: #ffffff;
+}
+
+/* 例外:白底按钮(hero CTA)保持主色字 */
+:root[data-color-mode='dark'] .overview-hero-cta.ant-btn {
+  background: #ffffff !important;
+  color: var(--lh-primary) !important;
+}
+
+:root[data-color-mode='dark'] .overview-hero-cta.ant-btn:hover {
+  background: #f0f4ff !important;
+  color: var(--lh-primary-hover) !important;
+}
+
+/* 侧栏菜单文字 */
+:root[data-color-mode='dark'] .app-shell .ant-menu-light .ant-menu-item {
+  color: #cbd5e1 !important;
+}
+
+:root[data-color-mode='dark'] .app-shell .ant-menu-light .ant-menu-item:hover {
+  color: var(--lh-primary-light) !important;
+}
+
+:root[data-color-mode='dark'] .app-shell .ant-menu-light .ant-menu-item-selected {
+  color: #ffffff !important;
+}
+
+/* 侧栏分组标题 */
+:root[data-color-mode='dark'] .app-shell .ant-menu-light .ant-menu-item-group-title {
+  color: var(--lh-primary-light) !important;
+}
+
+
+/* ========== 暗色模式:SVG 环形图 / 图表文字修复 ========== */
+
+/* 环形图中心数字 + 副标题(SVG text 用 fill 而不是 color) */
+:root[data-color-mode='dark'] .donut-total {
+  fill: #f8fafc !important;
+}
+
+:root[data-color-mode='dark'] .donut-sub {
+  fill: #94a3b8 !important;
+}
+
+/* 环形图图例文字 */
+:root[data-color-mode='dark'] .donut-legend li,
+:root[data-color-mode='dark'] .donut-legend-label {
+  color: #cbd5e1 !important;
+}
+
+:root[data-color-mode='dark'] .donut-legend-value {
+  color: #f5f7fb !important;
+}
+
+/* 柱状图 Y 轴刻度 / X 轴标签 */
+:root[data-color-mode='dark'] .bar-chart-y span,
+:root[data-color-mode='dark'] .bar-label {
+  color: #94a3b8 !important;
+}
+
+/* 柱状图图例 */
+:root[data-color-mode='dark'] .bar-legend span {
+  color: #cbd5e1 !important;
+}
+
+/* 数据看板 dashboard-foot-tip */
+:root[data-color-mode='dark'] .dashboard-foot-tip {
+  color: #94a3b8 !important;
+}
+
+/* 数据看板里的 card-foot / 争议样本 / 截止预警等自定义文字 */
+:root[data-color-mode='dark'] .dispute-label,
+:root[data-color-mode='dark'] .dispute-value,
+:root[data-color-mode='dark'] .alert-title,
+:root[data-color-mode='dark'] .alert-meta,
+:root[data-color-mode='dark'] .timeline-task-title,
+:root[data-color-mode='dark'] .timeline-task-meta,
+:root[data-color-mode='dark'] .perf-score,
+:root[data-color-mode='dark'] .perf-meta {
+  color: #e5e7eb !important;
+}
+
+/* Reviewer 质量指标条 label / value */
+:root[data-color-mode='dark'] .reviewer-quality-label {
+  color: #cbd5e1 !important;
+}
+
+:root[data-color-mode='dark'] .reviewer-quality-value {
+  color: #f5f7fb !important;
+}
+
+/* Reviewer 质量条底色 */
+:root[data-color-mode='dark'] .reviewer-quality-bar {
+  background: #20242d !important;
+}
+
+
+/* ========== 暗色模式:数据看板争议/抽检/节点/截止预警 ========== */
+
+/* 争议样本 & 抽检:标签 / 数值 / 趋势行 */
+:root[data-color-mode='dark'] .dispute-label {
+  color: #94a3b8 !important;
+}
+
+:root[data-color-mode='dark'] .dispute-value {
+  color: #f8fafc !important;
+}
+
+:root[data-color-mode='dark'] .dispute-bar {
+  background: #20242d !important;
+}
+
+:root[data-color-mode='dark'] .dispute-cell {
+  background: #20242d;
+  border-color: #262a33;
+}
+
+:root[data-color-mode='dark'] .dispute-trend-row span {
+  color: #cbd5e1 !important;
+}
+
+:root[data-color-mode='dark'] .dispute-trend-row strong {
+  color: #f8fafc !important;
+}
+
+/* 任务关键节点:任务名 / 进度条底 */
+:root[data-color-mode='dark'] .timeline-row {
+  background: #20242d;
+  border-color: #262a33;
+}
+
+:root[data-color-mode='dark'] .timeline-task-title {
+  color: #e5e7eb !important;
+}
+
+:root[data-color-mode='dark'] .timeline-bar {
+  background: #0d0f14;
+}
+
+/* 临近截止预警:行底色 / 标题 / 副标题 */
+:root[data-color-mode='dark'] .deadline-row {
+  background: #20242d;
+  border-color: #262a33;
+}
+
+:root[data-color-mode='dark'] .deadline-title {
+  color: #f5f7fb !important;
+}
+
+:root[data-color-mode='dark'] .deadline-sub {
+  color: #94a3b8 !important;
+}
+
+:root[data-color-mode='dark'] .deadline-icon {
+  color: #cbd5e1;
+}
+
+/* 截止预警 tone 色调在暗色下保持可见 */
+:root[data-color-mode='dark'] .deadline-row.tone-critical {
+  border-left-color: #ef4444;
+}
+
+:root[data-color-mode='dark'] .deadline-row.tone-warn {
+  border-left-color: #f59e0b;
+}
+
+:root[data-color-mode='dark'] .deadline-row.tone-normal {
+  border-left-color: #22c55e;
+}
+
+/* 截止预警"跟进"按钮 */
+:root[data-color-mode='dark'] .deadline-action.ant-btn {
+  background: #262a33;
+  border-color: #2c313b;
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .deadline-action.ant-btn:hover {
+  background: var(--lh-primary-bg-18);
+  border-color: var(--lh-primary);
+  color: var(--lh-primary-light);
+}
+
+
+/* ========== 暗色模式:Designer 页面深度修复 ========== */
+
+/* Designer 字段卡内的选项 Tag(单选/多选预览) */
+:root[data-color-mode='dark'] .field-card .ant-tag,
+:root[data-color-mode='dark'] .field-card .ant-tag-checkable {
+  background: #262a33 !important;
+  border-color: #363b47 !important;
+  color: #e5e7eb !important;
+}
+
+:root[data-color-mode='dark'] .field-card .ant-tag-checkable-checked {
+  background: var(--lh-primary-bg-25) !important;
+  border-color: var(--lh-primary) !important;
+  color: var(--lh-primary-light) !important;
+}
+
+/* Designer 字段卡内的 "+ 新增" 按钮 */
+:root[data-color-mode='dark'] .field-card .ant-btn-dashed {
+  background: #20242d !important;
+  border-color: #363b47 !important;
+  color: #cbd5e1 !important;
+}
+
+/* Designer 字段卡内的 Input / TextArea 预览(disabled 态) */
+:root[data-color-mode='dark'] .field-card .ant-input[disabled],
+:root[data-color-mode='dark'] .field-card .ant-input-affix-wrapper-disabled,
+:root[data-color-mode='dark'] .field-card textarea[disabled] {
+  background: #20242d !important;
+  border-color: #2c313b !important;
+  color: #94a3b8 !important;
+}
+
+/* 右侧属性面板整体 */
+:root[data-color-mode='dark'] .property-panel {
+  color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] .property-panel-title {
+  color: #f5f7fb !important;
+}
+
+:root[data-color-mode='dark'] .property-field-label {
+  color: #94a3b8 !important;
+}
+
+/* 属性面板里的 Input / Select / Switch label */
+:root[data-color-mode='dark'] .property-panel .ant-input,
+:root[data-color-mode='dark'] .property-panel .ant-input-affix-wrapper,
+:root[data-color-mode='dark'] .property-panel .ant-select-selector,
+:root[data-color-mode='dark'] .property-panel textarea {
+  background: #20242d !important;
+  border-color: #2c313b !important;
+  color: #e5e7eb !important;
+}
+
+:root[data-color-mode='dark'] .property-panel .ant-select-selection-item {
+  color: #e5e7eb !important;
+}
+
+/* 属性面板 Tabs */
+:root[data-color-mode='dark'] .property-panel .ant-tabs-tab-btn {
+  color: #94a3b8 !important;
+}
+
+:root[data-color-mode='dark'] .property-panel .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--lh-primary-light) !important;
+}
+
+/* Designer 顶部工具栏 */
+:root[data-color-mode='dark'] .designer-topbar {
+  background: #1a1d24 !important;
+  border-color: #262a33 !important;
+}
+
+:root[data-color-mode='dark'] .designer-topbar .ant-typography,
+:root[data-color-mode='dark'] .designer-topbar .ant-btn,
+:root[data-color-mode='dark'] .designer-topbar .ant-tag {
+  color: #e5e7eb;
+}
+
+/* Designer 顶部表单区(模板名称 / 模板描述 / 数据集选择) */
+:root[data-color-mode='dark'] .designer-shell > .ant-card,
+:root[data-color-mode='dark'] .designer-shell > div > .ant-card {
+  background: #1a1d24 !important;
+  border-color: #262a33 !important;
+}
+
+/* Designer 中间画布 Tabs */
+:root[data-color-mode='dark'] .designer-tabs .ant-tabs-tab-btn {
+  color: #94a3b8 !important;
+}
+
+:root[data-color-mode='dark'] .designer-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--lh-primary-light) !important;
+}
+
+:root[data-color-mode='dark'] .designer-tab-tip {
+  color: #64748b !important;
+}
+
+/* Schema 检查面板 */
+:root[data-color-mode='dark'] .schema-check-panel {
+  background: #20242d !important;
+  border-color: #262a33 !important;
+}
+
+:root[data-color-mode='dark'] .schema-check-panel .ant-tag {
+  color: #e5e7eb;
+}
+
+/* 选项编辑器(右侧属性面板内) */
+:root[data-color-mode='dark'] .options-editor-row {
+  background: transparent;
+}
+
+:root[data-color-mode='dark'] .options-editor-index {
+  background: var(--lh-primary-bg-18) !important;
+  color: var(--lh-primary-light) !important;
+}
+
+:root[data-color-mode='dark'] .options-editor-add.ant-btn {
+  background: #20242d !important;
+  border-color: #363b47 !important;
+  color: var(--lh-primary-light) !important;
+}
+
+/* 联动规则编辑器 */
+:root[data-color-mode='dark'] .linkage-rule {
+  background: #1a1d24 !important;
+  border-color: #262a33 !important;
+}
+
+:root[data-color-mode='dark'] .linkage-rule-section {
+  background: #20242d !important;
+  border-color: #2c313b !important;
+}
+
+:root[data-color-mode='dark'] .linkage-rule-tag.is-when {
+  background: var(--lh-primary-bg-25) !important;
+  color: var(--lh-primary-light) !important;
+}
+
+:root[data-color-mode='dark'] .linkage-rule-tag.is-then {
+  background: rgba(34, 197, 94, 0.25) !important;
+  color: #4ade80 !important;
+}
+
+:root[data-color-mode='dark'] .linkage-rule-index {
+  color: #94a3b8 !important;
+}
+
+/* 字段卡内的字段名 / 字段类型 meta */
+:root[data-color-mode='dark'] .field-card-name {
+  color: #f5f7fb !important;
+}
+
+:root[data-color-mode='dark'] .field-card-kind {
+  color: #94a3b8 !important;
+}
+
+:root[data-color-mode='dark'] .field-card-meta code {
+  background: var(--lh-primary-bg-18) !important;
+  color: var(--lh-primary-light) !important;
+}
+
+/* 字段卡操作按钮 */
+:root[data-color-mode='dark'] .field-card-actions .ant-btn {
+  color: #94a3b8 !important;
+}
+
+:root[data-color-mode='dark'] .field-card-actions .ant-btn:hover {
+  color: var(--lh-primary-light) !important;
+  background: var(--lh-primary-bg-12) !important;
+}
+
+/* 拖拽手柄 */
+:root[data-color-mode='dark'] .field-drag-handle {
+  color: #64748b !important;
+}
+
+:root[data-color-mode='dark'] .field-drag-handle:hover {
+  color: var(--lh-primary-light) !important;
+  background: var(--lh-primary-bg-12) !important;
+}
+
+
+/* ========== 暗色模式:Designer 字段选项 Tag 强制覆盖 ========== */
+/* .field-option-tag 默认白底深字,暗色下改为深灰底浅字 */
+:root[data-color-mode='dark'] .field-option-tag.ant-tag {
+  background: #262a33 !important;
+  border-color: #363b47 !important;
+  color: #e5e7eb !important;
+}
+
+:root[data-color-mode='dark'] .field-option-tag.is-add {
+  background: #20242d !important;
+  border-color: #363b47 !important;
+  color: #94a3b8 !important;
+}
+
+/* 右侧属性面板 Input 白底也要覆盖(antd CSS-in-JS 可能注入 inline) */
+:root[data-color-mode='dark'] .designer-right .ant-input,
+:root[data-color-mode='dark'] .designer-right .ant-input-affix-wrapper,
+:root[data-color-mode='dark'] .designer-right .ant-select .ant-select-selector,
+:root[data-color-mode='dark'] .designer-right textarea {
+  background: #20242d !important;
+  border-color: #2c313b !important;
+  color: #e5e7eb !important;
+}
+
+:root[data-color-mode='dark'] .designer-right .ant-input::placeholder,
+:root[data-color-mode='dark'] .designer-right textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* 字段卡内的"字段名: xxx · 单选"描述文字 */
+:root[data-color-mode='dark'] .field-card-desc {
+  color: #94a3b8 !important;
+}
+
+:root[data-color-mode='dark'] .field-card-desc code {
+  background: var(--lh-primary-bg-18) !important;
+  color: var(--lh-primary-light) !important;
+}
+
+
+/* ========== 暗色模式:主内容区浮卡底色 ========== */
+/* .app-content 在亮色下是 #eef2f7 浅蓝灰浮卡,
+   暗色下要改为深底,与外侧 .app-shell 形成层次 */
+:root[data-color-mode='dark'] .app-content {
+  background: #13151b !important;
+  border-color: #262a33 !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 8px 22px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* 渐变模式 + 暗色:用主色低透明度光晕,但不要让背景变浅 */
+:root[data-color-mode='dark'][data-style-version='gradient'] .app-content {
+  background:
+    radial-gradient(ellipse 60% 60% at 15% 0%, var(--lh-primary-bg-12) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 65% at 100% 100%, var(--lh-primary-bg-10) 0%, transparent 60%),
+    #13151b !important;
+}
+
+/* .app-shell 外侧底色暗色覆盖(避免亮色光晕透出) */
+:root[data-color-mode='dark'] .app-shell {
+  background: #0d0f14 !important;
+}
+
+:root[data-color-mode='dark'][data-style-version='gradient'] .app-shell {
+  background:
+    radial-gradient(ellipse 70% 55% at 12% -5%, var(--lh-primary-bg-14) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 70% at 100% 105%, var(--lh-primary-bg-12) 0%, transparent 65%),
+    #0d0f14 !important;
+}
+
+
+/* ========== 暗色模式:Designer 顶部表单区 ========== */
+:root[data-color-mode='dark'] .designer-meta-panel {
+  background: #1a1d24 !important;
+  border-color: #262a33 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+}
+
+:root[data-color-mode='dark'] .designer-meta-label {
+  color: #94a3b8 !important;
+}
+
+:root[data-color-mode='dark'] .designer-meta-panel .ant-input,
+:root[data-color-mode='dark'] .designer-meta-panel .ant-select-selector {
+  background: #20242d !important;
+  border-color: #2c313b !important;
+  color: #e5e7eb !important;
+}
+
+/* Designer subtitle 提示条 */
+:root[data-color-mode='dark'] .designer-subtitle {
+  background: #1a1d24 !important;
+  color: #cbd5e1 !important;
+  border: 1px solid #262a33;
 }

@@ -66,12 +66,19 @@ public class SchemaRepository {
 
   public List<SchemaRecord> listOwnerSchemas(long ownerId) {
     return querySchemas(
-        "WHERE tsv.created_by = ?",
+        "WHERE tsv.created_by = ? AND tsv.deleted_at IS NULL",
         List.of(ownerId),
         "ORDER BY COALESCE(tsv.updated_at, tsv.created_at) DESC, tsv.id DESC");
   }
 
   public Optional<SchemaRecord> findOwnerSchema(long ownerId, long schemaId) {
+    return querySchemas(
+        "WHERE tsv.created_by = ? AND tsv.id = ? AND tsv.deleted_at IS NULL",
+        List.of(ownerId, schemaId),
+        "").stream().findFirst();
+  }
+
+  public Optional<SchemaRecord> findOwnerSchemaIncludingDeleted(long ownerId, long schemaId) {
     return querySchemas(
         "WHERE tsv.created_by = ? AND tsv.id = ?",
         List.of(ownerId, schemaId),
@@ -148,7 +155,9 @@ public class SchemaRepository {
   public int deleteDraft(long ownerId, long schemaId) {
     return jdbcTemplate.update(
         """
-        DELETE FROM task_schema_versions
+        UPDATE task_schema_versions
+        SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
           AND created_by = ?
           AND status = 'draft'
@@ -170,7 +179,8 @@ public class SchemaRepository {
           u.name AS created_by_name,
           tsv.created_at,
           COALESCE(tsv.updated_at, tsv.created_at) AS updated_at,
-          tsv.published_at
+          tsv.published_at,
+          tsv.deleted_at
         FROM task_schema_versions tsv
         LEFT JOIN tasks t ON t.id = tsv.task_id
         LEFT JOIN tasks referenced_task ON referenced_task.id = (
@@ -197,7 +207,8 @@ public class SchemaRepository {
             rs.getString("created_by_name"),
             toLocalDateTime(rs.getTimestamp("created_at")),
             toLocalDateTime(rs.getTimestamp("updated_at")),
-            toLocalDateTime(rs.getTimestamp("published_at"))),
+            toLocalDateTime(rs.getTimestamp("published_at")),
+            toLocalDateTime(rs.getTimestamp("deleted_at"))),
         args.toArray());
   }
 
