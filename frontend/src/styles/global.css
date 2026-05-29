@@ -6676,21 +6676,37 @@ body {
 
 /* ========== 数据集页:数量徽章 + 滚动列表 + 删除按钮 ========== */
 
-/* "我的数据集"标题旁的醒目数字徽章 */
+/* "我的数据集"标题旁的醒目数字徽章:小巧灵动的圆形药丸 */
 .dataset-count-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  height: 22px;
-  padding: 0 8px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 999px;
   background: var(--lh-primary-gradient-h);
   color: #ffffff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.4px;
-  box-shadow: 0 4px 10px var(--lh-primary-bg-30);
+  line-height: 1;
+  letter-spacing: 0.2px;
+  box-shadow: 0 2px 6px var(--lh-primary-bg-35);
+  /* 入场轻微弹跳,增加灵动感 */
+  animation: dataset-badge-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  /* 顶部对齐标题视觉中线,稍微上移 */
+  transform: translateY(-1px);
+}
+
+@keyframes dataset-badge-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-1px) scale(0.4);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1);
+  }
 }
 
 /* 数据集滚动容器:固定显示约 3 张卡片高度 + 溢出滚动.

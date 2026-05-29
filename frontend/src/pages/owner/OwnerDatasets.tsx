@@ -203,7 +203,6 @@ function toBoolean(value: unknown) {
 
 export default function OwnerDatasets() {
   const { message } = AntdApp.useApp();
-  const [createForm] = Form.useForm<DatasetFormValues>();
   const [importForm] = Form.useForm<DatasetFormValues>();
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [activeId, setActiveId] = useState<string>('');
@@ -216,7 +215,6 @@ export default function OwnerDatasets() {
   const [showAllModal, setShowAllModal] = useState(false);
   const [ownerTasks, setOwnerTasks] = useState<OwnerTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [appendOpen, setAppendOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -285,10 +283,10 @@ export default function OwnerDatasets() {
   }, [loadDatasets, loadTasks]);
 
   useEffect(() => {
-    if (createOpen || importOpen) {
+    if (importOpen) {
       void loadTasks();
     }
-  }, [createOpen, importOpen, loadTasks]);
+  }, [importOpen, loadTasks]);
 
   /** 拉取选中的 MySQL 数据集条目 */
   useEffect(() => {
@@ -466,13 +464,9 @@ export default function OwnerDatasets() {
     setActiveItem(record);
   };
 
-  const openCreateModal = () => {
-    createForm.resetFields();
-    createForm.setFieldsValue({
-      kind: 'qa_quality',
-    });
-    setCreateOpen(true);
-  };
+  // 数据集创建入口已合并到"新建数据集"按钮(原"上传文件数据"流程),
+  // 不再使用 openCreateModal / submitCreateDataset / createForm 等独立"新建空数据集"链路.
+  // 相关 state 与 Modal 已删除,API datasetApi.createDataset 仍保留以备后续使用.
 
   const openImportModal = () => {
     importForm.resetFields();
@@ -483,40 +477,55 @@ export default function OwnerDatasets() {
     setImportOpen(true);
   };
 
-  const submitCreateDataset = async () => {
-    const values = normalizeDatasetFormValues(await createForm.validateFields());
-    setSubmitting(true);
-    try {
-      const created = await datasetApi.createDataset(values);
-      message.success('数据集已创建。');
-      setCreateOpen(false);
-      await loadDatasets(created.id);
-    } catch {
-      message.error('新建数据集失败,请检查任务选择和后端接口。');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
+  /**
+   * 新建数据集分支:
+   * 1. 表单字段校验通过后,根据是否上传文件分两条路径
+   *    - 有文件:走 importDataset 上传并解析数据
+   *    - 无文件:Modal.confirm 二次确认 → 走 createDataset 创建空数据集
+   * 2. 用户被告知"未上传文件将创建空数据集",降低误操作概率
+   */
   const submitImportDataset = async () => {
     const values = normalizeDatasetFormValues(await importForm.validateFields());
     const file = importFileList[0]?.originFileObj;
-    if (!file) {
-      message.error('请先选择要上传的数据文件。');
+
+    // 分支 A:有文件,直接上传导入
+    if (file) {
+      setSubmitting(true);
+      try {
+        const created = await datasetApi.importDataset({ ...values, file });
+        message.success('数据文件已导入 MySQL。');
+        setImportOpen(false);
+        setImportFileList([]);
+        await loadDatasets(created.id);
+      } catch {
+        message.error('上传导入失败,请确认文件格式为 JSON / JSONL / CSV / 基础 XLSX。');
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
-    setSubmitting(true);
-    try {
-      const created = await datasetApi.importDataset({ ...values, file });
-      message.success('数据文件已导入 MySQL。');
-      setImportOpen(false);
-      setImportFileList([]);
-      await loadDatasets(created.id);
-    } catch {
-      message.error('上传导入失败,请确认文件格式为 JSON / JSONL / CSV / 基础 XLSX。');
-    } finally {
-      setSubmitting(false);
-    }
+
+    // 分支 B:无文件,二次确认创建空数据集
+    Modal.confirm({
+      title: '将创建空数据集',
+      content: '当前未上传任何数据文件,将创建一个空数据集。后续可通过详情卡的"添加数据"向其追加文件。',
+      okText: '确认创建',
+      cancelText: '继续上传文件',
+      async onOk() {
+        setSubmitting(true);
+        try {
+          const created = await datasetApi.createDataset(values);
+          message.success(`已创建空数据集「${created.name}」`);
+          setImportOpen(false);
+          setImportFileList([]);
+          await loadDatasets(created.id);
+        } catch {
+          message.error('创建空数据集失败,请检查数据集名称与类型。');
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    });
   };
 
   const openAppendModal = () => {
@@ -611,10 +620,12 @@ export default function OwnerDatasets() {
           </Typography.Text>
         </Space>
         <Space>
-          <Button icon={<CloudUploadOutlined />} onClick={openImportModal}>
-            上传文件数据
-          </Button>
-          <Button type="primary" icon={<DatabaseOutlined />} onClick={openCreateModal}>
+          {/*
+            原本"上传文件数据 + 新建数据集"两个按钮功能重叠,统一收敛为一个
+            主按钮"新建数据集",点击弹出原导入流程(可选关联任务 + 数据集类型 + 文件).
+            真正"新建空数据集"的入口暂不再暴露,createDataset API 仍保留以备后续使用.
+          */}
+          <Button type="primary" icon={<DatabaseOutlined />} onClick={openImportModal}>
             新建数据集
           </Button>
         </Space>
@@ -626,10 +637,12 @@ export default function OwnerDatasets() {
           <Card
             className="dataset-list-card"
             title={
-              <Space size={10} align="center">
+              <Space size={8} align="center">
                 <span>我的数据集</span>
-                {/* 醒目数字徽章:显示当前数据集总数 */}
-                <span className="dataset-count-badge">{datasets.length}</span>
+                {/* 醒目数字徽章:显示当前数据集总数,数量变化时重播弹跳动画 */}
+                <span key={datasets.length} className="dataset-count-badge">
+                  {datasets.length}
+                </span>
               </Space>
             }
             loading={datasetLoading}
@@ -775,7 +788,7 @@ export default function OwnerDatasets() {
             <Card className="dataset-meta-card">
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="请先新建数据集或上传文件数据"
+                description="请先新建数据集"
               />
             </Card>
           )}
@@ -929,75 +942,26 @@ export default function OwnerDatasets() {
         </Space>
       </Modal>
 
-      <Modal
+      <Drawer
         title="新建数据集"
-        open={createOpen}
-        onCancel={() => setCreateOpen(false)}
-        onOk={submitCreateDataset}
-        confirmLoading={submitting}
-        okText="创建"
-        cancelText="取消"
-      >
-        <Form form={createForm} layout="vertical">
-          {ownerTasks.length === 0 && (
-            <Alert
-              type="info"
-              showIcon
-              message="当前账号还没有可关联任务"
-              description="可以先创建未绑定任务的数据集,后续在任务发布页选择该数据集完成绑定。"
-              style={{ marginBottom: 16 }}
-            />
-          )}
-          <Form.Item
-            name="taskId"
-            label="关联任务（可选）"
-          >
-            <Select
-              placeholder="可先不关联,后续在任务发布页绑定"
-              loading={tasksLoading}
-              options={taskOptions}
-              allowClear
-              showSearch
-              optionFilterProp="label"
-            />
-          </Form.Item>
-          <Form.Item
-            name="name"
-            label="数据集名称"
-            rules={[{ required: true, message: '请输入数据集名称' }]}
-          >
-            <Input placeholder="例如:问答质量评估 2026-05" maxLength={255} />
-          </Form.Item>
-          <Form.Item
-            name="kind"
-            label="数据集类型"
-            rules={[
-              { required: true, message: '请选择或输入数据集类型' },
-              { max: 64, message: '数据集类型最多 64 个字符' },
-            ]}
-          >
-            <AutoComplete
-              options={datasetKindOptions}
-              placeholder="选择内置类型或输入自定义类型"
-              filterOption={(inputValue, option) =>
-                String(option?.label ?? option?.value ?? '')
-                  .toLowerCase()
-                  .includes(inputValue.toLowerCase())
-              }
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="上传文件数据"
         open={importOpen}
-        onCancel={() => setImportOpen(false)}
-        onOk={submitImportDataset}
-        confirmLoading={submitting}
-        okText="上传并导入"
-        cancelText="取消"
-        width={620}
+        onClose={() => setImportOpen(false)}
+        width={480}
+        destroyOnClose
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button onClick={() => setImportOpen(false)} disabled={submitting}>
+              取消
+            </Button>
+            <Button
+              type="primary"
+              onClick={submitImportDataset}
+              loading={submitting}
+            >
+              完成
+            </Button>
+          </div>
+        }
       >
         <Form form={importForm} layout="vertical">
           {ownerTasks.length === 0 && (
@@ -1047,7 +1011,7 @@ export default function OwnerDatasets() {
               }
             />
           </Form.Item>
-          <Form.Item label="数据文件" required>
+          <Form.Item label="数据文件 (可选)">
             <Upload.Dragger
               accept=".json,.jsonl,.ndjson,.csv,.xlsx"
               maxCount={1}
@@ -1070,9 +1034,13 @@ export default function OwnerDatasets() {
                 后端会解析为 items.raw_payload,并保留 media_type / media_url / content_markdown。
               </p>
             </Upload.Dragger>
+            {/* 提示:未上传文件时点击"完成"会创建空数据集 */}
+            <Typography.Text type="secondary" style={{ fontSize: 12, marginTop: 6, display: 'block' }}>
+              未上传文件时,点击"完成"将创建一个空数据集,后续可在详情卡用"添加数据"追加文件.
+            </Typography.Text>
           </Form.Item>
         </Form>
-      </Modal>
+      </Drawer>
 
       <Modal
         title="向当前数据集添加数据"

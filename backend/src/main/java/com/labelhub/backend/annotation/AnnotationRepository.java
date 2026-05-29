@@ -157,20 +157,22 @@ public class AnnotationRepository {
       long assignmentId,
       long schemaVersionId,
       String answerJson,
-      int revisionNo) {
+      int revisionNo,
+      String status) {
     KeyHolder keyHolder = new GeneratedKeyHolder();
     jdbcTemplate.update(connection -> {
       var statement = connection.prepareStatement(
           """
           INSERT INTO annotations
             (assignment_id, schema_version_id, answer_json, status, revision_no, submitted_at)
-          VALUES (?, ?, ?, 'submitted', ?, CURRENT_TIMESTAMP)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           """,
           Statement.RETURN_GENERATED_KEYS);
       statement.setLong(1, assignmentId);
       statement.setLong(2, schemaVersionId);
       statement.setString(3, answerJson);
-      statement.setInt(4, revisionNo);
+      statement.setString(4, status);
+      statement.setInt(5, revisionNo);
       return statement;
     }, keyHolder);
     Number key = keyHolder.getKey();
@@ -200,21 +202,72 @@ public class AnnotationRepository {
         itemId);
   }
 
+  public void updateAssignmentStatus(long assignmentId, String status) {
+    jdbcTemplate.update(
+        """
+        UPDATE assignments
+        SET status = ?,
+            submitted_at = CASE
+              WHEN ? = 'submitted' THEN CURRENT_TIMESTAMP
+              ELSE submitted_at
+            END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        status,
+        status,
+        assignmentId);
+  }
+
+  public void updateItemStatus(long itemId, String status) {
+    jdbcTemplate.update(
+        """
+        UPDATE items
+        SET item_status = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        status,
+        itemId);
+  }
+
+  public void updateAnnotationStatus(long annotationId, String status) {
+    jdbcTemplate.update(
+        """
+        UPDATE annotations
+        SET status = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        status,
+        annotationId);
+  }
+
   public void deleteDraft(long assignmentId) {
     jdbcTemplate.update("DELETE FROM drafts WHERE assignment_id = ?", assignmentId);
   }
 
-  public void createAiReviewJob(long annotationId, long schemaVersionId) {
+  public long createAiReviewJob(long annotationId, long schemaVersionId) {
     String jobKey = "annotation:%d:schema:%d:prompt:default-v1"
         .formatted(annotationId, schemaVersionId);
-    jdbcTemplate.update(
-        """
-        INSERT INTO ai_review_jobs
-          (annotation_id, job_key, status, retry_count, available_at)
-        VALUES (?, ?, 'pending', 0, CURRENT_TIMESTAMP)
-        """,
-        annotationId,
-        jobKey);
+    KeyHolder keyHolder = new GeneratedKeyHolder();
+    jdbcTemplate.update(connection -> {
+      var statement = connection.prepareStatement(
+          """
+          INSERT INTO ai_review_jobs
+            (annotation_id, job_key, status, retry_count, available_at)
+          VALUES (?, ?, 'pending', 0, CURRENT_TIMESTAMP)
+          """,
+          Statement.RETURN_GENERATED_KEYS);
+      statement.setLong(1, annotationId);
+      statement.setString(2, jobKey);
+      return statement;
+    }, keyHolder);
+    Number key = keyHolder.getKey();
+    if (key == null) {
+      throw new IllegalStateException("failed to create ai review job");
+    }
+    return key.longValue();
   }
 
   private List<AssignmentItemRecord> queryAssignment(

@@ -11,6 +11,8 @@ import com.labelhub.backend.dataset.DatasetRecord;
 import com.labelhub.backend.dataset.DatasetRepository;
 import com.labelhub.backend.schema.SchemaRecord;
 import com.labelhub.backend.schema.SchemaRepository;
+import com.labelhub.backend.workflow.StateMachineService;
+import com.labelhub.backend.workflow.WorkflowEntityType;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -42,6 +44,7 @@ public class TaskService {
   private final DatasetRepository datasetRepository;
   private final TaskRepository taskRepository;
   private final SchemaRepository schemaRepository;
+  private final StateMachineService stateMachineService;
   private final ObjectMapper objectMapper;
 
   public TaskService(
@@ -49,11 +52,13 @@ public class TaskService {
       DatasetRepository datasetRepository,
       TaskRepository taskRepository,
       SchemaRepository schemaRepository,
+      StateMachineService stateMachineService,
       ObjectMapper objectMapper) {
     this.authRepository = authRepository;
     this.datasetRepository = datasetRepository;
     this.taskRepository = taskRepository;
     this.schemaRepository = schemaRepository;
+    this.stateMachineService = stateMachineService;
     this.objectMapper = objectMapper;
   }
 
@@ -76,7 +81,8 @@ public class TaskService {
         metadata,
         parseSchemaVersion(request.schema()));
     bindDatasetToTask(dataset, taskId);
-    ensureStrategyAssignments(taskId, metadata, request.quota(), state);
+    auditTaskCreation(taskId, owner, state);
+    ensureStrategyAssignments(taskId, metadata, request.quota(), state, owner);
 
     return taskRepository.findTask(taskId)
         .map(this::toOwnerResponse)
@@ -96,6 +102,7 @@ public class TaskService {
     }
 
     String state = normalizeState(request.status(), existing.status(), TASK_STATES);
+    stateMachineService.validate(WorkflowEntityType.TASK, existing.status(), state, "owner");
     DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
     TaskMetadata metadata = buildTaskMetadata(owner.id(), request, dataset, readMetadata(existing.rewardRuleJson()));
     validatePublishedSchemaConfiguration(owner.id(), metadata, state, existing);
@@ -115,7 +122,8 @@ public class TaskService {
     }
     taskRepository.updateLatestSchemaState(taskId, state);
     bindDatasetToTask(dataset, taskId);
-    ensureStrategyAssignments(taskId, metadata, request.quota(), state);
+    auditTaskTransition(existing, owner, state);
+    ensureStrategyAssignments(taskId, metadata, request.quota(), state, owner);
 
     return taskRepository.findTask(taskId)
         .map(this::toOwnerResponse)
@@ -162,11 +170,13 @@ public class TaskService {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
     }
     validatePublishedSchemaConfiguration(owner.id(), readMetadata(existing.rewardRuleJson()), state, existing);
+    stateMachineService.validate(WorkflowEntityType.TASK, existing.status(), state, "owner");
     int updated = taskRepository.updateTaskState(owner.id(), taskId, state);
     if (updated == 0) {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
     }
     taskRepository.updateLatestSchemaState(taskId, state);
+    auditTaskTransition(existing, owner, state);
     return taskRepository.findTask(taskId)
         .map(this::toOwnerResponse)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
@@ -224,11 +234,11 @@ public class TaskService {
     validateClaimableTask(task, metadata);
     boolean alreadyClaimed = taskRepository.hasTaskAssignment(taskId, labeler.id());
     if (!"assigned".equals(metadata.resolvedStrategy())) {
-      createAssignmentsForStrategy(task, metadata, labeler.id(), !alreadyClaimed);
+      createAssignmentsForStrategy(task, metadata, labeler.id(), !alreadyClaimed, labeler, "labeler");
     }
     return taskRepository.findAssignmentForLabelerTask(taskId, labeler.id())
         .map(this::toAssignmentResponse)
-        .orElseGet(() -> createAssignmentForStrategy(task, labeler.id()));
+        .orElseGet(() -> createAssignmentForStrategy(task, labeler));
   }
 
   @Transactional
@@ -267,9 +277,9 @@ public class TaskService {
       throw exception;
     }
     if ("assigned".equals(metadata.resolvedStrategy())) {
-      ensureStrategyAssignments(task.id(), metadata, task.quota(), task.status());
+      ensureStrategyAssignments(task.id(), metadata, task.quota(), task.status(), null);
     } else {
-      createAssignmentsForStrategy(task, metadata, labelerId, false);
+      createAssignmentsForStrategy(task, metadata, labelerId, false, null, "labeler");
     }
   }
 
@@ -408,7 +418,8 @@ public class TaskService {
       long taskId,
       TaskMetadata metadata,
       Integer quota,
-      String state) {
+      String state,
+      AuthenticatedUser owner) {
     if (!"published".equals(state)
         || !"assigned".equals(metadata.resolvedStrategy())
         || metadata.resolvedAssignedLabelerIds().isEmpty()) {
@@ -444,7 +455,8 @@ public class TaskService {
     LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
     for (int i = 0; i < itemIds.size(); i++) {
       long labelerId = labelerIds.get((startIndex + i) % labelerIds.size());
-      taskRepository.createAssignment(taskId, itemIds.get(i), labelerId, lockedUntil);
+      long assignmentId = taskRepository.createAssignment(taskId, itemIds.get(i), labelerId, lockedUntil);
+      auditAssignmentCreation(assignmentId, owner, "owner", taskId, itemIds.get(i), labelerId);
     }
   }
 
@@ -518,7 +530,7 @@ public class TaskService {
         taskRepository.hasTaskAssignment(record.id(), currentUserId));
   }
 
-  private AssignmentResponse createAssignmentForStrategy(TaskRecord task, long labelerId) {
+  private AssignmentResponse createAssignmentForStrategy(TaskRecord task, AuthenticatedUser labeler) {
     TaskMetadata metadata = readMetadata(task.rewardRuleJson());
     validateClaimableTask(task, metadata);
     if ("assigned".equals(metadata.resolvedStrategy())) {
@@ -528,8 +540,8 @@ public class TaskService {
           "assigned task requires a pre-created assignment");
     }
 
-    createAssignmentsForStrategy(task, metadata, labelerId, true);
-    return taskRepository.findAssignmentForLabelerTask(task.id(), labelerId)
+    createAssignmentsForStrategy(task, metadata, labeler.id(), true, labeler, "labeler");
+    return taskRepository.findAssignmentForLabelerTask(task.id(), labeler.id())
         .map(this::toAssignmentResponse)
         .orElseThrow(() -> new IllegalStateException("failed to load created assignment"));
   }
@@ -538,7 +550,9 @@ public class TaskService {
       TaskRecord task,
       TaskMetadata metadata,
       long labelerId,
-      boolean failWhenNoNewAssignment) {
+      boolean failWhenNoNewAssignment,
+      AuthenticatedUser operator,
+      String operatorRole) {
     validateClaimableTask(task, metadata);
     String strategy = metadata.resolvedStrategy();
     if ("assigned".equals(strategy)) {
@@ -582,7 +596,8 @@ public class TaskService {
 
     LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
     for (long itemId : itemIds) {
-      taskRepository.createAssignment(task.id(), itemId, labelerId, lockedUntil);
+      long assignmentId = taskRepository.createAssignment(task.id(), itemId, labelerId, lockedUntil);
+      auditAssignmentCreation(assignmentId, operator, operatorRole, task.id(), itemId, labelerId);
     }
     return itemIds.size();
   }
@@ -649,6 +664,73 @@ public class TaskService {
           "SCHEMA_WITHDRAWN",
           "task schema has been withdrawn");
     }
+  }
+
+  private void auditTaskCreation(long taskId, AuthenticatedUser owner, String state) {
+    stateMachineService.auditCreation(
+        WorkflowEntityType.TASK,
+        taskId,
+        owner,
+        "owner",
+        "published".equals(state) ? "task.publish" : "task.create",
+        state,
+        "task created",
+        java.util.Map.of("taskId", taskId, "status", state),
+        null);
+  }
+
+  private void auditTaskTransition(TaskRecord before, AuthenticatedUser owner, String state) {
+    if (before.status() == null || before.status().equals(state)) {
+      return;
+    }
+    stateMachineService.audit(
+        WorkflowEntityType.TASK,
+        before.id(),
+        owner,
+        "owner",
+        taskAction(before.status(), state),
+        before.status(),
+        state,
+        "task state changed",
+        java.util.Map.of("taskId", before.id(), "status", before.status()),
+        java.util.Map.of("taskId", before.id(), "status", state),
+        null);
+  }
+
+  private void auditAssignmentCreation(
+      long assignmentId,
+      AuthenticatedUser operator,
+      String operatorRole,
+      long taskId,
+      long itemId,
+      long labelerId) {
+    stateMachineService.auditCreation(
+        WorkflowEntityType.ASSIGNMENT,
+        assignmentId,
+        operator,
+        operatorRole,
+        "assignment.claim",
+        "claimed",
+        "assignment claimed",
+        java.util.Map.of(
+            "assignmentId", assignmentId,
+            "taskId", taskId,
+            "itemId", itemId,
+            "labelerId", labelerId),
+        null);
+  }
+
+  private String taskAction(String from, String to) {
+    if ("published".equals(to)) {
+      return "task.publish";
+    }
+    if ("paused".equals(to)) {
+      return "task.pause";
+    }
+    if ("ended".equals(to)) {
+      return "task.end";
+    }
+    return "task.update";
   }
 
   private AssignmentResponse toAssignmentResponse(AssignmentRecord record) {

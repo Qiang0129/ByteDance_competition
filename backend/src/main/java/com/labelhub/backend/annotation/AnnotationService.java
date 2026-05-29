@@ -12,6 +12,8 @@ import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.task.TaskService;
+import com.labelhub.backend.workflow.StateMachineService;
+import com.labelhub.backend.workflow.WorkflowEntityType;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -33,14 +35,17 @@ public class AnnotationService {
 
   private final AnnotationRepository annotationRepository;
   private final TaskService taskService;
+  private final StateMachineService stateMachineService;
   private final ObjectMapper objectMapper;
 
   public AnnotationService(
       AnnotationRepository annotationRepository,
       TaskService taskService,
+      StateMachineService stateMachineService,
       ObjectMapper objectMapper) {
     this.annotationRepository = annotationRepository;
     this.taskService = taskService;
+    this.stateMachineService = stateMachineService;
     this.objectMapper = objectMapper;
   }
 
@@ -129,22 +134,36 @@ public class AnnotationService {
     JsonNode answerJson = requireAnswerObject(request.answerJson());
     validateAnswer(answerJson, schema.fields());
 
+    String assignmentBeforeStatus = assignment.assignmentStatus();
     int revisionNo = annotationRepository.nextRevisionNo(assignment.assignmentId());
+    boolean resubmit = revisionNo > 1 || "returned".equalsIgnoreCase(assignmentBeforeStatus);
     long annotationId = annotationRepository.createAnnotation(
         assignment.assignmentId(),
         schema.id(),
         writeJson(answerJson),
-        revisionNo);
+        revisionNo,
+        "submitted");
     annotationRepository.markSubmitted(assignment.assignmentId(), assignment.itemId());
     annotationRepository.deleteDraft(assignment.assignmentId());
-    annotationRepository.createAiReviewJob(annotationId, schema.id());
+    long aiReviewJobId = annotationRepository.createAiReviewJob(annotationId, schema.id());
+    annotationRepository.updateAnnotationStatus(annotationId, "ai_reviewing");
+    auditSubmit(
+        labeler,
+        assignment,
+        assignmentBeforeStatus,
+        annotationId,
+        aiReviewJobId,
+        schema.id(),
+        answerJson,
+        revisionNo,
+        resubmit);
 
     return new AnnotationResponse(
         Long.toString(annotationId),
         Long.toString(assignment.assignmentId()),
         Long.toString(schema.id()),
         answerJson,
-        "SUBMITTED",
+        "AI_REVIEWING",
         revisionNo,
         null);
   }
@@ -555,6 +574,67 @@ public class AnnotationService {
 
   private void throwAnswerValidation(String message) {
     throw new ApiException(HttpStatus.BAD_REQUEST, "ANSWER_VALIDATION_FAILED", message);
+  }
+
+  private void auditSubmit(
+      AuthenticatedUser labeler,
+      AssignmentItemRecord assignment,
+      String assignmentBeforeStatus,
+      long annotationId,
+      long aiReviewJobId,
+      long schemaVersionId,
+      JsonNode answerJson,
+      int revisionNo,
+      boolean resubmit) {
+    stateMachineService.audit(
+        WorkflowEntityType.ASSIGNMENT,
+        assignment.assignmentId(),
+        labeler,
+        "labeler",
+        resubmit ? "annotation.resubmit" : "annotation.submit",
+        assignmentBeforeStatus,
+        "submitted",
+        resubmit ? "annotation resubmitted" : "annotation submitted",
+        java.util.Map.of("assignmentId", assignment.assignmentId(), "status", assignmentBeforeStatus),
+        java.util.Map.of("assignmentId", assignment.assignmentId(), "status", "submitted"),
+        null);
+    stateMachineService.auditCreation(
+        WorkflowEntityType.ANNOTATION,
+        annotationId,
+        labeler,
+        "labeler",
+        resubmit ? "annotation.resubmit" : "annotation.submit",
+        "submitted",
+        resubmit ? "annotation resubmitted" : "annotation submitted",
+        java.util.Map.of(
+            "annotationId", annotationId,
+            "assignmentId", assignment.assignmentId(),
+            "schemaVersionId", schemaVersionId,
+            "revisionNo", revisionNo,
+            "answerJson", answerJson),
+        null);
+    stateMachineService.audit(
+        WorkflowEntityType.ANNOTATION,
+        annotationId,
+        labeler,
+        "labeler",
+        "ai_review.start",
+        "submitted",
+        "ai_reviewing",
+        "ai review job queued",
+        java.util.Map.of("annotationId", annotationId, "status", "submitted"),
+        java.util.Map.of("annotationId", annotationId, "status", "ai_reviewing"),
+        null);
+    stateMachineService.auditCreation(
+        WorkflowEntityType.AI_REVIEW_JOB,
+        aiReviewJobId,
+        labeler,
+        "system_agent",
+        "ai_review.start",
+        "pending",
+        "ai review job created",
+        java.util.Map.of("annotationId", annotationId, "schemaVersionId", schemaVersionId),
+        null);
   }
 
   private long parseSchemaVersionId(String value) {
