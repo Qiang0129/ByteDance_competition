@@ -26,7 +26,7 @@ import {
 } from 'antd';
 import { useNavigate } from 'react-router-dom';
 
-import { ApiError } from '../../api/client';
+import { getApiErrorMessage } from '../../api/client';
 import { schemaApi } from '../../api/schema';
 import type { SchemaSummary } from '../../types/schema';
 
@@ -297,14 +297,4 @@ function TemplateCard({
       </div>
     </Card>
   );
-}
-
-function getApiErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError && error.payload && typeof error.payload === 'object') {
-    const payload = error.payload as { message?: unknown };
-    if (typeof payload.message === 'string' && payload.message) {
-      return payload.message;
-    }
-  }
-  return error instanceof Error && error.message ? error.message : fallback;
 }

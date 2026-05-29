@@ -15,5 +15,7 @@ public record TaskRecord(
     LocalDateTime deadline,
     String rewardRuleJson,
     LocalDateTime createdAt,
+    LocalDateTime publishedAt,
+    LocalDateTime deletedAt,
     Long schemaVersionId,
     Integer schemaVersion) {}

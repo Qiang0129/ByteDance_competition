@@ -14,6 +14,8 @@ interface MyTaskRow {
   type: string;
   status: ItemStatus;
   progress: string;
+  publishedAt?: string;
+  deadline?: string;
   updatedAt: string;
   ownerName: string;
   assignedCount: number;
@@ -21,7 +23,7 @@ interface MyTaskRow {
   submittedCount: number;
 }
 
-const statusText: Record<ItemStatus, string> = {
+const statusText: Partial<Record<ItemStatus, string>> = {
   available: '可领取',
   claimed: '进行中',
   submitted: '已提交',
@@ -29,7 +31,7 @@ const statusText: Record<ItemStatus, string> = {
   accepted: '已通过',
 };
 
-const statusColor: Record<ItemStatus, string> = {
+const statusColor: Partial<Record<ItemStatus, string>> = {
   available: 'default',
   claimed: 'processing',
   submitted: 'blue',
@@ -108,6 +110,8 @@ function assignmentsToRows(items: Assignment[]): MyTaskRow[] {
       type: latest.taskType || 'Annotation Task',
       status: resolveTaskStatus(assignments),
       progress: `已提交 ${submittedCount.toLocaleString()} / ${assignedCount.toLocaleString()} · 已领 ${assignedCount.toLocaleString()} / ${quotaTotal.toLocaleString()}`,
+      publishedAt: latest.publishedAt || '-',
+      deadline: latest.deadline || '-',
       updatedAt: latest.updatedAt || latest.submittedAt || latest.claimedAt || '-',
       ownerName: latest.ownerName || '-',
       assignedCount,
@@ -127,6 +131,7 @@ function resolveEntryAssignment(assignments: Assignment[]) {
 }
 
 function resolveTaskStatus(assignments: Assignment[]): ItemStatus {
+  if (assignments.every((item) => item.status === 'voided')) return 'voided';
   if (assignments.some((item) => item.status === 'returned')) return 'returned';
   if (assignments.some((item) => item.status === 'claimed')) return 'claimed';
   if (assignments.every((item) => item.status === 'accepted')) return 'accepted';
@@ -202,6 +207,8 @@ export default function MyTasks() {
       ),
     },
     { title: '作答进度', dataIndex: 'progress' },
+    { title: '发布时间', dataIndex: 'publishedAt', render: (value?: string) => value || '-' },
+    { title: '截止时间', dataIndex: 'deadline', render: (value?: string) => value || '-' },
     { title: '更新时间', dataIndex: 'updatedAt' },
     {
       title: '操作',

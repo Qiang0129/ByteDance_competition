@@ -73,7 +73,7 @@ public class AiReviewService {
         request == null ? null : request.promptSnapshot(),
         writeNullableJson(request == null ? null : request.responseJson()));
     aiReviewRepository.markSucceeded(job.id());
-    aiReviewRepository.updateAnnotationStatus(job.annotationId(), annotationTarget);
+    int annotationUpdated = aiReviewRepository.updateAnnotationStatus(job.annotationId(), annotationTarget);
     stateMachineService.audit(
         WorkflowEntityType.AI_REVIEW_JOB,
         job.id(),
@@ -86,18 +86,20 @@ public class AiReviewService {
         Map.of("jobId", job.id(), "status", job.status()),
         Map.of("jobId", job.id(), "status", "succeeded", "decision", decision),
         null);
-    stateMachineService.audit(
-        WorkflowEntityType.ANNOTATION,
-        job.annotationId(),
-        operator,
-        resolveOperatorRole(operator),
-        "ai_review.complete",
-        "ai_reviewing",
-        annotationTarget,
-        "ai review completed",
-        Map.of("annotationId", job.annotationId(), "status", "ai_reviewing"),
-        Map.of("annotationId", job.annotationId(), "status", annotationTarget, "decision", decision),
-        null);
+    if (annotationUpdated > 0) {
+      stateMachineService.audit(
+          WorkflowEntityType.ANNOTATION,
+          job.annotationId(),
+          operator,
+          resolveOperatorRole(operator),
+          "ai_review.complete",
+          "ai_reviewing",
+          annotationTarget,
+          "ai review completed",
+          Map.of("annotationId", job.annotationId(), "status", "ai_reviewing"),
+          Map.of("annotationId", job.annotationId(), "status", annotationTarget, "decision", decision),
+          null);
+    }
     return toResponse(aiReviewRepository.lockJob(job.id()).orElse(job));
   }
 

@@ -52,6 +52,7 @@ public class AnnotationService {
   public AssignmentItemResponse getAssignmentItem(Authentication authentication, long assignmentId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
+    ensureAssignmentUsable(assignment);
     try {
       taskService.backfillAssignmentsForLabelerTask(labeler.id(), assignment.taskId());
     } catch (ApiException exception) {
@@ -60,6 +61,7 @@ public class AnnotationService {
       }
     }
     assignment = loadAssignment(labeler.id(), assignmentId);
+    ensureAssignmentUsable(assignment);
     SchemaContext schema = resolveSchema(assignment, false);
     DraftResponse draft = annotationRepository.findDraft(assignment.assignmentId())
         .map(this::toDraftResponse)
@@ -88,7 +90,8 @@ public class AnnotationService {
 
   public DraftResponse getDraft(Authentication authentication, long assignmentId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
-    loadAssignment(labeler.id(), assignmentId);
+    AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
+    ensureAssignmentUsable(assignment);
     return annotationRepository.findDraft(assignmentId)
         .map(this::toDraftResponse)
         .orElse(null);
@@ -176,7 +179,29 @@ public class AnnotationService {
             "assignment not found"));
   }
 
+  private void ensureAssignmentUsable(AssignmentItemRecord assignment) {
+    if (assignment.taskDeletedAt() != null) {
+      throw new ApiException(HttpStatus.CONFLICT, "TASK_DELETED", "task has been deleted");
+    }
+    String status = assignment.assignmentStatus() == null
+        ? ""
+        : assignment.assignmentStatus().toLowerCase(Locale.ROOT);
+    if ("voided".equals(status)) {
+      throw new ApiException(HttpStatus.CONFLICT, "ASSIGNMENT_VOIDED", "assignment has been voided");
+    }
+  }
+
   private void ensureEditableAssignment(AssignmentItemRecord assignment) {
+    ensureAssignmentUsable(assignment);
+    String taskStatus = assignment.taskStatus() == null
+        ? ""
+        : assignment.taskStatus().toLowerCase(Locale.ROOT);
+    if (!"published".equals(taskStatus)) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "TASK_NOT_PUBLISHED",
+          "task is not published");
+    }
     if (isEditableAssignment(assignment)) {
       return;
     }
@@ -193,6 +218,15 @@ public class AnnotationService {
   }
 
   private boolean isEditableAssignment(AssignmentItemRecord assignment) {
+    if (assignment.taskDeletedAt() != null) {
+      return false;
+    }
+    String taskStatus = assignment.taskStatus() == null
+        ? ""
+        : assignment.taskStatus().toLowerCase(Locale.ROOT);
+    if (!"published".equals(taskStatus)) {
+      return false;
+    }
     String status = assignment.assignmentStatus() == null
         ? ""
         : assignment.assignmentStatus().toLowerCase(Locale.ROOT);
@@ -205,6 +239,7 @@ public class AnnotationService {
   }
 
   private void ensurePublishedTask(AssignmentItemRecord assignment) {
+    ensureAssignmentUsable(assignment);
     String taskStatus = assignment.taskStatus() == null
         ? ""
         : assignment.taskStatus().toLowerCase(Locale.ROOT);

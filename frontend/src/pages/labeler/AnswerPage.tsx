@@ -29,6 +29,7 @@ import {
 } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
 import { LabelHubFormRenderer } from '../../modules/schema';
 import type { AssignmentItem } from '../../types/labeler';
@@ -102,7 +103,15 @@ export default function AnswerPage() {
         if (cancelled) return;
         applyItem(data);
         setUsingFallback(false);
-      } catch {
+      } catch (error) {
+        if (error instanceof ApiError) {
+          if (!cancelled) {
+            message.error(getApiErrorMessage(error, '加载题目失败'));
+            setItem(null);
+            setUsingFallback(false);
+          }
+          return;
+        }
         try {
           const res = await fetch('/sample-datasets/labeler-assignment.json');
           const data = (await res.json()) as AssignmentItem;
@@ -176,13 +185,19 @@ export default function AnswerPage() {
     try {
       await labelerApi.saveDraft(assignmentId, answer);
       setDraftSavedAt(new Date().toLocaleTimeString());
-    } catch {
+    } catch (error) {
+      if (error instanceof ApiError) {
+        message.error(getApiErrorMessage(error, '保存草稿失败'));
+        setItem((prev) => (prev ? { ...prev, editable: false, status: 'voided' } : prev));
+        setDirty(false);
+        return;
+      }
       // 演示模式:仍然标记本地保存时间
       setDraftSavedAt(`${new Date().toLocaleTimeString()} (本地)`);
     } finally {
       setSavingDraft(false);
     }
-  }, [answer, assignmentId]);
+  }, [answer, assignmentId, message]);
 
   function updateField(fieldName: string, value: unknown) {
     if (!canEdit) return;
@@ -492,6 +507,8 @@ function assignmentStatusText(status?: string) {
       return '已提交';
     case 'accepted':
       return '已通过';
+    case 'voided':
+      return '已作废';
     default:
       return status || '未知状态';
   }

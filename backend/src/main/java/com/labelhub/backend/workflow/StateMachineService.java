@@ -18,22 +18,24 @@ public class StateMachineService {
 
   private static final Map<WorkflowEntityType, Map<String, Set<String>>> TRANSITIONS = Map.of(
       WorkflowEntityType.TASK, Map.of(
-          "draft", Set.of("published"),
+          "draft", Set.of("published", "ended"),
           "published", Set.of("paused", "ended"),
           "paused", Set.of("published", "ended"),
           "ended", Set.of()),
       WorkflowEntityType.ASSIGNMENT, Map.of(
-          "claimed", Set.of("submitted"),
-          "submitted", Set.of("returned", "accepted"),
-          "returned", Set.of("submitted", "accepted"),
-          "accepted", Set.of()),
+          "claimed", Set.of("submitted", "voided"),
+          "submitted", Set.of("returned", "accepted", "voided"),
+          "returned", Set.of("submitted", "accepted", "voided"),
+          "accepted", Set.of("voided"),
+          "voided", Set.of()),
       WorkflowEntityType.ANNOTATION, Map.of(
-          "submitted", Set.of("ai_reviewing", "reviewing", "accepted"),
-          "ai_reviewing", Set.of("reviewing", "accepted"),
-          "reviewing", Set.of("reviewing", "returned", "accepted", "submitted"),
-          "returned", Set.of("submitted"),
-          "accepted", Set.of("exported"),
-          "exported", Set.of()),
+          "submitted", Set.of("ai_reviewing", "reviewing", "accepted", "voided"),
+          "ai_reviewing", Set.of("reviewing", "accepted", "voided"),
+          "reviewing", Set.of("reviewing", "returned", "accepted", "submitted", "voided"),
+          "returned", Set.of("submitted", "voided"),
+          "accepted", Set.of("exported", "voided"),
+          "exported", Set.of("voided"),
+          "voided", Set.of()),
       WorkflowEntityType.AI_REVIEW_JOB, Map.of(
           "pending", Set.of("running", "failed"),
           "running", Set.of("succeeded", "failed"),
@@ -172,6 +174,9 @@ public class StateMachineService {
       return Set.of("system_agent", "reviewer", "owner");
     }
     if (entityType == WorkflowEntityType.ASSIGNMENT) {
+      if ("voided".equals(to)) {
+        return Set.of("owner");
+      }
       if ("claimed".equals(from) && "submitted".equals(to)) {
         return Set.of("labeler");
       }
@@ -181,6 +186,9 @@ public class StateMachineService {
       return Set.of("reviewer", "owner");
     }
     if (entityType == WorkflowEntityType.ANNOTATION) {
+      if ("voided".equals(to)) {
+        return Set.of("owner");
+      }
       if (List.of("submitted", "returned", "reviewing").contains(from)
           && ("submitted".equals(to) || "ai_reviewing".equals(to))) {
         return Set.of("labeler", "system_agent");

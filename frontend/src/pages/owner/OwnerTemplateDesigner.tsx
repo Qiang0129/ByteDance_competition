@@ -67,7 +67,7 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 
-import { ApiError } from '../../api/client';
+import { getApiErrorMessage } from '../../api/client';
 import { datasetApi } from '../../api/dataset';
 import { schemaApi } from '../../api/schema';
 import { LabelHubFormRenderer, validateSchemaFields } from '../../modules/schema';
@@ -275,16 +275,6 @@ function createField(meta: MaterialMeta, existing: SchemaField[]): SchemaField {
     validators: meta.kind === 'json-editor' ? [{ type: 'jsonObject' }] : undefined,
     helpText: meta.kind === 'llm-trigger' ? 'LLM 调用入口已预留,真实模型调用将在 AI Agent 阶段接入。' : undefined,
   };
-}
-
-function getApiErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof ApiError && error.payload && typeof error.payload === 'object') {
-    const payload = error.payload as { message?: unknown };
-    if (typeof payload.message === 'string' && payload.message) {
-      return payload.message;
-    }
-  }
-  return fallback;
 }
 
 const fallbackPreviewPayload: Record<string, unknown> = {
@@ -642,6 +632,7 @@ export default function OwnerTemplateDesigner() {
   async function saveDraft(): Promise<SchemaVersion> {
     const name = schema.name.trim();
     const description = schema.description?.trim();
+    const currentActiveFieldId = activeFieldId;
     if (schema.versionId.startsWith('draft-')) {
       const created = await schemaApi.createStandaloneDraft({
         name,
@@ -652,7 +643,11 @@ export default function OwnerTemplateDesigner() {
         fields: schema.fields,
       });
       setSchema(created);
-      setActiveFieldId(created.fields[0]?.id ?? null);
+      setActiveFieldId(
+        created.fields.some((field) => field.id === currentActiveFieldId)
+          ? currentActiveFieldId
+          : created.fields[0]?.id ?? null,
+      );
       setUsingFallback(false);
       navigate(`/owner/templates/designer?versionId=${encodeURIComponent(created.versionId)}`, {
         replace: true,
@@ -669,7 +664,11 @@ export default function OwnerTemplateDesigner() {
       fields: schema.fields,
     });
     setSchema(updated);
-    setActiveFieldId(updated.fields[0]?.id ?? null);
+    setActiveFieldId(
+      updated.fields.some((field) => field.id === currentActiveFieldId)
+        ? currentActiveFieldId
+        : updated.fields[0]?.id ?? null,
+    );
     setUsingFallback(false);
     return updated;
   }
@@ -689,11 +688,11 @@ export default function OwnerTemplateDesigner() {
     Modal.confirm({
       title: '确认发布该 Schema 版本?',
       content:
-        '发布后此版本将进入只读状态,绑定的任务将按此版本渲染答题界面;需要修改时可先收回发布。',
+        '发布时会先保存当前画布配置,然后此版本进入只读状态;绑定的任务将按此版本渲染答题界面。',
       okText: '立即发布',
       onOk: async () => {
         try {
-          const draft = schema.versionId.startsWith('draft-') ? await saveDraft() : schema;
+          const draft = await saveDraft();
           const published = await schemaApi.publish(draft.versionId);
           setSchema(published);
           setUsingFallback(false);

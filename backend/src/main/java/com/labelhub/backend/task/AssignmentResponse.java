@@ -11,6 +11,8 @@ public record AssignmentResponse(
     String taskType,
     String taskTypeKey,
     String ownerName,
+    String publishedAt,
+    String deadline,
     int quotaUsed,
     int quotaTotal,
     String claimedAt,

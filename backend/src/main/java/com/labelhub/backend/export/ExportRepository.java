@@ -21,7 +21,7 @@ public class ExportRepository {
 
   public boolean isTaskOwnedBy(long ownerId, long taskId) {
     Integer count = jdbcTemplate.queryForObject(
-        "SELECT COUNT(*) FROM tasks WHERE id = ? AND owner_id = ?",
+        "SELECT COUNT(*) FROM tasks WHERE id = ? AND owner_id = ? AND deleted_at IS NULL",
         Integer.class,
         taskId,
         ownerId);
@@ -34,8 +34,11 @@ public class ExportRepository {
         SELECT COUNT(*)
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
         WHERE a.task_id = ?
           AND an.status = 'accepted'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
           AND an.id = (
             SELECT latest.id
             FROM annotations latest
@@ -136,10 +139,13 @@ public class ExportRepository {
         """
         UPDATE annotations an
         JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
         SET an.status = 'exported',
             an.updated_at = CURRENT_TIMESTAMP
         WHERE a.task_id = ?
           AND an.status = 'accepted'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
         """,
         taskId);
   }
@@ -150,8 +156,11 @@ public class ExportRepository {
         SELECT an.id
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
         WHERE a.task_id = ?
           AND an.status = 'accepted'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
         ORDER BY an.id ASC
         """,
         (rs, rowNum) -> rs.getLong("id"),

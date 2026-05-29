@@ -16,6 +16,7 @@ com\labelhub\backend\export\ExportRepository$ExportJobRecord.class
 com\labelhub\backend\dataset\DatasetResponse.class
 com\labelhub\backend\annotation\AssignmentItemResponse.class
 com\labelhub\backend\schema\SchemaDefinitionValidator.class
+com\labelhub\backend\task\TaskRepository$TaskAnnotationStateRecord.class
 com\labelhub\backend\annotation\DraftResponse.class
 com\labelhub\backend\workflow\AuditLogRepository.class
 com\labelhub\backend\export\ExportJobResponse.class
@@ -51,6 +52,7 @@ com\labelhub\backend\dataset\DatasetController.class
 com\labelhub\backend\annotation\SubmitAnnotationRequest.class
 com\labelhub\backend\dataset\DatasetRepository.class
 com\labelhub\backend\schema\SchemaService$DatasetBinding.class
+com\labelhub\backend\task\TaskRepository$TaskAssignmentStateRecord.class
 com\labelhub\backend\schema\SchemaService$SchemaSnapshot.class
 com\labelhub\backend\review\ReviewRepository.class
 com\labelhub\backend\schema\SchemaController.class

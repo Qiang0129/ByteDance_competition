@@ -151,6 +151,10 @@ function getClaimErrorMessage(error: unknown) {
             return '你已达到该任务的个人认领上限。';
           case 'TASK_NOT_PUBLISHED':
             return '该任务还未发布，暂时不能认领。';
+          case 'TASK_DELETED':
+            return '该任务已被 Owner 删除，无法继续认领。';
+          case 'ASSIGNMENT_VOIDED':
+            return '该任务下的认领已作废，无法继续操作。';
           case 'TASK_EXPIRED':
             return '该任务已过截止时间，无法认领。';
           case 'ASSIGNED_TASK_NOT_CLAIMABLE':
@@ -595,10 +599,13 @@ function TaskCard({
       </div>
 
       <div className="market-card-foot">
+        <span className="market-card-time">
+          <ClockCircleOutlined /> 发布时间: {task.publishedAt ?? '-'}
+        </span>
         <span
           className={`market-deadline ${deadline.expired ? 'is-expired' : deadline.soon ? 'is-soon' : ''}`}
         >
-          <ClockCircleOutlined /> {deadline.text}
+          <ClockCircleOutlined /> 截止时间: {task.deadline ?? '未设置'} · {deadline.text}
         </span>
         <span className="market-owner">
           <UserOutlined /> {task.ownerName ?? '-'}

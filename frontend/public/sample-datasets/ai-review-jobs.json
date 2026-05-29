@@ -1,0 +1,84 @@
+{
+  "items": [
+    {
+      "jobId": "job_2026_0528_001",
+      "annotationId": "ann_88231",
+      "taskId": "T-2041",
+      "taskTitle": "QA 质量评估 · 批次 Q12",
+      "ruleId": "rule_qa_default",
+      "ruleName": "QA 质量评估默认规则",
+      "status": "success",
+      "decision": "PASS",
+      "totalScore": 4.32,
+      "attempts": 1,
+      "createdAt": "2026-05-28 10:21:08",
+      "finishedAt": "2026-05-28 10:21:14"
+    },
+    {
+      "jobId": "job_2026_0528_002",
+      "annotationId": "ann_88232",
+      "taskId": "T-2041",
+      "taskTitle": "QA 质量评估 · 批次 Q12",
+      "ruleId": "rule_qa_default",
+      "ruleName": "QA 质量评估默认规则",
+      "status": "success",
+      "decision": "NEED_HUMAN_REVIEW",
+      "totalScore": 3.45,
+      "attempts": 1,
+      "createdAt": "2026-05-28 10:22:33",
+      "finishedAt": "2026-05-28 10:22:41"
+    },
+    {
+      "jobId": "job_2026_0528_003",
+      "annotationId": "ann_88233",
+      "taskId": "T-2039",
+      "taskTitle": "偏好对比 · 批次 P07",
+      "ruleId": "rule_pref_compare",
+      "ruleName": "偏好对比 A/B 规则",
+      "status": "success",
+      "decision": "REJECT",
+      "totalScore": 1.8,
+      "attempts": 2,
+      "createdAt": "2026-05-28 11:02:11",
+      "finishedAt": "2026-05-28 11:02:35"
+    },
+    {
+      "jobId": "job_2026_0528_004",
+      "annotationId": "ann_88234",
+      "taskId": "T-2041",
+      "taskTitle": "QA 质量评估 · 批次 Q12",
+      "ruleId": "rule_qa_default",
+      "ruleName": "QA 质量评估默认规则",
+      "status": "failed",
+      "attempts": 2,
+      "lastError": "LLM provider timeout (status=504,after 30s),已达重试上限",
+      "createdAt": "2026-05-28 11:08:02",
+      "finishedAt": "2026-05-28 11:08:33"
+    },
+    {
+      "jobId": "job_2026_0528_005",
+      "annotationId": "ann_88235",
+      "taskId": "T-2055",
+      "taskTitle": "交通标志 V4",
+      "ruleId": "rule_qa_default",
+      "ruleName": "QA 质量评估默认规则",
+      "status": "running",
+      "attempts": 1,
+      "createdAt": "2026-05-28 11:14:50"
+    },
+    {
+      "jobId": "job_2026_0528_006",
+      "annotationId": "ann_88236",
+      "taskId": "T-2055",
+      "taskTitle": "交通标志 V4",
+      "ruleId": "rule_qa_default",
+      "ruleName": "QA 质量评估默认规则",
+      "status": "pending",
+      "attempts": 0,
+      "createdAt": "2026-05-28 11:15:02"
+    }
+  ],
+  "page": 1,
+  "pageSize": 10,
+  "total": 6
+}

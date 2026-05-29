@@ -17,4 +17,7 @@ public record AssignmentRecord(
     String ownerName,
     Integer taskQuota,
     int taskQuotaUsed,
+    LocalDateTime taskCreatedAt,
+    LocalDateTime taskDeadline,
+    LocalDateTime taskPublishedAt,
     String rewardRuleJson) {}

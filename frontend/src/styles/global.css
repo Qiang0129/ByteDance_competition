@@ -360,6 +360,17 @@ body {
   position: sticky;
   top: 16px;
   border-right: none;
+  /* 统一展开/折叠的宽度过渡缓动,比 antd 默认 0.2s linear 更顺滑 */
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  will-change: width;
+}
+
+/* Sider 内部菜单容器宽度过渡跟随同一缓动,避免与 Sider 宽度二段抖动 */
+.app-shell .ant-layout-sider .ant-menu,
+.app-shell .ant-layout-sider .ant-menu-item,
+.app-shell .ant-layout-sider .ant-menu-item-group-title,
+.app-shell .ant-layout-sider .ant-menu-title-content {
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
 /* Sider 内层用 flex 把脚注推到底部 */
@@ -400,7 +411,7 @@ body {
   white-space: nowrap;
   opacity: 1;
   transform: translateZ(0);
-  transition: opacity 0.2s ease;
+  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: opacity;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -439,7 +450,7 @@ body {
   letter-spacing: 0.3px;
   opacity: 0;
   transform: translateZ(0);
-  transition: opacity 0.2s ease;
+  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: opacity;
 }
 
@@ -475,7 +486,9 @@ body {
   white-space: nowrap;
   opacity: 1;
   transform: translateZ(0);
-  transition: opacity 0.2s ease, width 0.2s ease;
+  /* 与 Sider 宽度过渡同缓动同时长,折叠/展开一气呵成 */
+  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: opacity;
   /* 字体平滑,避免宽度过渡时的亚像素糊化 */
   -webkit-font-smoothing: antialiased;
@@ -632,7 +645,7 @@ body {
 }
 
 /* 顶部栏:三段式布局,左侧折叠+搜索,中间留白,右侧用户下拉。
-   圆角 + 阴影,让顶栏从背景上"浮"起来。 */
+   圆角 + 阴影,默认即为液态玻璃透明效果。 */
 .app-header {
   position: sticky;
   top: 16px;
@@ -643,28 +656,31 @@ body {
   gap: 24px;
   height: 64px;
   padding: 0 20px;
-  background: #ffffff;
+  /* 默认液态玻璃:半透明白底 + backdrop blur,透出底部内容 */
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 18px;
-  border: none;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 12px 28px rgba(15, 23, 42, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 8px 28px rgba(15, 23, 42, 0.06),
     0 2px 6px rgba(15, 23, 42, 0.04);
-  /* 滚动到底部时切换为液态玻璃,过渡平滑 */
+  /* 滚动时进一步增强玻璃感,过渡平滑 */
   transition: background 0.3s ease, box-shadow 0.3s ease,
     backdrop-filter 0.3s ease, -webkit-backdrop-filter 0.3s ease,
     border 0.3s ease;
 }
 
-/* 液态玻璃态:半透明白底 + backdrop blur */
+/* 液态玻璃态:滚动后更透更模糊,主色阴影增强 */
 .app-header.is-scrolled {
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(18px) saturate(180%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%);
-  border: none;
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 8px 28px var(--lh-primary-bg-12),
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 10px 32px var(--lh-primary-bg-12),
     0 2px 6px rgba(15, 23, 42, 0.06);
 }
 
@@ -689,8 +705,9 @@ body {
 
 .app-header-search.ant-input-affix-wrapper {
   border-radius: 999px;
-  background: #f5f7fb;
-  border-color: #eef0f5;
+  /* 半透明白底,与液态玻璃 Header 融合 */
+  background: rgba(255, 255, 255, 0.45);
+  border-color: rgba(255, 255, 255, 0.6);
   max-width: 360px;
   height: 36px;
 }
@@ -2159,12 +2176,14 @@ body {
 /* 卡片底部 */
 .market-card-foot {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   font-size: 12px;
   color: #64748b;
 }
 
+.market-card-time,
 .market-deadline,
 .market-owner {
   display: inline-flex;
@@ -6790,4 +6809,72 @@ body {
 :root[data-color-mode='dark'] .dataset-list-scroll::-webkit-scrollbar-thumb {
   background: var(--lh-primary-bg-30);
   background-clip: padding-box;
+}
+
+
+/* ========== Header 液态玻璃:暗色模式默认态适配 ========== */
+/* 亮色默认态已在 .app-header 设玻璃,暗色需要覆盖之前的 #1a1d24 实色 */
+:root[data-color-mode='dark'] .app-header {
+  background: rgba(26, 29, 36, 0.55) !important;
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+:root[data-color-mode='dark'] .app-header.is-scrolled {
+  background: rgba(26, 29, 36, 0.42) !important;
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 羊毛纸模式默认态:半透明米底玻璃 */
+:root[data-color-mode='paper'] .app-header {
+  background: rgba(250, 246, 236, 0.6) !important;
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.5) !important;
+}
+
+:root[data-color-mode='paper'] .app-header.is-scrolled {
+  background: rgba(250, 246, 236, 0.45) !important;
+}
+
+
+/* ========== Owner · AI 预审规则页 ========== */
+
+.ai-review-page .row-equal > .ant-col {
+  display: flex;
+}
+
+.ai-review-page .row-equal > .ant-col > .ant-card {
+  flex: 1 1 auto;
+}
+
+/* 评分条:label / 渐变条 / 数值 三段 */
+.ai-review-score-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ai-review-score-bar {
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--lh-primary-bg-8);
+  overflow: hidden;
+}
+
+.ai-review-score-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--lh-primary-gradient-h);
+  transition: width 0.3s ease;
+}
+
+/* 暗色适配 */
+:root[data-color-mode='dark'] .ai-review-score-bar {
+  background: #20242d;
 }

@@ -24,7 +24,9 @@ public class ReviewRepository {
           SELECT a.task_id
           FROM annotations an
           JOIN assignments a ON a.id = an.assignment_id
+          JOIN tasks t ON t.id = a.task_id
           WHERE an.status IN ('ai_reviewing', 'reviewing')
+            AND t.deleted_at IS NULL
           GROUP BY a.task_id
         ) pending_tasks
         """,
@@ -81,7 +83,10 @@ public class ReviewRepository {
         JOIN annotations an ON an.assignment_id = a.id
         LEFT JOIN ai_review_jobs aj ON aj.annotation_id = an.id
         LEFT JOIN ai_review_results air ON air.job_id = aj.id
-        WHERE an.id = (
+        WHERE t.deleted_at IS NULL
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND an.id = (
           SELECT latest.id
           FROM annotations latest
           WHERE latest.assignment_id = a.id
@@ -137,6 +142,7 @@ public class ReviewRepository {
           CAST(air.response_json AS CHAR) AS ai_response_json
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
         JOIN items i ON i.id = a.item_id
         JOIN users u ON u.id = a.labeler_id
         LEFT JOIN ai_review_jobs aj ON aj.annotation_id = an.id
@@ -154,7 +160,10 @@ public class ReviewRepository {
           WHERE LOWER(decision) = 'escalate'
           GROUP BY annotation_id
         ) dispute_counts ON dispute_counts.annotation_id = an.id
-        WHERE an.id = (
+        WHERE t.deleted_at IS NULL
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND an.id = (
           SELECT latest.id
           FROM annotations latest
           WHERE latest.assignment_id = an.assignment_id
@@ -205,6 +214,7 @@ public class ReviewRepository {
           CAST(air.response_json AS CHAR) AS ai_response_json
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
         JOIN items i ON i.id = a.item_id
         JOIN users u ON u.id = a.labeler_id
         LEFT JOIN ai_review_jobs aj ON aj.annotation_id = an.id
@@ -223,6 +233,9 @@ public class ReviewRepository {
           GROUP BY annotation_id
         ) dispute_counts ON dispute_counts.annotation_id = an.id
         WHERE an.id = ?
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
         """,
         this::mapAnnotation,
         annotationId)
@@ -241,7 +254,11 @@ public class ReviewRepository {
           a.item_id
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
         WHERE an.id = ?
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
         FOR UPDATE
         """,
         (rs, rowNum) -> new AnnotationStateRecord(
@@ -338,6 +355,8 @@ public class ReviewRepository {
         JOIN tasks t ON t.id = a.task_id
         JOIN users u ON u.id = hr.reviewer_id
         WHERE LOWER(hr.decision) = 'escalate'
+          AND an.status <> 'voided'
+          AND t.deleted_at IS NULL
         """ + statusFilter + """
         ORDER BY hr.created_at DESC, hr.id DESC
         LIMIT ? OFFSET ?
@@ -382,7 +401,10 @@ public class ReviewRepository {
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         JOIN users u ON u.id = hr.reviewer_id
-        WHERE hr.id = ? AND LOWER(hr.decision) = 'escalate'
+        WHERE hr.id = ?
+          AND LOWER(hr.decision) = 'escalate'
+          AND an.status <> 'voided'
+          AND t.deleted_at IS NULL
         """,
         (rs, rowNum) -> new DisputeRecord(
             rs.getLong("dispute_id"),

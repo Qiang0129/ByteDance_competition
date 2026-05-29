@@ -19,11 +19,18 @@ public class AiReviewRepository {
   public Optional<AiReviewJobRecord> findNextPendingJob() {
     return jdbcTemplate.query(
         """
-        SELECT id, annotation_id, status, retry_count, error_summary, available_at, started_at, finished_at
-        FROM ai_review_jobs
-        WHERE status = 'pending'
-          AND available_at <= CURRENT_TIMESTAMP
-        ORDER BY available_at ASC, id ASC
+        SELECT aj.id, aj.annotation_id, aj.status, aj.retry_count, aj.error_summary,
+               aj.available_at, aj.started_at, aj.finished_at
+        FROM ai_review_jobs aj
+        JOIN annotations an ON an.id = aj.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE aj.status = 'pending'
+          AND aj.available_at <= CURRENT_TIMESTAMP
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+        ORDER BY aj.available_at ASC, aj.id ASC
         LIMIT 1
         FOR UPDATE
         """,
@@ -127,9 +134,9 @@ public class AiReviewRepository {
         responseJson);
   }
 
-  public void updateAnnotationStatus(long annotationId, String status) {
-    jdbcTemplate.update(
-        "UPDATE annotations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+  public int updateAnnotationStatus(long annotationId, String status) {
+    return jdbcTemplate.update(
+        "UPDATE annotations SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status <> 'voided'",
         status,
         annotationId);
   }

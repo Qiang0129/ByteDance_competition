@@ -114,7 +114,7 @@ public class AnnotationRepository {
         """
         SELECT id
         FROM assignments
-        WHERE task_id = ? AND labeler_id = ?
+        WHERE task_id = ? AND labeler_id = ? AND status <> 'voided'
         ORDER BY id ASC
         """,
         (rs, rowNum) -> rs.getLong("id"),
@@ -284,6 +284,7 @@ public class AnnotationRepository {
           t.title AS task_title,
           t.status AS task_status,
           t.deadline AS task_deadline,
+          t.deleted_at AS task_deleted_at,
           CAST(t.reward_rule AS CHAR) AS reward_rule_json,
           i.item_status,
           CAST(i.raw_payload AS CHAR) AS raw_payload_json,
@@ -298,12 +299,15 @@ public class AnnotationRepository {
         FROM assignments a
         JOIN tasks t ON t.id = a.task_id
         JOIN items i ON i.id = a.item_id
-        LEFT JOIN task_schema_versions tsv ON tsv.id = (
-          SELECT latest_tsv.id
-          FROM task_schema_versions latest_tsv
-          WHERE latest_tsv.task_id = a.task_id
-          ORDER BY latest_tsv.version DESC
-          LIMIT 1
+        LEFT JOIN task_schema_versions tsv ON tsv.id = COALESCE(
+          CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.schemaVersionId')), '') AS UNSIGNED),
+          (
+            SELECT latest_tsv.id
+            FROM task_schema_versions latest_tsv
+            WHERE latest_tsv.task_id = a.task_id
+            ORDER BY latest_tsv.version DESC
+            LIMIT 1
+          )
         )
         """ + whereClause + " " + suffix;
 
@@ -318,6 +322,7 @@ public class AnnotationRepository {
             rs.getString("task_title"),
             rs.getString("task_status"),
             toLocalDateTime(rs.getTimestamp("task_deadline")),
+            toLocalDateTime(rs.getTimestamp("task_deleted_at")),
             rs.getString("reward_rule_json"),
             rs.getString("item_status"),
             rs.getString("raw_payload_json"),
@@ -353,6 +358,7 @@ public class AnnotationRepository {
       String taskTitle,
       String taskStatus,
       LocalDateTime taskDeadline,
+      LocalDateTime taskDeletedAt,
       String rewardRuleJson,
       String itemStatus,
       String rawPayloadJson,

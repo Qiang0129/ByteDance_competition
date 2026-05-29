@@ -100,6 +100,7 @@ public class TaskService {
     if (existing.ownerId() != owner.id()) {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
     }
+    ensureTaskNotDeleted(existing);
 
     String state = normalizeState(request.status(), existing.status(), TASK_STATES);
     stateMachineService.validate(WorkflowEntityType.TASK, existing.status(), state, "owner");
@@ -141,10 +142,28 @@ public class TaskService {
   @Transactional
   public void deleteTask(Authentication authentication, long taskId) {
     AuthenticatedUser owner = requireOwner(authentication);
+    TaskRecord existing = taskRepository.findTask(taskId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
+    if (existing.ownerId() != owner.id()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
+    }
+    if (existing.deletedAt() != null) {
+      return;
+    }
+    List<TaskRepository.TaskAssignmentStateRecord> assignments =
+        taskRepository.listTaskAssignmentStates(taskId);
+    List<TaskRepository.TaskAnnotationStateRecord> annotations =
+        taskRepository.listTaskAnnotationStates(taskId);
     int deleted = taskRepository.deleteTask(owner.id(), taskId);
     if (deleted == 0) {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
     }
+    taskRepository.voidTaskAnnotations(taskId);
+    taskRepository.voidTaskAssignments(taskId);
+    taskRepository.deleteTaskDrafts(taskId);
+    auditTaskDeletion(existing, owner, assignments.size(), annotations.size());
+    assignments.forEach(record -> auditAssignmentVoided(record, owner, taskId));
+    annotations.forEach(record -> auditAnnotationVoided(record, owner, taskId));
   }
 
   public List<AssignableLabelerResponse> listAssignableLabelers(Authentication authentication) {
@@ -169,6 +188,7 @@ public class TaskService {
     if (existing.ownerId() != owner.id()) {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
     }
+    ensureTaskNotDeleted(existing);
     validatePublishedSchemaConfiguration(owner.id(), readMetadata(existing.rewardRuleJson()), state, existing);
     stateMachineService.validate(WorkflowEntityType.TASK, existing.status(), state, "owner");
     int updated = taskRepository.updateTaskState(owner.id(), taskId, state);
@@ -525,7 +545,7 @@ public class TaskService {
         record.ownerName(),
         metadata.resolvedAiReviewEnabled(),
         metadata.resolvedAiReviewEnabled() ? "电商相关性 v2" : null,
-        formatDateTime(record.createdAt()),
+        formatDateTime(record.publishedAt() == null ? record.createdAt() : record.publishedAt()),
         metadata.resolvedMaxClaimPerUser(),
         taskRepository.hasTaskAssignment(record.id(), currentUserId));
   }
@@ -615,7 +635,8 @@ public class TaskService {
   }
 
   private boolean canCreateMoreAssignments(TaskRecord task) {
-    return "published".equals(task.status())
+    return task.deletedAt() == null
+        && "published".equals(task.status())
         && (task.deadline() == null || !task.deadline().isBefore(LocalDateTime.now()));
   }
 
@@ -646,6 +667,9 @@ public class TaskService {
   }
 
   private void validateClaimableTask(TaskRecord task, TaskMetadata metadata) {
+    if (task.deletedAt() != null) {
+      throw new ApiException(HttpStatus.CONFLICT, "TASK_DELETED", "task has been deleted");
+    }
     if (!"published".equals(task.status())) {
       throw new ApiException(HttpStatus.CONFLICT, "TASK_NOT_PUBLISHED", "task is not published");
     }
@@ -694,6 +718,84 @@ public class TaskService {
         "task state changed",
         java.util.Map.of("taskId", before.id(), "status", before.status()),
         java.util.Map.of("taskId", before.id(), "status", state),
+        null);
+  }
+
+  private void auditTaskDeletion(
+      TaskRecord before,
+      AuthenticatedUser owner,
+      int affectedAssignments,
+      int affectedAnnotations) {
+    stateMachineService.audit(
+        WorkflowEntityType.TASK,
+        before.id(),
+        owner,
+        "owner",
+        "task.delete",
+        before.status(),
+        "ended",
+        "task deleted by owner",
+        java.util.Map.of("taskId", before.id(), "status", before.status()),
+        java.util.Map.of(
+            "taskId", before.id(),
+            "status", "ended",
+            "deleted", true,
+            "affectedAssignments", affectedAssignments,
+            "affectedAnnotations", affectedAnnotations),
+        java.util.Map.of(
+            "affectedAssignments", affectedAssignments,
+            "affectedAnnotations", affectedAnnotations));
+  }
+
+  private void auditAssignmentVoided(
+      TaskRepository.TaskAssignmentStateRecord record,
+      AuthenticatedUser owner,
+      long taskId) {
+    stateMachineService.audit(
+        WorkflowEntityType.ASSIGNMENT,
+        record.assignmentId(),
+        owner,
+        "owner",
+        "assignment.void",
+        record.status(),
+        "voided",
+        "task deleted by owner",
+        java.util.Map.of(
+            "assignmentId", record.assignmentId(),
+            "taskId", taskId,
+            "itemId", record.itemId(),
+            "labelerId", record.labelerId(),
+            "status", record.status()),
+        java.util.Map.of(
+            "assignmentId", record.assignmentId(),
+            "taskId", taskId,
+            "status", "voided"),
+        null);
+  }
+
+  private void auditAnnotationVoided(
+      TaskRepository.TaskAnnotationStateRecord record,
+      AuthenticatedUser owner,
+      long taskId) {
+    stateMachineService.audit(
+        WorkflowEntityType.ANNOTATION,
+        record.annotationId(),
+        owner,
+        "owner",
+        "annotation.void",
+        record.status(),
+        "voided",
+        "task deleted by owner",
+        java.util.Map.of(
+            "annotationId", record.annotationId(),
+            "assignmentId", record.assignmentId(),
+            "taskId", taskId,
+            "status", record.status()),
+        java.util.Map.of(
+            "annotationId", record.annotationId(),
+            "assignmentId", record.assignmentId(),
+            "taskId", taskId,
+            "status", "voided"),
         null);
   }
 
@@ -750,6 +852,8 @@ public class TaskService {
         taskType,
         toTaskTypeKey(taskType),
         record.ownerName(),
+        formatDateTime(record.taskPublishedAt() == null ? record.taskCreatedAt() : record.taskPublishedAt()),
+        formatDateTime(record.taskDeadline()),
         record.taskQuotaUsed(),
         record.taskQuota() == null ? 0 : record.taskQuota(),
         formatDateTime(record.claimedAt()),
@@ -763,6 +867,12 @@ public class TaskService {
       throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "owner role is required");
     }
     return principal;
+  }
+
+  private void ensureTaskNotDeleted(TaskRecord task) {
+    if (task.deletedAt() != null) {
+      throw new ApiException(HttpStatus.CONFLICT, "TASK_DELETED", "task has been deleted");
+    }
   }
 
   private AuthenticatedUser requireLabeler(Authentication authentication) {

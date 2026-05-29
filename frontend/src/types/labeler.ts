@@ -16,7 +16,7 @@ export type AssignStrategy = 'first-come' | 'assigned' | 'quota';
 export type TaskMediaType = 'text' | 'image' | 'video' | 'markdown';
 
 /** 标注项在标注员侧的状态 */
-export type ItemStatus = 'available' | 'claimed' | 'submitted' | 'returned' | 'accepted';
+export type ItemStatus = 'available' | 'claimed' | 'submitted' | 'returned' | 'accepted' | 'voided';
 
 /** 标注答卷(annotation)的状态,呼应计划书 4.4/4.5 状态机 */
 export type AnnotationStatus =
@@ -26,7 +26,8 @@ export type AnnotationStatus =
   | 'REVIEWING'
   | 'RETURNED'
   | 'ACCEPTED'
-  | 'EXPORTED';
+  | 'EXPORTED'
+  | 'VOIDED';
 
 /** 任务市场展示用的任务摘要 */
 export interface MarketTask {
@@ -81,6 +82,8 @@ export interface Assignment {
   taskTypeKey?: string;
   /** Owner 名 / 团队 */
   ownerName?: string;
+  publishedAt?: string;
+  deadline?: string;
   /** 当前任务已认领/总配额进度 */
   quotaUsed?: number;
   quotaTotal?: number;

@@ -102,7 +102,7 @@ public class TaskRepository {
               ELSE published_at
             END,
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND owner_id = ?
+        WHERE id = ? AND owner_id = ? AND deleted_at IS NULL
         """,
         title,
         description,
@@ -128,7 +128,7 @@ public class TaskRepository {
   public List<TaskRecord> listOwnerTasks(long ownerId) {
     return queryTasks(
         """
-        WHERE t.owner_id = ?
+        WHERE t.owner_id = ? AND t.deleted_at IS NULL
         """,
         List.of(ownerId),
         "ORDER BY t.created_at DESC");
@@ -137,8 +137,11 @@ public class TaskRepository {
   public int deleteTask(long ownerId, long taskId) {
     return jdbcTemplate.update(
         """
-        DELETE FROM tasks
-        WHERE id = ? AND owner_id = ?
+        UPDATE tasks
+        SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+            status = 'ended',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND owner_id = ? AND deleted_at IS NULL
         """,
         taskId,
         ownerId);
@@ -198,7 +201,7 @@ public class TaskRepository {
   public Optional<AssignmentRecord> findAssignmentForLabelerTask(long taskId, long labelerId) {
     return queryAssignments(
         """
-        WHERE a.task_id = ? AND a.labeler_id = ?
+        WHERE a.task_id = ? AND a.labeler_id = ? AND a.status <> 'voided'
         """,
         List.of(taskId, labelerId),
         """
@@ -222,7 +225,7 @@ public class TaskRepository {
     List<Object> args = new ArrayList<>();
     args.add(labelerId);
     String where = """
-        WHERE a.labeler_id = ?
+        WHERE a.labeler_id = ? AND a.status <> 'voided' AND t.deleted_at IS NULL
         """;
     if (status != null && !status.isBlank()) {
       where += " AND a.status = ?";
@@ -236,7 +239,7 @@ public class TaskRepository {
         """
         SELECT COUNT(*)
         FROM assignments
-        WHERE task_id = ? AND labeler_id = ?
+        WHERE task_id = ? AND labeler_id = ? AND status <> 'voided'
         """,
         Integer.class,
         taskId,
@@ -246,7 +249,7 @@ public class TaskRepository {
 
   public long countTaskAssignments(long taskId) {
     Long count = jdbcTemplate.queryForObject(
-        "SELECT COUNT(*) FROM assignments WHERE task_id = ?",
+        "SELECT COUNT(*) FROM assignments WHERE task_id = ? AND status <> 'voided'",
         Long.class,
         taskId);
     return count == null ? 0L : count;
@@ -257,7 +260,7 @@ public class TaskRepository {
         """
         SELECT COUNT(*)
         FROM assignments
-        WHERE task_id = ? AND labeler_id = ?
+        WHERE task_id = ? AND labeler_id = ? AND status <> 'voided'
         """,
         Long.class,
         taskId,
@@ -275,6 +278,7 @@ public class TaskRepository {
             SELECT 1
             FROM assignments a
             WHERE a.item_id = i.id
+              AND a.status <> 'voided'
           )
         """,
         Long.class,
@@ -299,6 +303,7 @@ public class TaskRepository {
             SELECT 1
             FROM assignments a
             WHERE a.item_id = i.id
+              AND a.status <> 'voided'
         )
         ORDER BY i.id ASC
         LIMIT ?
@@ -342,6 +347,72 @@ public class TaskRepository {
     return key.longValue();
   }
 
+  public List<TaskAssignmentStateRecord> listTaskAssignmentStates(long taskId) {
+    return jdbcTemplate.query(
+        """
+        SELECT id, status, item_id, labeler_id
+        FROM assignments
+        WHERE task_id = ? AND status <> 'voided'
+        ORDER BY id ASC
+        """,
+        (rs, rowNum) -> new TaskAssignmentStateRecord(
+            rs.getLong("id"),
+            rs.getString("status"),
+            rs.getLong("item_id"),
+            rs.getLong("labeler_id")),
+        taskId);
+  }
+
+  public List<TaskAnnotationStateRecord> listTaskAnnotationStates(long taskId) {
+    return jdbcTemplate.query(
+        """
+        SELECT an.id, an.status, an.assignment_id
+        FROM annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        WHERE a.task_id = ? AND an.status <> 'voided'
+        ORDER BY an.id ASC
+        """,
+        (rs, rowNum) -> new TaskAnnotationStateRecord(
+            rs.getLong("id"),
+            rs.getString("status"),
+            rs.getLong("assignment_id")),
+        taskId);
+  }
+
+  public int voidTaskAssignments(long taskId) {
+    return jdbcTemplate.update(
+        """
+        UPDATE assignments
+        SET status = 'voided',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE task_id = ? AND status <> 'voided'
+        """,
+        taskId);
+  }
+
+  public int voidTaskAnnotations(long taskId) {
+    return jdbcTemplate.update(
+        """
+        UPDATE annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        SET an.status = 'voided',
+            an.updated_at = CURRENT_TIMESTAMP
+        WHERE a.task_id = ? AND an.status <> 'voided'
+        """,
+        taskId);
+  }
+
+  public int deleteTaskDrafts(long taskId) {
+    return jdbcTemplate.update(
+        """
+        DELETE d
+        FROM drafts d
+        JOIN assignments a ON a.id = d.assignment_id
+        WHERE a.task_id = ?
+        """,
+        taskId);
+  }
+
   public List<String> listTaskMediaTypes(long taskId) {
     return jdbcTemplate.query(
         """
@@ -363,7 +434,7 @@ public class TaskRepository {
               WHEN ? = 'published' AND published_at IS NULL THEN CURRENT_TIMESTAMP
               ELSE published_at
             END
-        WHERE id = ? AND owner_id = ?
+        WHERE id = ? AND owner_id = ? AND deleted_at IS NULL
         """,
         state,
         state,
@@ -381,6 +452,12 @@ public class TaskRepository {
               ELSE published_at
             END
         WHERE task_id = ?
+          AND EXISTS (
+            SELECT 1
+            FROM tasks t
+            WHERE t.id = task_schema_versions.task_id
+              AND t.deleted_at IS NULL
+          )
         ORDER BY version DESC
         LIMIT 1
         """,
@@ -432,6 +509,8 @@ public class TaskRepository {
           t.deadline,
           CAST(t.reward_rule AS CHAR) AS reward_rule_json,
           t.created_at,
+          t.published_at,
+          t.deleted_at,
           tsv.id AS schema_version_id,
           tsv.version AS schema_version
         FROM tasks t
@@ -439,6 +518,7 @@ public class TaskRepository {
         LEFT JOIN (
           SELECT task_id, COUNT(*) AS quota_used
           FROM assignments
+          WHERE status <> 'voided'
           GROUP BY task_id
         ) ac ON ac.task_id = t.id
         LEFT JOIN datasets ds ON ds.id = (
@@ -448,12 +528,15 @@ public class TaskRepository {
           ORDER BY latest_ds.updated_at DESC, latest_ds.id DESC
           LIMIT 1
         )
-        LEFT JOIN task_schema_versions tsv ON tsv.id = (
-          SELECT latest_tsv.id
-          FROM task_schema_versions latest_tsv
-          WHERE latest_tsv.task_id = t.id
-          ORDER BY latest_tsv.version DESC
-          LIMIT 1
+        LEFT JOIN task_schema_versions tsv ON tsv.id = COALESCE(
+          CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.schemaVersionId')), '') AS UNSIGNED),
+          (
+            SELECT latest_tsv.id
+            FROM task_schema_versions latest_tsv
+            WHERE latest_tsv.task_id = t.id
+            ORDER BY latest_tsv.version DESC
+            LIMIT 1
+          )
         )
         """ + whereClause + " " + suffix;
 
@@ -472,6 +555,8 @@ public class TaskRepository {
             toLocalDateTime(rs.getTimestamp("deadline")),
             rs.getString("reward_rule_json"),
             toLocalDateTime(rs.getTimestamp("created_at")),
+            toLocalDateTime(rs.getTimestamp("published_at")),
+            toLocalDateTime(rs.getTimestamp("deleted_at")),
             toLong(rs.getObject("schema_version_id")),
             toInteger(rs.getObject("schema_version"))),
         args.toArray());
@@ -494,6 +579,9 @@ public class TaskRepository {
           u.name AS owner_name,
           t.quota AS task_quota,
           COALESCE(ac.quota_used, 0) AS task_quota_used,
+          t.created_at AS task_created_at,
+          t.deadline AS task_deadline,
+          t.published_at AS task_published_at,
           CAST(t.reward_rule AS CHAR) AS reward_rule_json
         FROM assignments a
         JOIN tasks t ON t.id = a.task_id
@@ -501,14 +589,18 @@ public class TaskRepository {
         LEFT JOIN (
           SELECT task_id, COUNT(*) AS quota_used
           FROM assignments
+          WHERE status <> 'voided'
           GROUP BY task_id
         ) ac ON ac.task_id = t.id
-        LEFT JOIN task_schema_versions tsv ON tsv.id = (
-          SELECT latest_tsv.id
-          FROM task_schema_versions latest_tsv
-          WHERE latest_tsv.task_id = a.task_id
-          ORDER BY latest_tsv.version DESC
-          LIMIT 1
+        LEFT JOIN task_schema_versions tsv ON tsv.id = COALESCE(
+          CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.schemaVersionId')), '') AS UNSIGNED),
+          (
+            SELECT latest_tsv.id
+            FROM task_schema_versions latest_tsv
+            WHERE latest_tsv.task_id = a.task_id
+            ORDER BY latest_tsv.version DESC
+            LIMIT 1
+          )
         )
         """ + whereClause + " " + suffix;
 
@@ -529,6 +621,9 @@ public class TaskRepository {
             rs.getString("owner_name"),
             toInteger(rs.getObject("task_quota")),
             rs.getInt("task_quota_used"),
+            toLocalDateTime(rs.getTimestamp("task_created_at")),
+            toLocalDateTime(rs.getTimestamp("task_deadline")),
+            toLocalDateTime(rs.getTimestamp("task_published_at")),
             rs.getString("reward_rule_json")),
         args.toArray());
   }
@@ -542,6 +637,7 @@ public class TaskRepository {
     List<String> clauses = new ArrayList<>();
     List<Object> args = new ArrayList<>();
     clauses.add("t.status = 'published'");
+    clauses.add("t.deleted_at IS NULL");
     clauses.add("(t.deadline IS NULL OR t.deadline >= CURRENT_TIMESTAMP)");
 
     if (keyword != null && !keyword.isBlank()) {
@@ -618,5 +714,16 @@ public class TaskRepository {
   }
 
   private record QueryParts(String whereClause, List<Object> args) {}
+
+  public record TaskAssignmentStateRecord(
+      long assignmentId,
+      String status,
+      long itemId,
+      long labelerId) {}
+
+  public record TaskAnnotationStateRecord(
+      long annotationId,
+      String status,
+      long assignmentId) {}
 
 }

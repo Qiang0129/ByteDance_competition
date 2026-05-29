@@ -6,16 +6,35 @@ export interface ApiRequestOptions extends RequestInit {
   token?: string | null;
 }
 
+function readPayloadText(payload: unknown, field: 'code' | 'message') {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  const value = (payload as Record<string, unknown>)[field];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 export class ApiError extends Error {
   status: number;
   payload: unknown;
+  code?: string;
 
   constructor(status: number, statusText: string, payload: unknown) {
-    super(statusText || `API request failed with status ${status}`);
+    const message = readPayloadText(payload, 'message');
+    const code = readPayloadText(payload, 'code');
+    super((message ?? code ?? statusText) || `API request failed with status ${status}`);
     this.name = 'ApiError';
     this.status = status;
     this.payload = payload;
+    this.code = code ?? undefined;
   }
+}
+
+export function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    return error.message || fallback;
+  }
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export function getAuthToken() {

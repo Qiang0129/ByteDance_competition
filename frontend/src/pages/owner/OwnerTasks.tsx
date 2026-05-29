@@ -32,6 +32,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
+import { getApiErrorMessage } from '../../api/client';
 import { datasetApi } from '../../api/dataset';
 import { ownerApi } from '../../api/owner';
 import { schemaApi } from '../../api/schema';
@@ -317,7 +318,7 @@ export default function OwnerTasks() {
       const response = await ownerApi.listTasks();
       setRows(response.items);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '任务列表加载失败');
+      message.error(getApiErrorMessage(error, '任务列表加载失败'));
     } finally {
       setLoading(false);
     }
@@ -328,7 +329,7 @@ export default function OwnerTasks() {
       const response = await datasetApi.listDatasets();
       setDatasets(response.items);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '数据集列表加载失败');
+      message.error(getApiErrorMessage(error, '数据集列表加载失败'));
     }
   }
 
@@ -338,7 +339,7 @@ export default function OwnerTasks() {
       const response = await schemaApi.listSchemas();
       setSchemas(response.items);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '模板列表加载失败');
+      message.error(getApiErrorMessage(error, '模板列表加载失败'));
     } finally {
       setSchemaLoading(false);
     }
@@ -349,7 +350,7 @@ export default function OwnerTasks() {
       const response = await ownerApi.listAssignableLabelers();
       setAssignableLabelers(response);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '标注员列表加载失败');
+      message.error(getApiErrorMessage(error, '标注员列表加载失败'));
     }
   }
 
@@ -438,14 +439,14 @@ export default function OwnerTasks() {
       message.success('任务状态已更新');
       await loadTasks();
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '任务状态更新失败');
+      message.error(getApiErrorMessage(error, '任务状态更新失败'));
     }
   }
 
   async function handleDelete(row: OwnerTaskRow) {
     Modal.confirm({
       title: '确认删除该任务?',
-      content: `任务「${row.title}」将被永久删除,已关联的标注数据不会被清除。此操作不可撤销。`,
+      content: `任务「${row.title}」将从任务列表和 Labeler 端隐藏; 已领取和已提交的标注会标记为作废, 原始答案仍保留在数据库中。`,
       okText: '确认删除',
       okButtonProps: { danger: true },
       onOk: async () => {
@@ -454,7 +455,7 @@ export default function OwnerTasks() {
           message.success('任务已删除');
           await loadTasks();
         } catch (error) {
-          message.error(error instanceof Error ? error.message : '删除失败');
+          message.error(getApiErrorMessage(error, '删除失败'));
         }
       },
     });
@@ -475,7 +476,7 @@ export default function OwnerTasks() {
       closeDrawer();
       await Promise.all([loadTasks(), loadDatasets()]);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '任务保存失败');
+      message.error(getApiErrorMessage(error, '任务保存失败'));
     } finally {
       setSubmitting(false);
     }
