@@ -4250,7 +4250,7 @@ body {
 
 .answer-raw-key {
   font-size: 12px;
-  color: #94a3b8;
+  color: #64748b;
   font-weight: 600;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -4265,14 +4265,33 @@ body {
   word-break: break-word;
 }
 
+/* 数组字段(如 TAGS)渲染成标签组:浅蓝胶囊,呼应主题 */
+.answer-raw-tags {
+  margin-top: 6px;
+}
+
+.answer-raw-tag.ant-tag {
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 13px;
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
+}
+
 .answer-json {
   margin: 0;
-  padding: 10px 12px;
-  background: #0f172a;
-  color: #e2e8f0;
+  padding: 12px 14px;
+  background: #f5f8fd;
+  color: #1f2a44;
+  border: 1px solid #e3e9f2;
   border-radius: 10px;
-  font-size: 12px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.7;
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* 字段渲染 */
@@ -5878,6 +5897,34 @@ body {
 
 :root[data-color-mode='dark'] .answer-meta-value {
   color: #f5f7fb;
+}
+
+/* 题目数据卡内的 JSON / Markdown / 字段块:深底浅字,保持可读对比 */
+:root[data-color-mode='dark'] .answer-json {
+  background: #11141b;
+  color: #d7def0;
+  border-color: #262a33;
+}
+
+:root[data-color-mode='dark'] .answer-markdown,
+:root[data-color-mode='dark'] .answer-raw-field,
+:root[data-color-mode='dark'] .answer-field-show {
+  background: #11141b;
+  border-color: #262a33;
+  color: #d7def0;
+}
+
+:root[data-color-mode='dark'] .answer-raw-key {
+  color: #9aa6bd;
+}
+
+:root[data-color-mode='dark'] .answer-raw-value {
+  color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] .answer-raw-tag.ant-tag {
+  background: var(--lh-primary-bg-25);
+  color: var(--lh-primary-light);
 }
 
 :root[data-color-mode='dark'] .answer-progress {

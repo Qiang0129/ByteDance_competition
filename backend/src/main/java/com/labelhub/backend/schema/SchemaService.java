@@ -57,7 +57,10 @@ public class SchemaService {
       Authentication authentication,
       SchemaValidationRequest request) {
     requireOwner(authentication);
-    return schemaDefinitionValidator.validate(request == null ? null : request.fields());
+    return schemaDefinitionValidator.validate(
+        request == null || request.fields() == null
+            ? null
+            : normalizeFields(request.fields()));
   }
 
   @Transactional
@@ -65,7 +68,7 @@ public class SchemaService {
       Authentication authentication,
       CreateSchemaDraftRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
-    JsonNode fields = requireFieldArray(request.fields());
+    JsonNode fields = normalizeFields(requireFieldArray(request.fields()));
     ensureValidSchema(fields);
     DatasetBinding dataset = resolveDatasetBinding(owner.id(), request.datasetId());
     String schemaJson = writeSchema(
@@ -84,7 +87,7 @@ public class SchemaService {
       CreateSchemaDraftRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
     ensureTaskOwner(owner.id(), taskId);
-    JsonNode fields = requireFieldArray(request.fields());
+    JsonNode fields = normalizeFields(requireFieldArray(request.fields()));
     ensureValidSchema(fields);
     DatasetBinding dataset = resolveDatasetBinding(owner.id(), request.datasetId());
     String schemaJson = writeSchema(
@@ -107,7 +110,7 @@ public class SchemaService {
       UpdateSchemaDraftRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
     SchemaRecord current = loadOwnerSchema(owner.id(), versionId);
-    if (!"draft".equals(current.status())) {
+    if (!isDraftStatus(current.status())) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_ALREADY_PUBLISHED",
@@ -122,7 +125,7 @@ public class SchemaService {
     DatasetBinding dataset = request.datasetId() == null
         ? snapshot.dataset()
         : resolveDatasetBinding(owner.id(), request.datasetId());
-    JsonNode fields = requireFieldArray(request.fields());
+    JsonNode fields = normalizeFields(requireFieldArray(request.fields()));
     ensureValidSchema(fields);
     Long taskId = parseOptionalId(request.taskId(), "INVALID_TASK_ID");
     if (taskId != null) {
@@ -142,7 +145,14 @@ public class SchemaService {
   public SchemaVersionResponse publish(Authentication authentication, long versionId) {
     AuthenticatedUser owner = requireOwner(authentication);
     SchemaRecord current = loadOwnerSchema(owner.id(), versionId);
-    ensureValidSchema(readSnapshot(current).fields());
+    SchemaSnapshot snapshot = readSnapshot(current);
+    JsonNode fields = normalizeFields(snapshot.fields());
+    ensureValidSchema(fields);
+    schemaRepository.updateDraft(
+        versionId,
+        current.taskId(),
+        current.version(),
+        writeSchema(snapshot.name(), snapshot.description(), snapshot.dataset(), fields));
     schemaRepository.publish(versionId);
     return toVersion(loadOwnerSchema(owner.id(), versionId));
   }
@@ -151,7 +161,7 @@ public class SchemaService {
   public SchemaVersionResponse withdraw(Authentication authentication, long versionId) {
     AuthenticatedUser owner = requireOwner(authentication);
     SchemaRecord current = loadOwnerSchema(owner.id(), versionId);
-    if (!"published".equals(current.status())) {
+    if (!"published".equals(normalizeStatus(current.status()))) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_NOT_PUBLISHED",
@@ -169,7 +179,7 @@ public class SchemaService {
     if (current.deletedAt() != null) {
       return;
     }
-    if (!"draft".equals(current.status())) {
+    if (!isDraftStatus(current.status())) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_NOT_DRAFT",
@@ -292,6 +302,73 @@ public class SchemaService {
     return fields;
   }
 
+  private JsonNode normalizeFields(JsonNode fields) {
+    ArrayNode normalized = objectMapper.createArrayNode();
+    for (JsonNode field : fields) {
+      if (!field.isObject()) {
+        normalized.add(field.deepCopy());
+        continue;
+      }
+      ObjectNode nextField = ((ObjectNode) field).deepCopy();
+      JsonNode reactions = nextField.path("reactions");
+      if (reactions.isArray()) {
+        ArrayNode nextReactions = objectMapper.createArrayNode();
+        for (JsonNode reaction : reactions) {
+          if (!reaction.isObject()) {
+            nextReactions.add(reaction.deepCopy());
+            continue;
+          }
+          ObjectNode nextReaction = ((ObjectNode) reaction).deepCopy();
+          normalizeReaction(nextReaction, fields);
+          nextReactions.add(nextReaction);
+        }
+        nextField.set("reactions", nextReactions);
+      }
+      normalized.add(nextField);
+    }
+    return normalized;
+  }
+
+  private void normalizeReaction(ObjectNode reaction, JsonNode fields) {
+    String action = text(reaction, "action");
+    if ("required".equals(action)) {
+      reaction.put("action", "visibleRequired");
+    }
+    String sourceFieldName = text(reaction, "sourceField");
+    String rawValue = text(reaction, "value");
+    if (sourceFieldName == null || rawValue == null) {
+      return;
+    }
+    JsonNode sourceField = findField(fields, sourceFieldName);
+    if (sourceField == null) {
+      return;
+    }
+    JsonNode options = sourceField.path("options");
+    if (!options.isArray()) {
+      return;
+    }
+    for (JsonNode option : options) {
+      String optionValue = text(option, "value");
+      String optionLabel = text(option, "label");
+      if (rawValue.equals(optionLabel) && optionValue != null && !optionValue.isBlank()) {
+        reaction.put("value", optionValue);
+        return;
+      }
+    }
+  }
+
+  private JsonNode findField(JsonNode fields, String fieldName) {
+    if (fields == null || !fields.isArray() || fieldName == null) {
+      return null;
+    }
+    for (JsonNode field : fields) {
+      if (fieldName.equals(text(field, "fieldName"))) {
+        return field;
+      }
+    }
+    return null;
+  }
+
   private String normalizeName(String name) {
     if (name == null || name.isBlank()) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCHEMA_NAME", "schema name is required");
@@ -319,7 +396,11 @@ public class SchemaService {
   }
 
   private String normalizeStatus(String status) {
-    return "published".equals(status) ? "published" : "draft";
+    return status != null && "published".equalsIgnoreCase(status.trim()) ? "published" : "draft";
+  }
+
+  private boolean isDraftStatus(String status) {
+    return "draft".equals(normalizeStatus(status));
   }
 
   private String resolveCreatedBy(SchemaRecord record) {

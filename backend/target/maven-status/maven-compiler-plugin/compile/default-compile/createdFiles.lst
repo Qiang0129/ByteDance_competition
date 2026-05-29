@@ -1,5 +1,6 @@
 com\labelhub\backend\review\ReviewRepository$AnnotationReviewRecord.class
 com\labelhub\backend\schema\CreateSchemaDraftRequest.class
+com\labelhub\backend\task\TaskRepository$DuplicateAssignmentException.class
 com\labelhub\backend\export\ExportRepository.class
 com\labelhub\backend\review\ReviewRepository$ReviewBatchRecord.class
 com\labelhub\backend\ai\AiReviewCompleteRequest.class

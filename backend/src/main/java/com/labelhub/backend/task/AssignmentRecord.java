@@ -17,6 +17,8 @@ public record AssignmentRecord(
     String ownerName,
     Integer taskQuota,
     int taskQuotaUsed,
+    boolean hasDraft,
+    boolean hasSubmittedAnnotation,
     LocalDateTime taskCreatedAt,
     LocalDateTime taskDeadline,
     LocalDateTime taskPublishedAt,

@@ -4,7 +4,7 @@ import { createForm, onFormValuesChange } from '@formily/core';
 import { createSchemaField, FormProvider } from '@formily/react';
 
 import type { SchemaField } from '../../types/schema';
-import { compileToFormilySchema } from './schemaCompiler';
+import { compileToFormilySchema, resolveRuntimeRules } from './schemaCompiler';
 import { formilyAntd6Components } from './formilyAntd6';
 
 const SchemaFieldRenderer = createSchemaField({
@@ -67,11 +67,15 @@ export function LabelHubFormRenderer({
       }),
     [schema, rawPayload, value, readonly],
   );
+  const runtimeRuleKey = useMemo(
+    () => JSON.stringify(resolveRuntimeRules(schema, value ?? {})),
+    [schema, value],
+  );
 
   return (
     <FormProvider form={form}>
       <div className="lh-formily-renderer">
-        <SchemaFieldRenderer schema={formilySchema as never} />
+        <SchemaFieldRenderer key={runtimeRuleKey} schema={formilySchema as never} />
         {onSubmit && (
           <Space className="lh-formily-actions">
             <Button

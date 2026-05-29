@@ -87,6 +87,10 @@ export interface Assignment {
   /** 当前任务已认领/总配额进度 */
   quotaUsed?: number;
   quotaTotal?: number;
+  /** 是否已有草稿,用于区分开始答题和继续答题 */
+  hasDraft?: boolean;
+  /** 是否已有正式提交记录,用于区分作答入口和查看入口 */
+  hasSubmittedAnnotation?: boolean;
   /** assignment 时间字段 */
   claimedAt?: string;
   submittedAt?: string;
@@ -101,6 +105,10 @@ export interface Annotation {
   assignmentId: string;
   schemaVersionId: string;
   answerJson: Record<string, unknown>;
+  schemaSnapshot?: {
+    fields?: SchemaField[];
+    [key: string]: unknown;
+  } | null;
   status: AnnotationStatus;
   revisionNo: number;
   /** 审核员驳回原因 */
@@ -118,6 +126,7 @@ export interface Draft {
 export interface SubmitAnnotationRequest {
   schemaVersionId: string;
   answerJson: Record<string, unknown>;
+  schemaDigest?: string;
   draftVersion?: number;
 }
 
@@ -134,6 +143,7 @@ export interface AssignmentItem {
   /** 任务截止时间,用于页面提示 */
   deadline?: string;
   schemaVersionId: string;
+  schemaDigest?: string;
   /** 原题数据(根据 media_type 渲染:text / image / video / markdown) */
   rawPayload: {
     media_type: 'text' | 'image' | 'video' | 'markdown';

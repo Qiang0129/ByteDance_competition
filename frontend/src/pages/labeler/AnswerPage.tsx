@@ -31,7 +31,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
-import { LabelHubFormRenderer } from '../../modules/schema';
+import { filterVisibleAnswer, LabelHubFormRenderer, resolveRuntimeRules } from '../../modules/schema';
 import type { AssignmentItem } from '../../types/labeler';
 import { useThemeColors } from '../../theme/useThemeColors';
 
@@ -63,20 +63,30 @@ export default function AnswerPage() {
   const [submitting, setSubmitting] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [editCurrentSchema, setEditCurrentSchema] = useState(false);
 
   // 用 ref 把答案与 assignmentId 同步给 setTimeout 回调,避免闭包问题
   const answerRef = useRef(answer);
+  const itemRef = useRef<AssignmentItem | null>(null);
   const assignmentIdRef = useRef(assignmentId);
   const editableRef = useRef(false);
   const dirtyRef = useRef(false);
   const canEdit = item ? item.editable ?? isEditableStatus(item.status) : false;
+  const submittedSnapshotFields = item?.latestAnnotation?.schemaSnapshot?.fields;
+  const showSubmittedSnapshot =
+    !!item?.latestAnnotation && !editCurrentSchema && item.status === 'submitted';
+  const renderFields = showSubmittedSnapshot && submittedSnapshotFields?.length
+    ? submittedSnapshotFields
+    : item?.fields ?? [];
+  const renderReadonly = !canEdit || showSubmittedSnapshot;
+  const activeSchemaDigest = showSubmittedSnapshot ? undefined : item?.schemaDigest;
   const rawAnswerFallback = useMemo(() => {
     const submittedAnswer = item?.latestAnnotation?.answerJson;
     if (!item || !submittedAnswer || typeof submittedAnswer !== 'object') {
       return null;
     }
     const currentFieldNames = new Set(
-      item.fields
+      renderFields
         .filter((field) => field.kind !== 'show-item' && field.fieldName)
         .map((field) => field.fieldName),
     );
@@ -84,8 +94,9 @@ export default function AnswerPage() {
       (key) => !currentFieldNames.has(key),
     );
     return hasUnmatchedAnswerKey ? submittedAnswer : null;
-  }, [item]);
+  }, [item, renderFields]);
   answerRef.current = answer;
+  itemRef.current = item;
   assignmentIdRef.current = assignmentId;
   editableRef.current = canEdit;
   dirtyRef.current = dirty;
@@ -136,8 +147,11 @@ export default function AnswerPage() {
         status: data.status ?? (data.latestAnnotation ? 'submitted' : 'claimed'),
       };
       setItem(normalized);
+      setEditCurrentSchema(false);
       // 可编辑时优先恢复草稿;已锁定时优先展示正式提交答案。
-      const initial = normalized.editable === false
+      const initial = normalized.latestAnnotation && normalized.status === 'submitted'
+        ? normalized.latestAnnotation.answerJson
+        : normalized.editable === false
         ? normalized.latestAnnotation?.answerJson ?? normalized.draft?.answerJson ?? {}
         : normalized.draft?.answerJson ?? normalized.latestAnnotation?.answerJson ?? {};
       setAnswer(initial);
@@ -171,7 +185,9 @@ export default function AnswerPage() {
       if (!dirtyRef.current) return;
       const payload = answerRef.current;
       if (Object.keys(payload).length === 0) return;
-      void labelerApi.saveDraft(aid, payload).catch(() => {
+      const currentItem = itemRef.current;
+      const draftPayload = currentItem ? filterVisibleAnswer(currentItem.fields, payload) : payload;
+      void labelerApi.saveDraft(aid, draftPayload, currentItem?.schemaDigest).catch(() => {
         /* 演示模式下静默失败 */
       });
     };
@@ -181,9 +197,10 @@ export default function AnswerPage() {
     if (!assignmentId) return;
     if (!editableRef.current) return;
     if (!dirtyRef.current) return;
+    const draftAnswer = item ? filterVisibleAnswer(renderFields, answer) : answer;
     setSavingDraft(true);
     try {
-      await labelerApi.saveDraft(assignmentId, answer);
+      await labelerApi.saveDraft(assignmentId, draftAnswer, activeSchemaDigest);
       setDraftSavedAt(new Date().toLocaleTimeString());
     } catch (error) {
       if (error instanceof ApiError) {
@@ -197,7 +214,7 @@ export default function AnswerPage() {
     } finally {
       setSavingDraft(false);
     }
-  }, [answer, assignmentId, message]);
+  }, [activeSchemaDigest, answer, assignmentId, item, message, renderFields]);
 
   function updateField(fieldName: string, value: unknown) {
     if (!canEdit) return;
@@ -213,13 +230,23 @@ export default function AnswerPage() {
   }
 
   /** 校验:必填 + maxLength + JSON 解析 */
+  function handleEditCurrentSchema() {
+    if (!item || !canEdit) return;
+    setEditCurrentSchema(true);
+    setAnswer(item.draft?.answerJson ?? item.latestAnnotation?.answerJson ?? {});
+    setDirty(false);
+    setErrors({});
+  }
+
   function validate(): boolean {
     if (!item) return false;
     const next: Record<string, string> = {};
-    item.fields.forEach((field) => {
+    const runtimeRules = resolveRuntimeRules(renderFields, answer);
+    renderFields.forEach((field) => {
       if (field.kind === 'show-item') return;
+      if (runtimeRules.visible[field.fieldName] === false) return;
       const value = answer[field.fieldName];
-      if (field.required) {
+      if (runtimeRules.required[field.fieldName]) {
         const empty =
           value === undefined ||
           value === null ||
@@ -259,11 +286,13 @@ export default function AnswerPage() {
       message.warning('请按提示修正后再提交');
       return;
     }
+    const submitAnswer = filterVisibleAnswer(renderFields, answer);
     setSubmitting(true);
     try {
       await labelerApi.submitAnnotation(item.assignmentId, {
         schemaVersionId: item.schemaVersionId,
-        answerJson: answer,
+        answerJson: submitAnswer,
+        schemaDigest: activeSchemaDigest,
       });
       message.success('已提交,等待 AI 预审与人工审核');
       // 跳到下一题(若有);否则回我的任务
@@ -333,6 +362,10 @@ export default function AnswerPage() {
       : Math.round((item.position.index / item.position.total) * 100);
   const statusLabel = assignmentStatusText(item.status);
   const submitButtonText = item.status === 'submitted' ? '重新提交' : '提交并继续';
+  const primaryActionText = showSubmittedSnapshot ? '重新修改' : submitButtonText;
+  const handlePrimaryAction = showSubmittedSnapshot
+    ? handleEditCurrentSchema
+    : () => void handleSubmit();
 
   return (
     <Space direction="vertical" size="large" className="page-stack answer-page">
@@ -395,9 +428,9 @@ export default function AnswerPage() {
             type="primary"
             loading={submitting}
             disabled={!canEdit}
-            onClick={() => void handleSubmit()}
+            onClick={handlePrimaryAction}
           >
-            {canEdit ? submitButtonText : '已锁定'}
+            {canEdit ? primaryActionText : '已锁定'}
           </Button>
         </Space>
       </div>
@@ -442,12 +475,13 @@ export default function AnswerPage() {
           >
             <Space direction="vertical" size={20} style={{ width: '100%' }}>
               <LabelHubFormRenderer
-                schema={item.fields}
+                schema={renderFields}
                 rawPayload={item.rawPayload}
                 value={answer}
-                readonly={!canEdit}
+                readonly={renderReadonly}
                 onChange={(next) => {
-                  setAnswer(next);
+                  const nextAnswer = filterVisibleAnswer(renderFields, next);
+                  setAnswer(nextAnswer);
                   setDirty(true);
                   setErrors({});
                 }}
@@ -554,6 +588,27 @@ function RawPayloadView({ payload }: { payload: AssignmentItem['rawPayload'] }) 
 function formatValue(value: unknown): React.ReactNode {
   if (value == null) return <Typography.Text type="secondary">—</Typography.Text>;
   if (typeof value === 'string') return value;
+  // 数组:基本类型(string/number/boolean)渲染成 Tag 标签组,比 JSON 文本更易读;
+  // 含对象/嵌套数组的复杂数组仍回退到 JSON 展示。
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <Typography.Text type="secondary">—</Typography.Text>;
+    const allPrimitive = value.every(
+      (item) =>
+        item != null &&
+        (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean'),
+    );
+    if (allPrimitive) {
+      return (
+        <Space wrap size={[6, 6]} className="answer-raw-tags">
+          {value.map((item, index) => (
+            <Tag key={`${String(item)}-${index}`} className="answer-raw-tag">
+              {String(item)}
+            </Tag>
+          ))}
+        </Space>
+      );
+    }
+  }
   return <pre className="answer-json">{JSON.stringify(value, null, 2)}</pre>;
 }
 

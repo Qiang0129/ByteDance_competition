@@ -45,7 +45,7 @@ public class SchemaDefinitionValidator {
   private static final Set<String> ALLOWED_REACTION_OPERATORS =
       Set.of("eq", "ne", "empty", "notEmpty", "includes");
   private static final Set<String> ALLOWED_REACTION_ACTIONS =
-      Set.of("visible", "hidden", "required", "optional");
+      Set.of("visible", "hidden", "required", "optional", "visibleRequired");
 
   public SchemaValidationResponse validate(JsonNode fields) {
     List<SchemaDiagnosticResponse> errors = new ArrayList<>();

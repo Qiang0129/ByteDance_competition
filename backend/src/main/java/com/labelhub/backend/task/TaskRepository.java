@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -278,10 +279,12 @@ public class TaskRepository {
             SELECT 1
             FROM assignments a
             WHERE a.item_id = i.id
+              AND a.task_id = ?
               AND a.status <> 'voided'
           )
         """,
         Long.class,
+        taskId,
         taskId);
     return count == null ? 0L : count;
   }
@@ -303,6 +306,7 @@ public class TaskRepository {
             SELECT 1
             FROM assignments a
             WHERE a.item_id = i.id
+              AND a.task_id = ?
               AND a.status <> 'voided'
         )
         ORDER BY i.id ASC
@@ -310,6 +314,7 @@ public class TaskRepository {
         FOR UPDATE
         """,
         (rs, rowNum) -> rs.getLong("id"),
+        taskId,
         taskId,
         limit);
   }
@@ -320,23 +325,27 @@ public class TaskRepository {
       long labelerId,
       LocalDateTime lockedUntil) {
     KeyHolder keyHolder = new GeneratedKeyHolder();
-    jdbcTemplate.update(connection -> {
-      var statement = connection.prepareStatement(
-          """
-          INSERT INTO assignments (task_id, item_id, labeler_id, status, locked_until)
-          VALUES (?, ?, ?, 'claimed', ?)
-          """,
-          Statement.RETURN_GENERATED_KEYS);
-      statement.setLong(1, taskId);
-      statement.setLong(2, itemId);
-      statement.setLong(3, labelerId);
-      if (lockedUntil == null) {
-        statement.setNull(4, Types.TIMESTAMP);
-      } else {
-        statement.setTimestamp(4, Timestamp.valueOf(lockedUntil));
-      }
-      return statement;
-    }, keyHolder);
+    try {
+      jdbcTemplate.update(connection -> {
+        var statement = connection.prepareStatement(
+            """
+            INSERT INTO assignments (task_id, item_id, labeler_id, status, locked_until)
+            VALUES (?, ?, ?, 'claimed', ?)
+            """,
+            Statement.RETURN_GENERATED_KEYS);
+        statement.setLong(1, taskId);
+        statement.setLong(2, itemId);
+        statement.setLong(3, labelerId);
+        if (lockedUntil == null) {
+          statement.setNull(4, Types.TIMESTAMP);
+        } else {
+          statement.setTimestamp(4, Timestamp.valueOf(lockedUntil));
+        }
+        return statement;
+      }, keyHolder);
+    } catch (DuplicateKeyException exception) {
+      throw new DuplicateAssignmentException(taskId, itemId, labelerId, exception);
+    }
     jdbcTemplate.update(
         "UPDATE items SET item_status = 'claimed' WHERE id = ?",
         itemId);
@@ -579,6 +588,17 @@ public class TaskRepository {
           u.name AS owner_name,
           t.quota AS task_quota,
           COALESCE(ac.quota_used, 0) AS task_quota_used,
+          EXISTS (
+            SELECT 1
+            FROM drafts d
+            WHERE d.assignment_id = a.id
+          ) AS has_draft,
+          EXISTS (
+            SELECT 1
+            FROM annotations an
+            WHERE an.assignment_id = a.id
+              AND an.status <> 'voided'
+          ) AS has_submitted_annotation,
           t.created_at AS task_created_at,
           t.deadline AS task_deadline,
           t.published_at AS task_published_at,
@@ -621,6 +641,8 @@ public class TaskRepository {
             rs.getString("owner_name"),
             toInteger(rs.getObject("task_quota")),
             rs.getInt("task_quota_used"),
+            rs.getBoolean("has_draft"),
+            rs.getBoolean("has_submitted_annotation"),
             toLocalDateTime(rs.getTimestamp("task_created_at")),
             toLocalDateTime(rs.getTimestamp("task_deadline")),
             toLocalDateTime(rs.getTimestamp("task_published_at")),
@@ -725,5 +747,34 @@ public class TaskRepository {
       long annotationId,
       String status,
       long assignmentId) {}
+
+  public static class DuplicateAssignmentException extends RuntimeException {
+    private final long taskId;
+    private final long itemId;
+    private final long labelerId;
+
+    public DuplicateAssignmentException(
+        long taskId,
+        long itemId,
+        long labelerId,
+        Throwable cause) {
+      super("assignment already exists", cause);
+      this.taskId = taskId;
+      this.itemId = itemId;
+      this.labelerId = labelerId;
+    }
+
+    public long taskId() {
+      return taskId;
+    }
+
+    public long itemId() {
+      return itemId;
+    }
+
+    public long labelerId() {
+      return labelerId;
+    }
+  }
 
 }

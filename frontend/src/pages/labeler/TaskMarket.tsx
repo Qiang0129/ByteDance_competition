@@ -31,6 +31,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
+import { useNavigate } from 'react-router-dom';
 
 import { labelerApi } from '../../api/labeler';
 import type {
@@ -184,6 +185,7 @@ function getClaimErrorMessage(error: unknown) {
 
 export default function TaskMarket() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [keyword, setKeyword] = useState('');
   const [taskType, setTaskType] = useState('');
   const [strategy, setStrategy] = useState<'' | AssignStrategy>('');
@@ -318,7 +320,8 @@ export default function TaskMarket() {
 
   async function handleClaim(task: MarketTask) {
     if (task.claimedByMe) {
-      message.info('你已经认领过该任务，前往「我的任务」继续作答。');
+      message.info('你已经认领过该任务，正在前往「我的任务」。');
+      navigate('/labeler/my-tasks');
       return;
     }
 
@@ -505,7 +508,7 @@ export default function TaskMarket() {
                 }
                 onClick={() => void handleClaim(activeTask)}
               >
-                {activeTask.claimedByMe ? '继续作答' : '立即认领'}
+                {activeTask.claimedByMe ? '去作答' : '立即认领'}
               </Button>
             </div>
           ) : null
@@ -624,7 +627,7 @@ function TaskCard({
         }}
       >
         {task.claimedByMe
-          ? '继续作答'
+          ? '去作答'
           : exhausted
             ? '配额已用尽'
             : deadline.expired

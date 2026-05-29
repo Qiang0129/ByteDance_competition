@@ -160,7 +160,7 @@ public class SchemaRepository {
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
           AND created_by = ?
-          AND status = 'draft'
+          AND LOWER(TRIM(status)) <> 'published'
         """,
         schemaId,
         ownerId);

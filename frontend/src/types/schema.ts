@@ -39,7 +39,7 @@ export interface MaterialMeta {
 
 export type SchemaValidatorType = 'regex' | 'noEmoji' | 'jsonObject' | 'lengthBetween';
 export type SchemaReactionOperator = 'eq' | 'ne' | 'empty' | 'notEmpty' | 'includes';
-export type SchemaReactionAction = 'visible' | 'hidden' | 'required' | 'optional';
+export type SchemaReactionAction = 'visible' | 'hidden' | 'required' | 'optional' | 'visibleRequired';
 
 /** 结构化校验规则。customFn 旧字段会在运行时兼容为这里的白名单规则。 */
 export interface SchemaValidatorRule {

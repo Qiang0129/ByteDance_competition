@@ -56,6 +56,7 @@ export const ALLOWED_REACTION_ACTIONS = new Set<SchemaReactionAction>([
   'hidden',
   'required',
   'optional',
+  'visibleRequired',
 ]);
 
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;

@@ -74,6 +74,7 @@ public class AnnotationRepository {
           id,
           assignment_id,
           schema_version_id,
+          CAST(schema_snapshot_json AS CHAR) AS schema_snapshot_json,
           CAST(answer_json AS CHAR) AS answer_json,
           status,
           revision_no
@@ -86,6 +87,7 @@ public class AnnotationRepository {
             rs.getLong("id"),
             rs.getLong("assignment_id"),
             rs.getLong("schema_version_id"),
+            rs.getString("schema_snapshot_json"),
             rs.getString("answer_json"),
             rs.getString("status"),
             rs.getInt("revision_no")),
@@ -156,6 +158,7 @@ public class AnnotationRepository {
   public long createAnnotation(
       long assignmentId,
       long schemaVersionId,
+      String schemaSnapshotJson,
       String answerJson,
       int revisionNo,
       String status) {
@@ -164,15 +167,16 @@ public class AnnotationRepository {
       var statement = connection.prepareStatement(
           """
           INSERT INTO annotations
-            (assignment_id, schema_version_id, answer_json, status, revision_no, submitted_at)
-          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (assignment_id, schema_version_id, schema_snapshot_json, answer_json, status, revision_no, submitted_at)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           """,
           Statement.RETURN_GENERATED_KEYS);
       statement.setLong(1, assignmentId);
       statement.setLong(2, schemaVersionId);
-      statement.setString(3, answerJson);
-      statement.setString(4, status);
-      statement.setInt(5, revisionNo);
+      statement.setString(3, schemaSnapshotJson);
+      statement.setString(4, answerJson);
+      statement.setString(5, status);
+      statement.setInt(6, revisionNo);
       return statement;
     }, keyHolder);
     Number key = keyHolder.getKey();
@@ -387,6 +391,7 @@ public class AnnotationRepository {
       long id,
       long assignmentId,
       long schemaVersionId,
+      String schemaSnapshotJson,
       String answerJson,
       String status,
       int revisionNo) {}

@@ -475,7 +475,8 @@ public class TaskService {
     LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
     for (int i = 0; i < itemIds.size(); i++) {
       long labelerId = labelerIds.get((startIndex + i) % labelerIds.size());
-      long assignmentId = taskRepository.createAssignment(taskId, itemIds.get(i), labelerId, lockedUntil);
+      long itemId = itemIds.get(i);
+      long assignmentId = createAssignmentOrConflict(taskId, itemId, labelerId, lockedUntil);
       auditAssignmentCreation(assignmentId, owner, "owner", taskId, itemIds.get(i), labelerId);
     }
   }
@@ -616,10 +617,25 @@ public class TaskService {
 
     LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
     for (long itemId : itemIds) {
-      long assignmentId = taskRepository.createAssignment(task.id(), itemId, labelerId, lockedUntil);
+      long assignmentId = createAssignmentOrConflict(task.id(), itemId, labelerId, lockedUntil);
       auditAssignmentCreation(assignmentId, operator, operatorRole, task.id(), itemId, labelerId);
     }
     return itemIds.size();
+  }
+
+  private long createAssignmentOrConflict(
+      long taskId,
+      long itemId,
+      long labelerId,
+      LocalDateTime lockedUntil) {
+    try {
+      return taskRepository.createAssignment(taskId, itemId, labelerId, lockedUntil);
+    } catch (TaskRepository.DuplicateAssignmentException exception) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "NO_AVAILABLE_ITEM",
+          "selected item has already been claimed by current labeler");
+    }
   }
 
   private void backfillExistingTaskAssignments(long labelerId) {
@@ -856,6 +872,8 @@ public class TaskService {
         formatDateTime(record.taskDeadline()),
         record.taskQuotaUsed(),
         record.taskQuota() == null ? 0 : record.taskQuota(),
+        record.hasDraft(),
+        record.hasSubmittedAnnotation(),
         formatDateTime(record.claimedAt()),
         formatDateTime(record.submittedAt()),
         formatDateTime(record.updatedAt()));

@@ -65,10 +65,14 @@ export const labelerApi = {
   },
 
   /** 自动保存草稿 */
-  saveDraft(assignmentId: string, answerJson: Record<string, unknown>): Promise<Draft> {
+  saveDraft(
+    assignmentId: string,
+    answerJson: Record<string, unknown>,
+    schemaDigest?: string,
+  ): Promise<Draft> {
     return apiRequest<Draft>(`/assignments/${assignmentId}/draft`, {
       method: 'PUT',
-      body: JSON.stringify({ answerJson }),
+      body: JSON.stringify({ answerJson, schemaDigest }),
     });
   },
 

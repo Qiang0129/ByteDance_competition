@@ -7,6 +7,7 @@ public record AnnotationResponse(
     String assignmentId,
     String schemaVersionId,
     JsonNode answerJson,
+    JsonNode schemaSnapshot,
     String status,
     int revisionNo,
     String returnReason) {}

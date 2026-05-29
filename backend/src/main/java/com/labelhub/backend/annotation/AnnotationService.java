@@ -14,11 +14,13 @@ import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.task.TaskService;
 import com.labelhub.backend.workflow.StateMachineService;
 import com.labelhub.backend.workflow.WorkflowEntityType;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -80,6 +82,7 @@ public class AnnotationService {
         schema.runtimeUsable() && isEditableAssignment(assignment),
         formatDateTime(assignment.taskDeadline()),
         Long.toString(schema.id()),
+        schema.digest(),
         buildRawPayload(assignment),
         schema.fields(),
         resolvePosition(assignment),
@@ -104,11 +107,13 @@ public class AnnotationService {
     AuthenticatedUser labeler = requireLabeler(authentication);
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
     ensureEditableAssignment(assignment);
-    resolveSchema(assignment, true);
+    SchemaContext schema = resolveSchema(assignment, true);
+    ensureSchemaDigestMatches(request == null ? null : request.schemaDigest(), schema);
     JsonNode answerJson = requireAnswerObject(request == null ? null : request.answerJson());
+    JsonNode visibleAnswerJson = filterVisibleAnswer(answerJson, schema.fields());
     DraftRecord saved = annotationRepository.upsertDraft(
         assignment.assignmentId(),
-        writeJson(answerJson));
+        writeJson(visibleAnswerJson));
     return toDraftResponse(saved);
   }
 
@@ -134,8 +139,10 @@ public class AnnotationService {
           "SCHEMA_VERSION_MISMATCH",
           "schema version does not match assignment");
     }
+    ensureSchemaDigestMatches(request.schemaDigest(), schema);
     JsonNode answerJson = requireAnswerObject(request.answerJson());
-    validateAnswer(answerJson, schema.fields());
+    JsonNode visibleAnswerJson = filterVisibleAnswer(answerJson, schema.fields());
+    validateAnswer(visibleAnswerJson, schema.fields());
 
     String assignmentBeforeStatus = assignment.assignmentStatus();
     int revisionNo = annotationRepository.nextRevisionNo(assignment.assignmentId());
@@ -143,7 +150,8 @@ public class AnnotationService {
     long annotationId = annotationRepository.createAnnotation(
         assignment.assignmentId(),
         schema.id(),
-        writeJson(answerJson),
+        schema.schemaJson(),
+        writeJson(visibleAnswerJson),
         revisionNo,
         "submitted");
     annotationRepository.markSubmitted(assignment.assignmentId(), assignment.itemId());
@@ -157,7 +165,7 @@ public class AnnotationService {
         annotationId,
         aiReviewJobId,
         schema.id(),
-        answerJson,
+        visibleAnswerJson,
         revisionNo,
         resubmit);
 
@@ -165,7 +173,8 @@ public class AnnotationService {
         Long.toString(annotationId),
         Long.toString(assignment.assignmentId()),
         Long.toString(schema.id()),
-        answerJson,
+        visibleAnswerJson,
+        readJson(schema.schemaJson()),
         "AI_REVIEWING",
         revisionNo,
         null);
@@ -283,7 +292,21 @@ public class AnnotationService {
     ArrayNode fieldArray = fields.isArray()
         ? fields.deepCopy()
         : objectMapper.createArrayNode();
-    return new SchemaContext(schema.id(), fieldArray, runtimeUsable);
+    String schemaJson = writeJson(root);
+    return new SchemaContext(schema.id(), schemaJson, schemaDigest(schemaJson), fieldArray, runtimeUsable);
+  }
+
+  private void ensureSchemaDigestMatches(String requestDigest, SchemaContext schema) {
+    if (requestDigest == null || requestDigest.isBlank()) {
+      return;
+    }
+    if (requestDigest.equals(schema.digest())) {
+      return;
+    }
+    throw new ApiException(
+        HttpStatus.CONFLICT,
+        "SCHEMA_CHANGED",
+        "schema has changed, please reload the assignment");
   }
 
   private Long readMetadataSchemaVersionId(String rewardRuleJson) {
@@ -352,6 +375,9 @@ public class AnnotationService {
         Long.toString(record.assignmentId()),
         Long.toString(record.schemaVersionId()),
         readJson(record.answerJson()),
+        record.schemaSnapshotJson() == null || record.schemaSnapshotJson().isBlank()
+            ? null
+            : readJson(record.schemaSnapshotJson()),
         normalizeAnnotationStatus(record.status()),
         record.revisionNo(),
         returnReason);
@@ -409,6 +435,36 @@ public class AnnotationService {
       validateChoiceValue(kind, field, value, label);
       validateStructuredValidators(field, value, label);
     }
+  }
+
+  private JsonNode filterVisibleAnswer(JsonNode answerJson, ArrayNode fields) {
+    Set<String> hiddenFields = resolveHiddenFields(fields, answerJson);
+    ObjectNode filtered = objectMapper.createObjectNode();
+    for (JsonNode field : fields) {
+      String kind = text(field, "kind", "");
+      if (!isSubmittableKind(kind)) {
+        continue;
+      }
+      String fieldName = text(field, "fieldName", "");
+      if (fieldName.isBlank() || hiddenFields.contains(fieldName) || !answerJson.has(fieldName)) {
+        continue;
+      }
+      filtered.set(fieldName, answerJson.get(fieldName));
+    }
+    return filtered;
+  }
+
+  private boolean isSubmittableKind(String kind) {
+    return List.of(
+        "text-single",
+        "text-multi",
+        "single-choice",
+        "multi-choice",
+        "tags",
+        "rich-text",
+        "file-upload",
+        "json-editor",
+        "llm-trigger").contains(kind);
   }
 
   private void validateChoiceValue(String kind, JsonNode field, JsonNode value, String label) {
@@ -543,13 +599,17 @@ public class AnnotationService {
       JsonNode answerJson,
       Set<String> hidden,
       Set<String> required) {
+    if (hidden != null || required != null) {
+      applyDisplayRequiredDefaults(fields, hidden, required);
+    }
     for (JsonNode field : fields) {
       JsonNode reactions = field.path("reactions");
       if (!reactions.isArray()) {
         continue;
       }
       for (JsonNode reaction : reactions) {
-        if (!matchesReaction(reaction, answerJson.get(text(reaction, "sourceField", "")))) {
+        String sourceField = text(reaction, "sourceField", "");
+        if (!matchesReaction(reaction, answerJson.get(sourceField), findField(fields, sourceField))) {
           continue;
         }
         String targetField = text(reaction, "targetField", "");
@@ -557,12 +617,12 @@ public class AnnotationService {
         if (hidden != null) {
           if ("hidden".equals(action)) {
             hidden.add(targetField);
-          } else if ("visible".equals(action)) {
+          } else if ("visible".equals(action) || isDisplayRequiredAction(action)) {
             hidden.remove(targetField);
           }
         }
         if (required != null) {
-          if ("required".equals(action)) {
+          if (isDisplayRequiredAction(action)) {
             required.add(targetField);
           } else if ("optional".equals(action)) {
             required.remove(targetField);
@@ -572,32 +632,112 @@ public class AnnotationService {
     }
   }
 
-  private boolean matchesReaction(JsonNode reaction, JsonNode value) {
+  private void applyDisplayRequiredDefaults(
+      ArrayNode fields,
+      Set<String> hidden,
+      Set<String> required) {
+    for (JsonNode field : fields) {
+      JsonNode reactions = field.path("reactions");
+      if (!reactions.isArray()) {
+        continue;
+      }
+      for (JsonNode reaction : reactions) {
+        String action = text(reaction, "action", "");
+        if (!isDisplayRequiredAction(action)) {
+          continue;
+        }
+        String targetField = text(reaction, "targetField", "");
+        if (targetField.isBlank()) {
+          continue;
+        }
+        if (hidden != null) {
+          hidden.add(targetField);
+        }
+        if (required != null && !isStaticRequired(fields, targetField)) {
+          required.remove(targetField);
+        }
+      }
+    }
+  }
+
+  private boolean isDisplayRequiredAction(String action) {
+    return "visibleRequired".equals(action) || "required".equals(action);
+  }
+
+  private boolean isStaticRequired(ArrayNode fields, String fieldName) {
+    for (JsonNode field : fields) {
+      if (fieldName.equals(text(field, "fieldName", ""))) {
+        return field.path("required").asBoolean(false);
+      }
+    }
+    return false;
+  }
+
+  private JsonNode findField(ArrayNode fields, String fieldName) {
+    for (JsonNode field : fields) {
+      if (fieldName.equals(text(field, "fieldName", ""))) {
+        return field;
+      }
+    }
+    return null;
+  }
+
+  private boolean matchesReaction(JsonNode reaction, JsonNode value, JsonNode sourceField) {
     String operator = text(reaction, "operator", "");
-    JsonNode expected = reaction.get("value");
+    Set<String> expectedValues = resolveExpectedValues(reaction, sourceField);
     return switch (operator) {
-      case "eq" -> value != null && expected != null && Objects.equals(value.asText(), expected.asText());
-      case "ne" -> value == null || expected == null || !Objects.equals(value.asText(), expected.asText());
+      case "eq" -> valueMatchesExpected(value, expectedValues);
+      case "ne" -> !valueMatchesExpected(value, expectedValues);
       case "empty" -> isEmptyAnswer(value);
       case "notEmpty" -> !isEmptyAnswer(value);
-      case "includes" -> includesValue(value, expected);
+      case "includes" -> includesValue(value, expectedValues);
       default -> false;
     };
   }
 
-  private boolean includesValue(JsonNode value, JsonNode expected) {
-    if (value == null || expected == null) {
+  private Set<String> resolveExpectedValues(JsonNode reaction, JsonNode sourceField) {
+    Set<String> values = new HashSet<>();
+    String raw = text(reaction, "value", "");
+    if (!raw.isBlank()) {
+      values.add(raw);
+    }
+    if (sourceField != null) {
+      JsonNode options = sourceField.path("options");
+      if (options.isArray()) {
+        for (JsonNode option : options) {
+          String optionValue = text(option, "value", "");
+          String optionLabel = text(option, "label", "");
+          if (raw.equals(optionValue) || raw.equals(optionLabel)) {
+            if (!optionValue.isBlank()) {
+              values.add(optionValue);
+            }
+            if (!optionLabel.isBlank()) {
+              values.add(optionLabel);
+            }
+          }
+        }
+      }
+    }
+    return values;
+  }
+
+  private boolean valueMatchesExpected(JsonNode value, Set<String> expectedValues) {
+    return value != null && !expectedValues.isEmpty() && expectedValues.contains(value.asText());
+  }
+
+  private boolean includesValue(JsonNode value, Set<String> expectedValues) {
+    if (value == null || expectedValues.isEmpty()) {
       return false;
     }
     if (value.isArray()) {
       for (JsonNode item : value) {
-        if (Objects.equals(item.asText(), expected.asText())) {
+        if (expectedValues.contains(item.asText())) {
           return true;
         }
       }
       return false;
     }
-    return value.asText().contains(expected.asText());
+    return expectedValues.stream().anyMatch(expected -> value.asText().contains(expected));
   }
 
   private boolean isEmptyAnswer(JsonNode value) {
@@ -708,6 +848,20 @@ public class AnnotationService {
     }
   }
 
+  private String schemaDigest(String schemaJson) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      byte[] bytes = digest.digest(schemaJson.getBytes(StandardCharsets.UTF_8));
+      StringBuilder builder = new StringBuilder(bytes.length * 2);
+      for (byte value : bytes) {
+        builder.append(String.format("%02x", value));
+      }
+      return builder.toString();
+    } catch (NoSuchAlgorithmException exception) {
+      throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "SCHEMA_DIGEST_FAILED", "schema digest failed");
+    }
+  }
+
   private String text(JsonNode node, String field, String fallback) {
     if (node == null || field == null || !node.has(field) || node.get(field).isNull()) {
       return fallback;
@@ -745,5 +899,10 @@ public class AnnotationService {
     return principal;
   }
 
-  private record SchemaContext(long id, ArrayNode fields, boolean runtimeUsable) {}
+  private record SchemaContext(
+      long id,
+      String schemaJson,
+      String digest,
+      ArrayNode fields,
+      boolean runtimeUsable) {}
 }

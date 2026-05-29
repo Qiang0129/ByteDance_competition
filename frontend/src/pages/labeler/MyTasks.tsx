@@ -21,6 +21,8 @@ interface MyTaskRow {
   assignedCount: number;
   pendingCount: number;
   submittedCount: number;
+  actionText: string;
+  actionDisabled: boolean;
 }
 
 const statusText: Partial<Record<ItemStatus, string>> = {
@@ -53,6 +55,8 @@ const sampleRows: MyTaskRow[] = [
     assignedCount: 50,
     pendingCount: 26,
     submittedCount: 24,
+    actionText: '继续答题',
+    actionDisabled: false,
   },
   {
     key: 'sample-t-2',
@@ -67,6 +71,8 @@ const sampleRows: MyTaskRow[] = [
     assignedCount: 12,
     pendingCount: 0,
     submittedCount: 12,
+    actionText: '查看/修改答卷',
+    actionDisabled: false,
   },
   {
     key: 'sample-t-3',
@@ -81,6 +87,8 @@ const sampleRows: MyTaskRow[] = [
     assignedCount: 18,
     pendingCount: 18,
     submittedCount: 0,
+    actionText: '开始答题',
+    actionDisabled: false,
   },
 ];
 
@@ -117,6 +125,8 @@ function assignmentsToRows(items: Assignment[]): MyTaskRow[] {
       assignedCount,
       pendingCount,
       submittedCount,
+      actionText: resolveActionText(entry),
+      actionDisabled: entry.status === 'voided',
     };
   });
 }
@@ -145,6 +155,19 @@ function compareAssignmentId(a: Assignment, b: Assignment) {
     return left - right;
   }
   return a.assignmentId.localeCompare(b.assignmentId);
+}
+
+function resolveActionText(assignment: Assignment) {
+  if (assignment.status === 'accepted') return '查看答卷';
+  if (assignment.status === 'returned') return '继续修改';
+  if (assignment.status === 'submitted' || assignment.hasSubmittedAnnotation) {
+    return '查看/修改答卷';
+  }
+  if (assignment.status === 'claimed') {
+    return assignment.hasDraft ? '继续答题' : '开始答题';
+  }
+  if (assignment.status === 'voided') return '已作废';
+  return '查看';
 }
 
 export default function MyTasks() {
@@ -217,9 +240,10 @@ export default function MyTasks() {
         <Space size="small">
           <Button
             type="link"
+            disabled={record.actionDisabled}
             onClick={() => navigate(`/labeler/answer/${record.assignmentId}`)}
           >
-            {record.pendingCount > 0 ? '继续答题' : '查看/修改答卷'}
+            {record.actionText}
           </Button>
         </Space>
       ),

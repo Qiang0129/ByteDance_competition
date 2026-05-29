@@ -15,6 +15,8 @@ public record AssignmentResponse(
     String deadline,
     int quotaUsed,
     int quotaTotal,
+    boolean hasDraft,
+    boolean hasSubmittedAnnotation,
     String claimedAt,
     String submittedAt,
     String updatedAt) {}

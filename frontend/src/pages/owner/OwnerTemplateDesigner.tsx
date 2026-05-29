@@ -70,7 +70,7 @@ import { createPortal } from 'react-dom';
 import { getApiErrorMessage } from '../../api/client';
 import { datasetApi } from '../../api/dataset';
 import { schemaApi } from '../../api/schema';
-import { LabelHubFormRenderer, validateSchemaFields } from '../../modules/schema';
+import { LabelHubFormRenderer, normalizeSchemaFields, validateSchemaFields } from '../../modules/schema';
 import type { DatasetItem, DatasetMeta } from '../../types/dataset';
 import type {
   MaterialCategory,
@@ -616,7 +616,7 @@ export default function OwnerTemplateDesigner() {
         description: schema.description?.trim(),
         datasetId: schema.datasetId ?? '',
         datasetName: schema.datasetName ?? '',
-        fields: schema.fields,
+        fields: normalizeSchemaFields(schema.fields),
       });
       if (!backendCheck.valid) {
         message.error(`后端 Schema 检查未通过: ${backendCheck.errors[0]?.message ?? '请修正错误后再保存'}`);
@@ -633,6 +633,7 @@ export default function OwnerTemplateDesigner() {
     const name = schema.name.trim();
     const description = schema.description?.trim();
     const currentActiveFieldId = activeFieldId;
+    const normalizedFields = normalizeSchemaFields(schema.fields);
     if (schema.versionId.startsWith('draft-')) {
       const created = await schemaApi.createStandaloneDraft({
         name,
@@ -640,7 +641,7 @@ export default function OwnerTemplateDesigner() {
         datasetId: schema.datasetId ?? '',
         datasetName: schema.datasetName ?? '',
         description,
-        fields: schema.fields,
+        fields: normalizedFields,
       });
       setSchema(created);
       setActiveFieldId(
@@ -661,7 +662,7 @@ export default function OwnerTemplateDesigner() {
       datasetId: schema.datasetId ?? '',
       datasetName: schema.datasetName ?? '',
       description,
-      fields: schema.fields,
+      fields: normalizedFields,
     });
     setSchema(updated);
     setActiveFieldId(
@@ -715,7 +716,11 @@ export default function OwnerTemplateDesigner() {
         try {
           const withdrawn = await schemaApi.withdraw(schema.versionId);
           setSchema(withdrawn);
-          setActiveFieldId(withdrawn.fields[0]?.id ?? null);
+          setActiveFieldId(
+            withdrawn.fields.some((field) => field.id === activeFieldId)
+              ? activeFieldId
+              : withdrawn.fields[0]?.id ?? null,
+          );
           setUsingFallback(false);
           message.success('模板已收回,现在可以继续编辑');
         } catch (error) {
@@ -1423,6 +1428,8 @@ function PropertyPanel({
             label: '联动',
             children: (
               <ReactionRulesEditor
+                currentField={field}
+                fields={fields}
                 rules={field.reactions ?? []}
                 fieldOptions={fieldOptions}
                 onChange={(reactions) => onChange({ reactions })}
@@ -1441,6 +1448,45 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="property-field-label">{label}</div>
       <div className="property-field-control">{children}</div>
     </div>
+  );
+}
+
+function getSourceField(fields: SchemaField[], fieldName?: string) {
+  return fields.find((field) => field.fieldName === fieldName);
+}
+
+function ReactionValueInput({
+  fields,
+  rule,
+  onChange,
+}: {
+  fields: SchemaField[];
+  rule: SchemaReactionRule;
+  onChange: (value: unknown) => void;
+}) {
+  const sourceField = getSourceField(fields, rule.sourceField);
+  const options = (sourceField?.options ?? []).map((option) => ({
+    label: `${option.label} (${option.value})`,
+    value: option.value,
+  }));
+  if (options.length === 0) {
+    return (
+      <Input
+        placeholder="例如: option_b"
+        value={String(rule.value ?? '')}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    );
+  }
+  return (
+    <Select
+      allowClear
+      showSearch
+      placeholder="选择匹配选项"
+      options={options}
+      value={rule.value == null || rule.value === '' ? undefined : String(rule.value)}
+      onChange={(value) => onChange(value)}
+    />
   );
 }
 
@@ -1541,10 +1587,14 @@ function SchemaCheckPanel({ result }: { result: { valid: boolean; errors: Schema
 }
 
 function ReactionRulesEditor({
+  currentField,
+  fields,
   rules,
   fieldOptions,
   onChange,
 }: {
+  currentField: SchemaField;
+  fields: SchemaField[];
   rules: SchemaReactionRule[];
   fieldOptions: Array<{ label: string; value: string }>;
   onChange: (next: SchemaReactionRule[]) => void;
@@ -1563,7 +1613,7 @@ function ReactionRulesEditor({
         operator: 'eq',
         value: '',
         targetField: fieldOptions[1]?.value ?? fieldOptions[0]?.value ?? '',
-        action: 'hidden',
+        action: 'visibleRequired',
       },
     ]);
   };
@@ -1579,12 +1629,18 @@ function ReactionRulesEditor({
   const actionOptions = [
     { label: '显示', value: 'visible' },
     { label: '隐藏', value: 'hidden' },
+    { label: '显示并必填', value: 'visibleRequired' },
     { label: '必填', value: 'required' },
     { label: '非必填', value: 'optional' },
   ];
 
   return (
     <div className="reaction-editor">
+      <Alert
+        type="info"
+        showIcon
+        message={`当前配置字段: ${currentField.label || currentField.fieldName} (${currentField.fieldName})`}
+      />
       {rules.length === 0 && (
         <div className="reaction-editor-empty">
           <Typography.Text type="secondary">
@@ -1620,7 +1676,7 @@ function ReactionRulesEditor({
                     placeholder="选择字段"
                     options={fieldOptions}
                     value={rule.sourceField}
-                    onChange={(value) => updateAt(idx, { sourceField: value })}
+                    onChange={(value) => updateAt(idx, { sourceField: value, value: undefined })}
                   />
                 </Field>
                 <Field label="比较">
@@ -1638,7 +1694,15 @@ function ReactionRulesEditor({
                       placeholder="例如:是"
                       value={String(rule.value ?? '')}
                       onChange={(event) => updateAt(idx, { value: event.target.value })}
+                      style={{ display: getSourceField(fields, rule.sourceField)?.options?.length ? 'none' : undefined }}
                     />
+                    {getSourceField(fields, rule.sourceField)?.options?.length ? (
+                      <ReactionValueInput
+                        fields={fields}
+                        rule={rule}
+                        onChange={(value) => updateAt(idx, { value })}
+                      />
+                    ) : null}
                   </Field>
                 )}
               </div>

@@ -11,6 +11,7 @@ public record AssignmentItemResponse(
     boolean editable,
     String deadline,
     String schemaVersionId,
+    String schemaDigest,
     JsonNode rawPayload,
     JsonNode fields,
     AssignmentPositionResponse position,

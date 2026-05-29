@@ -40,19 +40,34 @@ export function resolveRuntimeRules(
 ): RuntimeRuleState {
   const visible = Object.fromEntries(fields.map((field) => [field.fieldName, true]));
   const required = Object.fromEntries(fields.map((field) => [field.fieldName, !!field.required]));
+  const fieldRequired = Object.fromEntries(fields.map((field) => [field.fieldName, !!field.required]));
 
   fields.forEach((field) => {
     (field.reactions ?? []).forEach((rule) => {
       if (!rule.targetField) return;
-      if (!matchesRule(rule, values[rule.sourceField])) return;
+      if (isDisplayRequiredAction(rule.action)) {
+        visible[rule.targetField] = false;
+        required[rule.targetField] = fieldRequired[rule.targetField] ?? false;
+      }
+    });
+  });
+
+  fields.forEach((field) => {
+    (field.reactions ?? []).forEach((rule) => {
+      if (!rule.targetField) return;
+      const sourceField = findField(fields, rule.sourceField);
+      if (!matchesRule(rule, values[rule.sourceField], sourceField)) return;
       switch (rule.action) {
         case 'visible':
           visible[rule.targetField] = true;
           break;
         case 'hidden':
           visible[rule.targetField] = false;
+          required[rule.targetField] = fieldRequired[rule.targetField] ?? false;
           break;
+        case 'visibleRequired':
         case 'required':
+          visible[rule.targetField] = true;
           required[rule.targetField] = true;
           break;
         case 'optional':
@@ -65,6 +80,22 @@ export function resolveRuntimeRules(
   return { visible, required };
 }
 
+export function filterVisibleAnswer(
+  fields: SchemaField[],
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const ruleState = resolveRuntimeRules(fields, values);
+  const next: Record<string, unknown> = {};
+  fields.forEach((field) => {
+    if (!field.fieldName || !SUBMITTABLE_KINDS.has(field.kind)) return;
+    if (ruleState.visible[field.fieldName] === false) return;
+    if (Object.prototype.hasOwnProperty.call(values, field.fieldName)) {
+      next[field.fieldName] = values[field.fieldName];
+    }
+  });
+  return next;
+}
+
 export function compileToFormilySchema(fields: SchemaField[], options: CompileOptions = {}) {
   const rawPayload = options.rawPayload ?? {};
   const values = options.values ?? {};
@@ -73,6 +104,7 @@ export function compileToFormilySchema(fields: SchemaField[], options: CompileOp
 
   fields.forEach((field, index) => {
     if (!field.fieldName) return;
+    if (ruleState.visible[field.fieldName] === false) return;
     properties[field.fieldName] = toFormilyFieldSchema(field, index, rawPayload, ruleState, options);
   });
 
@@ -80,6 +112,20 @@ export function compileToFormilySchema(fields: SchemaField[], options: CompileOp
     type: 'object',
     properties,
   };
+}
+
+export function normalizeSchemaFields(fields: SchemaField[]): SchemaField[] {
+  return fields.map((field) => ({
+    ...field,
+    reactions: (field.reactions ?? []).map((rule) => {
+      const sourceField = findField(fields, rule.sourceField);
+      return {
+        ...rule,
+        action: isDisplayRequiredAction(rule.action) ? 'visibleRequired' : rule.action,
+        value: normalizeReactionValue(rule.value, sourceField),
+      };
+    }),
+  }));
 }
 
 function toFormilyFieldSchema(
@@ -217,19 +263,54 @@ function toFormilyValidators(field: SchemaField) {
   return validators;
 }
 
-function matchesRule(rule: SchemaReactionRule, value: unknown) {
+function findField(fields: SchemaField[], fieldName: string) {
+  return fields.find((field) => field.fieldName === fieldName);
+}
+
+function matchesRule(rule: SchemaReactionRule, value: unknown, sourceField?: SchemaField) {
+  const expectedValues = resolveExpectedValues(rule, sourceField);
   switch (rule.operator) {
     case 'eq':
-      return value === rule.value;
+      return valueMatchesExpected(value, expectedValues);
     case 'ne':
-      return value !== rule.value;
+      return !valueMatchesExpected(value, expectedValues);
     case 'empty':
       return value == null || value === '' || (Array.isArray(value) && value.length === 0);
     case 'notEmpty':
       return !(value == null || value === '' || (Array.isArray(value) && value.length === 0));
     case 'includes':
-      return Array.isArray(value) ? value.includes(rule.value) : String(value ?? '').includes(String(rule.value ?? ''));
+      return Array.isArray(value)
+        ? value.some((item) => valueMatchesExpected(item, expectedValues))
+        : expectedValues.some((expected) => String(value ?? '').includes(expected));
     default:
       return false;
   }
+}
+
+function isDisplayRequiredAction(action: SchemaReactionRule['action']) {
+  return action === 'visibleRequired' || action === 'required';
+}
+
+function resolveExpectedValues(rule: SchemaReactionRule, sourceField?: SchemaField) {
+  const values = new Set<string>();
+  const raw = String(rule.value ?? '');
+  values.add(raw);
+  sourceField?.options?.forEach((option) => {
+    if (option.value === raw || option.label === raw) {
+      values.add(option.value);
+      values.add(option.label);
+    }
+  });
+  return Array.from(values);
+}
+
+function normalizeReactionValue(value: unknown, sourceField?: SchemaField) {
+  const raw = String(value ?? '');
+  const option = sourceField?.options?.find((item) => item.label === raw || item.value === raw);
+  return option?.value ?? value;
+}
+
+function valueMatchesExpected(value: unknown, expectedValues: string[]) {
+  const current = String(value ?? '');
+  return expectedValues.includes(current);
 }
