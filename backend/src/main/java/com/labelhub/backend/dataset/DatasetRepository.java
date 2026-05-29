@@ -122,6 +122,46 @@ public class DatasetRepository {
         "").stream().findFirst();
   }
 
+  public int countAssignments(long datasetId) {
+    Integer count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM assignments a
+        JOIN items i ON i.id = a.item_id
+        WHERE i.dataset_id = ?
+        """,
+        Integer.class,
+        datasetId);
+    return count == null ? 0 : count;
+  }
+
+  public int countAnnotations(long datasetId) {
+    Integer count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN items i ON i.id = a.item_id
+        WHERE i.dataset_id = ?
+        """,
+        Integer.class,
+        datasetId);
+    return count == null ? 0 : count;
+  }
+
+  public int deleteDataset(long ownerId, long datasetId) {
+    return jdbcTemplate.update(
+        """
+        DELETE d
+        FROM datasets d
+        JOIN files f ON f.id = d.file_id
+        WHERE d.id = ?
+          AND f.created_by = ?
+        """,
+        datasetId,
+        ownerId);
+  }
+
   public Map<String, Integer> countMediaDistribution(long datasetId) {
     return jdbcTemplate.query(
             """

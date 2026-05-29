@@ -62,6 +62,29 @@ public class DatasetService {
   }
 
   @Transactional
+  public void deleteDataset(Authentication authentication, long datasetId) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    DatasetRecord dataset = datasetRepository.findOwnerDataset(owner.id(), datasetId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "DATASET_NOT_FOUND", "dataset not found"));
+    if (dataset.taskId() != null) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "DATASET_IN_USE",
+          "dataset is associated with a task and cannot be deleted");
+    }
+    if (datasetRepository.countAssignments(datasetId) > 0 || datasetRepository.countAnnotations(datasetId) > 0) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "DATASET_IN_USE",
+          "dataset has assignments or annotations and cannot be deleted");
+    }
+    int deleted = datasetRepository.deleteDataset(owner.id(), datasetId);
+    if (deleted == 0) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "DATASET_NOT_FOUND", "dataset not found");
+    }
+  }
+
+  @Transactional
   public DatasetResponse createDataset(Authentication authentication, CreateDatasetRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
     Long taskId = parseOptionalId(request.taskId(), "INVALID_TASK_ID");

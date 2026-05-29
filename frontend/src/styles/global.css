@@ -6672,3 +6672,106 @@ body {
   color: #cbd5e1 !important;
   border: 1px solid #262a33;
 }
+
+
+/* ========== 数据集页:数量徽章 + 滚动列表 + 删除按钮 ========== */
+
+/* "我的数据集"标题旁的醒目数字徽章 */
+.dataset-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--lh-primary-gradient-h);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  box-shadow: 0 4px 10px var(--lh-primary-bg-30);
+}
+
+/* 数据集滚动容器:固定显示约 3 张卡片高度 + 溢出滚动.
+   做法:统一每张卡的最小高度,然后容器高度 = 3 * 卡高 + 2 * gap. */
+.dataset-list-scroll {
+  --ds-card-h: 116px;
+  --ds-gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-gap);
+  /* 显式高度而不是 max-height,确保第 4 张以后必须滚动才能看到 */
+  height: calc(3 * var(--ds-card-h) + 2 * var(--ds-gap));
+  overflow-y: auto;
+  padding-right: 4px;
+  padding-top: 2px;
+}
+
+/* 让所有卡片统一最小高度,与滚动容器配合 */
+.dataset-list-scroll .dataset-list-item {
+  min-height: var(--ds-card-h);
+  flex: 0 0 auto;
+  box-sizing: border-box;
+}
+
+/* 美化滚动条 */
+.dataset-list-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dataset-list-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dataset-list-scroll::-webkit-scrollbar-thumb {
+  background: var(--lh-primary-bg-25);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.dataset-list-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--lh-primary);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* Firefox 滚动条 */
+.dataset-list-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lh-primary-bg-25) transparent;
+}
+
+/* 数据集卡内删除按钮:默认半透明,hover 时变红 */
+.dataset-list-delete.ant-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: #94a3b8;
+  opacity: 0.6;
+  transition: opacity 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.dataset-list-item:hover .dataset-list-delete.ant-btn {
+  opacity: 1;
+}
+
+.dataset-list-delete.ant-btn:hover {
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+
+/* 暗色模式适配 */
+:root[data-color-mode='dark'] .dataset-count-badge {
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-color-mode='dark'] .dataset-list-delete.ant-btn {
+  color: #64748b;
+}
+
+:root[data-color-mode='dark'] .dataset-list-scroll::-webkit-scrollbar-thumb {
+  background: var(--lh-primary-bg-30);
+  background-clip: padding-box;
+}

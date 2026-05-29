@@ -83,7 +83,8 @@ const segmentLabel: Record<string, string> = {
 
 /**
  * Owner 端导航对齐计划书 4.1 / 4.2 / 4.4 / 4.5 / 4.6:
- * - 数据生产组:任务管理 / 模板搭建 / 数据集
+ * - 数据生产组:数据集 / 模板搭建 / 任务管理
+ *   按"先有数据 → 再建模板 → 最后发布任务"的真实工作流顺序排列
  * - 审核与质检组:AI 预审规则 / 人工审核
  * - 数据交付组:数据看板 / 导出中心
  */
@@ -93,9 +94,9 @@ const ownerMenuItems: MenuProps['items'] = [
     key: 'g-owner-produce',
     label: '数据生产',
     children: [
-      { key: '/owner/tasks', icon: <ProjectOutlined />, label: '任务管理' },
-      { key: '/owner/templates', icon: <AppstoreOutlined />, label: '模板搭建' },
       { key: '/owner/datasets', icon: <DatabaseOutlined />, label: '数据集' },
+      { key: '/owner/templates', icon: <AppstoreOutlined />, label: '模板搭建' },
+      { key: '/owner/tasks', icon: <ProjectOutlined />, label: '任务管理' },
     ],
   },
   {

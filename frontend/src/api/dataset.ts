@@ -47,4 +47,15 @@ export const datasetApi = {
       body: formData,
     });
   },
+
+  /**
+   * 删除数据集.
+   * 后端预留:DELETE /api/datasets/{datasetId},
+   * 仅允许当前 Owner 删除自己创建的数据集.成功返回 204 No Content.
+   */
+  deleteDataset(datasetId: string): Promise<void> {
+    return apiRequest<void>(`/datasets/${datasetId}`, {
+      method: 'DELETE',
+    });
+  },
 };

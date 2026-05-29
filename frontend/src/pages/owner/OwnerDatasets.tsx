@@ -4,6 +4,7 @@ import {
   CloseOutlined,
   CloudUploadOutlined,
   DatabaseOutlined,
+  DeleteOutlined,
   FileTextOutlined,
   PictureOutlined,
   ReloadOutlined,
@@ -553,6 +554,51 @@ export default function OwnerDatasets() {
     setItemsReloadKey((key) => key + 1);
   };
 
+  /**
+   * 删除数据集.调用 DELETE /api/datasets/{datasetId}.
+   * 后端实现前会兜底友好提示,不影响其它操作.
+   */
+  const handleDeleteDataset = (ds: DatasetMeta, event?: React.MouseEvent) => {
+    // 阻止冒泡,避免触发外层 button 的 setActiveId
+    event?.stopPropagation();
+    Modal.confirm({
+      title: '确认删除该数据集?',
+      content: (
+        <div>
+          <div>
+            <strong>{ds.name}</strong>
+          </div>
+          <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>
+            包含 {ds.itemCount} 条数据 · {formatSize(ds.size)}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            删除后该数据集与其条目将不可恢复.若已被任务绑定,需先解绑或删除任务.
+          </div>
+        </div>
+      ),
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      async onOk() {
+        try {
+          await datasetApi.deleteDataset(ds.id);
+          message.success(`已删除数据集「${ds.name}」`);
+          // 删除后从本地列表中剔除,选中态切到剩余第一项
+          setDatasets((prev) => prev.filter((d) => d.id !== ds.id));
+          setActiveId((current) => {
+            if (current !== ds.id) return current;
+            const remaining = datasets.filter((d) => d.id !== ds.id);
+            return remaining[0]?.id ?? '';
+          });
+        } catch (err) {
+          message.error(
+            err instanceof Error ? err.message : '删除数据集失败,请确认后端已启动并你拥有数据集所有权.',
+          );
+        }
+      },
+    });
+  };
+
   return (
     <Space direction="vertical" size="large" className="page-stack">
       {/* 标题 + CTA */}
@@ -579,10 +625,16 @@ export default function OwnerDatasets() {
         <Col xs={24} xl={8}>
           <Card
             className="dataset-list-card"
-            title="我的数据集"
+            title={
+              <Space size={10} align="center">
+                <span>我的数据集</span>
+                {/* 醒目数字徽章:显示当前数据集总数 */}
+                <span className="dataset-count-badge">{datasets.length}</span>
+              </Space>
+            }
             loading={datasetLoading}
             extra={
-              datasets.length > 3 ? (
+              datasets.length > 0 ? (
                 <Button
                   type="link"
                   size="small"
@@ -600,45 +652,55 @@ export default function OwnerDatasets() {
                 description="MySQL 中暂无数据集"
               />
             ) : (
-              <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                {datasets.slice(0, 3).map((ds) => (
-                <button
-                  type="button"
-                  key={ds.id}
-                  className={`dataset-list-item ${ds.id === activeId ? 'is-active' : ''}`}
-                  onClick={() => setActiveId(ds.id)}
-                >
-                  <div className="dataset-list-head">
-                    <span className="dataset-list-name">{ds.name}</span>
-                    <DatasetKindTag kind={ds.kind} />
-                  </div>
-                  <div className="dataset-list-meta">
-                    <span>{ds.itemCount} 条</span>
-                    <span>·</span>
-                    <span>{formatSize(ds.size)}</span>
-                    <span>·</span>
-                    <span>{ds.version}</span>
-                  </div>
-                  {ds.mediaDistribution && (
-                    <div className="dataset-list-media">
-                      {(Object.keys(ds.mediaDistribution) as MediaType[]).map((mt) => {
-                        const meta = mediaTypeMeta[mt];
-                        if (!meta) return null;
-                        return (
-                          <span
-                            key={mt}
-                            className="dataset-media-pill"
-                            style={{ color: meta.color, background: `${meta.color}15` }}
-                          >
-                            {meta.icon} {ds.mediaDistribution?.[mt]}
-                          </span>
-                        );
-                      })}
+              <div className="dataset-list-scroll">
+                {datasets.map((ds) => (
+                  <button
+                    type="button"
+                    key={ds.id}
+                    className={`dataset-list-item ${ds.id === activeId ? 'is-active' : ''}`}
+                    onClick={() => setActiveId(ds.id)}
+                  >
+                    <div className="dataset-list-head">
+                      <span className="dataset-list-name">{ds.name}</span>
+                      <Space size={6} align="center">
+                        <DatasetKindTag kind={ds.kind} />
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          className="dataset-list-delete"
+                          aria-label={`删除数据集 ${ds.name}`}
+                          onClick={(event) => handleDeleteDataset(ds, event)}
+                        />
+                      </Space>
                     </div>
-                  )}
-                </button>
+                    <div className="dataset-list-meta">
+                      <span>{ds.itemCount} 条</span>
+                      <span>·</span>
+                      <span>{formatSize(ds.size)}</span>
+                      <span>·</span>
+                      <span>{ds.version}</span>
+                    </div>
+                    {ds.mediaDistribution && (
+                      <div className="dataset-list-media">
+                        {(Object.keys(ds.mediaDistribution) as MediaType[]).map((mt) => {
+                          const meta = mediaTypeMeta[mt];
+                          if (!meta) return null;
+                          return (
+                            <span
+                              key={mt}
+                              className="dataset-media-pill"
+                              style={{ color: meta.color, background: `${meta.color}15` }}
+                            >
+                              {meta.icon} {ds.mediaDistribution?.[mt]}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </button>
                 ))}
-              </Space>
+              </div>
             )}
           </Card>
         </Col>
@@ -824,7 +886,17 @@ export default function OwnerDatasets() {
             >
               <div className="dataset-list-head">
                 <span className="dataset-list-name">{ds.name}</span>
-                <DatasetKindTag kind={ds.kind} />
+                <Space size={6} align="center">
+                  <DatasetKindTag kind={ds.kind} />
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    className="dataset-list-delete"
+                    aria-label={`删除数据集 ${ds.name}`}
+                    onClick={(event) => handleDeleteDataset(ds, event)}
+                  />
+                </Space>
               </div>
               <div className="dataset-list-meta">
                 <span>{ds.itemCount} 条</span>
