@@ -111,6 +111,13 @@ public class AiReviewController {
     return aiReviewService.retry(authentication, jobId);
   }
 
+  @PostMapping("/jobs/batch-delete")
+  public AiReviewBatchDeleteResponse batchDeleteJobs(
+      Authentication authentication,
+      @RequestBody AiReviewBatchDeleteRequest request) {
+    return aiReviewService.batchDeleteJobs(authentication, request);
+  }
+
   @GetMapping("/results/{annotationId}")
   public AiReviewResultResponse getResult(
       Authentication authentication,

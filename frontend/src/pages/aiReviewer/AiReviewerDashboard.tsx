@@ -21,8 +21,8 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { aiReviewApi } from '../../api/aiReview';
-import { JobsPanel, RulesPanel } from '../owner/OwnerAiReview';
-import type { AiReviewJob, AiReviewRule } from '../../types/aiReview';
+import { JobsPanel } from '../owner/OwnerAiReview';
+import type { AiReviewJob } from '../../types/aiReview';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -31,9 +31,6 @@ export default function AiReviewerDashboard() {
 
   if (location.pathname.endsWith('/jobs')) {
     return <AiReviewerShell title="Job 队列" description="查看 Agent 领取、执行、失败重试和完成状态。"><JobsPanel /></AiReviewerShell>;
-  }
-  if (location.pathname.endsWith('/rules')) {
-    return <AiReviewerShell title="规则管理" description="维护 AI 预审 Prompt、评分维度、阈值和重试策略。"><RulesPanel /></AiReviewerShell>;
   }
   return <AiReviewerOverview />;
 }
@@ -69,18 +66,13 @@ function AiReviewerOverview() {
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<AiReviewJob[]>([]);
-  const [rules, setRules] = useState<AiReviewRule[]>([]);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [jobPage, rulePage] = await Promise.all([
-        aiReviewApi.listJobs({ page: 1, pageSize: 100 }),
-        aiReviewApi.listRules({ page: 1, pageSize: 50 }),
-      ]);
+      const jobPage = await aiReviewApi.listJobs({ page: 1, pageSize: 100 });
       setJobs(jobPage.items);
-      setRules(rulePage.items);
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'AI 审核概览加载失败');
     } finally {
@@ -97,17 +89,17 @@ function AiReviewerOverview() {
     const running = jobs.filter((job) => job.status === 'running').length;
     const succeeded = jobs.filter((job) => job.status === 'success').length;
     const failed = jobs.filter((job) => job.status === 'failed').length;
-    const enabledRules = rules.filter((rule) => rule.status === 'enabled').length;
     const needHuman = jobs.filter((job) => job.decision === 'NEED_HUMAN_REVIEW').length;
-    return { pending, running, succeeded, failed, enabledRules, needHuman };
-  }, [jobs, rules]);
+    const retryable = jobs.filter((job) => job.status === 'failed').length;
+    return { pending, running, succeeded, failed, needHuman, retryable };
+  }, [jobs]);
 
   const latestJobs = jobs.slice(0, 6);
 
   return (
     <AiReviewerShell
       title="AI 审核后台"
-      description="跟踪 AI Agent 作业运行、失败兜底、规则启停和人工复核入口。"
+      description="跟踪 AI Agent 作业运行、失败兜底、重试处理和人工复核入口。"
     >
       <Row gutter={16} className="row-equal">
         <Col xs={12} md={4}>
@@ -137,7 +129,7 @@ function AiReviewerOverview() {
         </Col>
         <Col xs={12} md={4}>
           <Card className="owner-stat-card" loading={loading}>
-            <Statistic title="启用规则" value={stats.enabledRules} />
+            <Statistic title="可重试" value={stats.retryable} />
           </Card>
         </Col>
       </Row>
@@ -147,7 +139,6 @@ function AiReviewerOverview() {
           <Button type="primary" icon={<RobotOutlined />} onClick={() => navigate('/ai-reviewer/jobs')}>
             查看 Job 队列
           </Button>
-          <Button onClick={() => navigate('/ai-reviewer/rules')}>管理规则</Button>
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>
             刷新
           </Button>

@@ -36,6 +36,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 
 import { aiReviewApi } from '../../api/aiReview';
+import { getApiErrorMessage } from '../../api/client';
 import type {
   AiReviewDimension,
   AiReviewJob,
@@ -803,14 +804,14 @@ export function JobsPanel() {
           message.success(`已删除 ${selectedRowKeys.length} 条作业`);
           setSelectedRowKeys([]);
           await loadJobs();
-        } catch {
+        } catch (error) {
           if (usingFallback) {
             // 演示模式:本地移除
             setJobs((prev) => prev.filter((j) => !selectedRowKeys.includes(j.jobId)));
             setSelectedRowKeys([]);
             message.warning('后端未就绪,改动仅保存在演示模式中');
           } else {
-            message.error('批量删除失败');
+            message.error(getApiErrorMessage(error, '批量删除失败'));
           }
         } finally {
           setDeleting(false);

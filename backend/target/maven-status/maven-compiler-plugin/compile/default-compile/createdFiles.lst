@@ -56,6 +56,7 @@ com\labelhub\backend\review\ReviewDecisionRequest.class
 com\labelhub\backend\ai\ToggleAiReviewRuleRequest.class
 com\labelhub\backend\annotation\AnnotationRepository$AssignmentItemRecord.class
 com\labelhub\backend\annotation\AnnotationService$SchemaContext.class
+com\labelhub\backend\ai\AiReviewBatchDeleteRequest.class
 com\labelhub\backend\dataset\DatasetService.class
 com\labelhub\backend\review\AnnotationToReviewResponse.class
 com\labelhub\backend\ai\AiReviewRepository$AiReviewRuleRecord.class
@@ -96,6 +97,7 @@ com\labelhub\backend\ai\AiModelConfigRuntimeResponse.class
 com\labelhub\backend\auth\AuthUserResponse.class
 com\labelhub\backend\review\DisputeItemResponse.class
 com\labelhub\backend\ai\AiReviewRuleResponse.class
+com\labelhub\backend\ai\AiReviewBatchDeleteResponse.class
 com\labelhub\backend\ai\AiModelConfigController.class
 com\labelhub\backend\ai\AiReviewFailRequest.class
 com\labelhub\backend\annotation\AnnotationRepository$AssignmentProgressRecord.class

@@ -217,6 +217,10 @@ public class AiReviewRepository {
     return queryJobs("WHERE aj.id = ?", List.of(jobId), "FOR UPDATE").stream().findFirst();
   }
 
+  public int deleteJob(long jobId) {
+    return jdbcTemplate.update("DELETE FROM ai_review_jobs WHERE id = ?", jobId);
+  }
+
   public Optional<AiReviewJobPayloadRecord> findJobPayload(long jobId) {
     return jdbcTemplate.query(
         """

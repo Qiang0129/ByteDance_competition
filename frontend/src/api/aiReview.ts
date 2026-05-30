@@ -4,6 +4,7 @@ import type {
   AiModelConfigRequest,
   AiModelModelsRequest,
   AiModelModelsResponse,
+  AiReviewBatchDeleteResponse,
   AiReviewJob,
   AiReviewPageResult,
   AiReviewResult,
@@ -87,8 +88,8 @@ export const aiReviewApi = {
   },
 
   /** 批量删除作业(按 jobId 列表) */
-  deleteJobs(jobIds: string[]): Promise<void> {
-    return apiRequest<void>('/ai-review/jobs/batch-delete', {
+  deleteJobs(jobIds: string[]): Promise<AiReviewBatchDeleteResponse> {
+    return apiRequest<AiReviewBatchDeleteResponse>('/ai-review/jobs/batch-delete', {
       method: 'POST',
       body: JSON.stringify({ jobIds }),
     });

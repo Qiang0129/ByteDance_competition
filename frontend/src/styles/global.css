@@ -360,8 +360,13 @@ body {
   position: sticky;
   top: 16px;
   border-right: none;
-  /* 统一展开/折叠的宽度过渡缓动,比 antd 默认 0.2s linear 更顺滑 */
-  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  /* Codex 风格丝滑收回:只过渡宽度相关属性(避免 transition:all 的多属性抖动),
+     使用 ease-out-expo 风格缓动,起步快、收尾缓,整体一气呵成 */
+  transition:
+    width 0.58s cubic-bezier(0.32, 0.72, 0, 1),
+    min-width 0.58s cubic-bezier(0.32, 0.72, 0, 1),
+    max-width 0.58s cubic-bezier(0.32, 0.72, 0, 1),
+    flex-basis 0.58s cubic-bezier(0.32, 0.72, 0, 1) !important;
   will-change: width;
 }
 
@@ -370,7 +375,21 @@ body {
 .app-shell .ant-layout-sider .ant-menu-item,
 .app-shell .ant-layout-sider .ant-menu-item-group-title,
 .app-shell .ant-layout-sider .ant-menu-title-content {
-  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition:
+    padding 0.58s cubic-bezier(0.32, 0.72, 0, 1),
+    margin 0.58s cubic-bezier(0.32, 0.72, 0, 1),
+    width 0.58s cubic-bezier(0.32, 0.72, 0, 1) !important;
+}
+
+/* 菜单文字:折叠时随宽度快速淡出,展开时稍迟淡入,避免文字被挤压换行的生硬感 */
+.app-shell .ant-layout-sider .ant-menu-title-content {
+  opacity: 1;
+  transition: opacity 0.28s cubic-bezier(0.32, 0.72, 0, 1) 0.14s !important;
+}
+
+.app-shell .ant-layout-sider-collapsed .ant-menu-title-content {
+  opacity: 0;
+  transition: opacity 0.22s cubic-bezier(0.32, 0.72, 0, 1) !important;
 }
 
 /* Sider 内层用 flex 把脚注推到底部 */
@@ -411,7 +430,7 @@ body {
   white-space: nowrap;
   opacity: 1;
   transform: translateZ(0);
-  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.58s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: opacity;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -450,7 +469,7 @@ body {
   letter-spacing: 0.3px;
   opacity: 0;
   transform: translateZ(0);
-  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.58s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: opacity;
 }
 
@@ -486,9 +505,10 @@ body {
   white-space: nowrap;
   opacity: 1;
   transform: translateZ(0);
-  /* 与 Sider 宽度过渡同缓动同时长,折叠/展开一气呵成 */
-  transition: opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-    width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 与 Sider 宽度过渡同缓动,折叠时随宽度同步收起,丝滑一体 */
+  transition:
+    opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1) 0.1s,
+    width 0.58s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: opacity;
   /* 字体平滑,避免宽度过渡时的亚像素糊化 */
   -webkit-font-smoothing: antialiased;
@@ -498,6 +518,7 @@ body {
 .app-shell .ant-layout-sider-collapsed .app-logo-text {
   opacity: 0;
   pointer-events: none;
+  transition: opacity 0.22s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* 侧栏折叠时让 logo 居中且无文字占位 */

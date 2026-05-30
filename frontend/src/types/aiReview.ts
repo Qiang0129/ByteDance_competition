@@ -153,3 +153,8 @@ export interface AiModelModelsRequest {
 export interface AiModelModelsResponse {
   modelIds: string[];
 }
+
+export interface AiReviewBatchDeleteResponse {
+  deletedCount: number;
+  deletedJobIds: string[];
+}

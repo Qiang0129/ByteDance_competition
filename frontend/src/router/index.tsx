@@ -78,7 +78,6 @@ export function AppRoutes() {
 
         <Route path="/ai-reviewer" element={<AiReviewerDashboard />} />
         <Route path="/ai-reviewer/jobs" element={<AiReviewerDashboard />} />
-        <Route path="/ai-reviewer/rules" element={<AiReviewerDashboard />} />
 
         {/* 系统设置:外观主题选择,所有角色共用同一个组件,
            但通过给每个角色挂独立路径,保留 URL 中的角色前缀,

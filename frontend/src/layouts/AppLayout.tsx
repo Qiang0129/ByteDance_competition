@@ -190,7 +190,6 @@ const aiReviewerMenuItems: MenuProps['items'] = [
     children: [
       { key: '/ai-reviewer', icon: <DashboardOutlined />, label: '作业概览' },
       { key: '/ai-reviewer/jobs', icon: <RobotOutlined />, label: 'Job 队列' },
-      { key: '/ai-reviewer/rules', icon: <AuditOutlined />, label: '规则管理' },
       { key: '/ai-reviewer/settings/model', icon: <ApiOutlined />, label: '模型配置' },
     ],
   },
@@ -233,7 +232,6 @@ function resolveSelectedKey(section: RoleSection, pathname: string): string {
   if (section === 'ai_reviewer') {
     const aiReviewerKeys = [
       '/ai-reviewer/jobs',
-      '/ai-reviewer/rules',
       '/ai-reviewer/settings/model',
     ];
     return aiReviewerKeys.find((key) => pathname.startsWith(key)) ?? '/ai-reviewer';

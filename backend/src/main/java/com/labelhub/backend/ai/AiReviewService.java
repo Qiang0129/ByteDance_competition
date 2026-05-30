@@ -48,10 +48,10 @@ public class AiReviewService {
   public PageResponse<AiReviewRuleResponse> listRules(
       Authentication authentication,
       String status,
-      String taskId,
-      Integer page,
-      Integer pageSize) {
-    requireAiManager(authentication);
+    String taskId,
+    Integer page,
+    Integer pageSize) {
+    requireRuleManager(authentication);
     String normalizedStatus = normalizeRuleStatusFilter(status);
     Long parsedTaskId = parseOptionalLong(taskId, "INVALID_TASK_ID");
     int safePage = page == null || page < 1 ? 1 : page;
@@ -66,7 +66,7 @@ public class AiReviewService {
   }
 
   public AiReviewRuleResponse getRule(Authentication authentication, long ruleId) {
-    requireAiManager(authentication);
+    requireRuleManager(authentication);
     return aiReviewRepository.findRule(ruleId)
         .map(this::toRuleResponse)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI_REVIEW_RULE_NOT_FOUND", "ai review rule not found"));
@@ -74,7 +74,7 @@ public class AiReviewService {
 
   @Transactional
   public AiReviewRuleResponse createRule(Authentication authentication, AiReviewRuleRequest request) {
-    AuthenticatedUser operator = requireAiManager(authentication);
+    AuthenticatedUser operator = requireRuleManager(authentication);
     ValidRuleInput input = validateRuleInput(request);
     long ruleId = aiReviewRepository.createRule(
         input.name(),
@@ -95,7 +95,7 @@ public class AiReviewService {
       Authentication authentication,
       long ruleId,
       AiReviewRuleRequest request) {
-    requireAiManager(authentication);
+    requireRuleManager(authentication);
     ValidRuleInput input = validateRuleInput(request);
     int updated = aiReviewRepository.updateRule(
         ruleId,
@@ -116,7 +116,7 @@ public class AiReviewService {
 
   @Transactional
   public void deleteRule(Authentication authentication, long ruleId) {
-    requireAiManager(authentication);
+    requireRuleManager(authentication);
     aiReviewRepository.deleteRule(ruleId);
   }
 
@@ -125,7 +125,7 @@ public class AiReviewService {
       Authentication authentication,
       long ruleId,
       ToggleAiReviewRuleRequest request) {
-    requireAiManager(authentication);
+    requireRuleManager(authentication);
     String status = normalizeRuleStatus(request == null ? null : request.status());
     int updated = aiReviewRepository.toggleRule(ruleId, status);
     if (updated == 0) {
@@ -337,6 +337,43 @@ public class AiReviewService {
         Map.of("jobId", job.id(), "status", "pending"),
         null);
     return toResponse(lockJob(job.id()));
+  }
+
+  @Transactional
+  public AiReviewBatchDeleteResponse batchDeleteJobs(
+      Authentication authentication,
+      AiReviewBatchDeleteRequest request) {
+    AuthenticatedUser operator = requireAiManager(authentication);
+    if (operator.roles().contains("system_agent")
+        && operator.roles().stream().noneMatch(role -> List.of("owner", "reviewer", "ai_reviewer").contains(role))) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "system_agent cannot delete ai review jobs");
+    }
+    List<Long> jobIds = parseJobIds(request == null ? null : request.jobIds());
+    List<String> deleted = new java.util.ArrayList<>();
+    for (Long jobId : jobIds) {
+      AiReviewRepository.AiReviewJobRecord job = lockJob(jobId);
+      if (!List.of("failed", "succeeded").contains(job.status())) {
+        throw new ApiException(
+            HttpStatus.CONFLICT,
+            "AI_REVIEW_JOB_NOT_DELETABLE",
+            "only failed or succeeded ai review jobs can be deleted");
+      }
+      stateMachineService.audit(
+          WorkflowEntityType.AI_REVIEW_JOB,
+          job.id(),
+          operator,
+          resolveOperatorRole(operator),
+          "ai_review.delete",
+          job.status(),
+          job.status(),
+          "ai review job deleted",
+          Map.of("jobId", job.id(), "status", job.status()),
+          Map.of("jobId", job.id(), "deleted", true),
+          null);
+      aiReviewRepository.deleteJob(job.id());
+      deleted.add(Long.toString(job.id()));
+    }
+    return new AiReviewBatchDeleteResponse(deleted.size(), deleted);
   }
 
   @Transactional
@@ -604,6 +641,14 @@ public class AiReviewService {
     return principal;
   }
 
+  private AuthenticatedUser requireRuleManager(Authentication authentication) {
+    AuthenticatedUser principal = requirePrincipal(authentication);
+    if (!principal.roles().contains("owner")) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "owner role is required to manage ai review rules");
+    }
+    return principal;
+  }
+
   private AuthenticatedUser requireAiOperator(Authentication authentication) {
     AuthenticatedUser principal = requirePrincipal(authentication);
     if (principal.roles().stream().noneMatch(role -> List.of("system_agent", "ai_reviewer", "reviewer", "owner").contains(role))) {
@@ -685,6 +730,17 @@ public class AiReviewService {
     } catch (NumberFormatException exception) {
       throw new ApiException(HttpStatus.BAD_REQUEST, code, "id format is invalid");
     }
+  }
+
+  private List<Long> parseJobIds(List<String> values) {
+    if (values == null || values.isEmpty()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_JOB_IDS", "jobIds are required");
+    }
+    return values.stream()
+        .filter(value -> value != null && !value.isBlank())
+        .distinct()
+        .map(value -> parseOptionalLong(value, "INVALID_AI_REVIEW_JOB_ID"))
+        .toList();
   }
 
   private List<AiReviewDimension> readDimensions(String json) {
