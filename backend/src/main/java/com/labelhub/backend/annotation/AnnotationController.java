@@ -1,13 +1,18 @@
 package com.labelhub.backend.annotation;
 
 import com.fasterxml.jackson.databind.node.NullNode;
+import com.labelhub.backend.task.PageResponse;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -41,6 +46,22 @@ public class AnnotationController {
       @PathVariable long assignmentId,
       @RequestBody(required = false) DraftRequest request) {
     return annotationService.saveDraft(authentication, assignmentId, request);
+  }
+
+  @GetMapping("/labeler/drafts")
+  public PageResponse<LabelerDraftResponse> listDrafts(
+      Authentication authentication,
+      @RequestParam(required = false) Integer page,
+      @RequestParam(required = false) Integer pageSize) {
+    return annotationService.listDrafts(authentication, page, pageSize);
+  }
+
+  @DeleteMapping("/assignments/{assignmentId}/draft")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void deleteDraft(
+      Authentication authentication,
+      @PathVariable long assignmentId) {
+    annotationService.deleteDraft(authentication, assignmentId);
   }
 
   @PostMapping("/assignments/{assignmentId}/submit")

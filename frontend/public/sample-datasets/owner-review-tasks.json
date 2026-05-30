@@ -1,0 +1,86 @@
+{
+  "items": [
+    {
+      "taskId": "T-2041",
+      "taskTitle": "电商标题清洗与类目标注",
+      "taskType": "文本清洗",
+      "totalAnnotations": 320,
+      "approvedCount": 218,
+      "returnedCount": 22,
+      "inProgress": 80,
+      "disputes": 2,
+      "samplingRatio": 0.2,
+      "stages": [
+        { "stage": "initial", "pending": 18, "reviewed": 302, "approved": 268, "returned": 34 },
+        { "stage": "second", "pending": 32, "reviewed": 230, "approved": 218, "returned": 12 },
+        { "stage": "final", "pending": 30, "reviewed": 210, "approved": 208, "returned": 2 }
+      ],
+      "reviewerNames": ["李婧", "王雷"],
+      "deadline": "2026-06-08 18:00",
+      "aiReviewEnabled": true,
+      "updatedAt": "今天 14:22"
+    },
+    {
+      "taskId": "T-2099",
+      "taskTitle": "服饰类目卖点提取",
+      "taskType": "信息抽取",
+      "totalAnnotations": 180,
+      "approvedCount": 124,
+      "returnedCount": 11,
+      "inProgress": 45,
+      "disputes": 0,
+      "samplingRatio": 0.15,
+      "stages": [
+        { "stage": "initial", "pending": 14, "reviewed": 166, "approved": 152, "returned": 14 },
+        { "stage": "second", "pending": 25, "reviewed": 141, "approved": 135, "returned": 6 },
+        { "stage": "final", "pending": 17, "reviewed": 124, "approved": 124, "returned": 0 }
+      ],
+      "reviewerNames": ["Olivia Brown"],
+      "deadline": "2026-06-12 24:00",
+      "aiReviewEnabled": true,
+      "updatedAt": "今天 13:48"
+    },
+    {
+      "taskId": "T-3022",
+      "taskTitle": "QA 质量评估（多轮）",
+      "taskType": "QA Quality",
+      "totalAnnotations": 240,
+      "approvedCount": 96,
+      "returnedCount": 18,
+      "inProgress": 126,
+      "disputes": 1,
+      "samplingRatio": 0.25,
+      "stages": [
+        { "stage": "initial", "pending": 26, "reviewed": 214, "approved": 196, "returned": 18 },
+        { "stage": "second", "pending": 100, "reviewed": 114, "approved": 110, "returned": 4 },
+        { "stage": "final", "pending": 14, "reviewed": 100, "approved": 96, "returned": 4 }
+      ],
+      "reviewerNames": ["李婧"],
+      "deadline": "2026-06-15 18:00",
+      "aiReviewEnabled": true,
+      "updatedAt": "今天 11:05"
+    },
+    {
+      "taskId": "T-3050",
+      "taskTitle": "图文偏好对比标注",
+      "taskType": "Preference Compare",
+      "totalAnnotations": 96,
+      "approvedCount": 60,
+      "returnedCount": 4,
+      "inProgress": 32,
+      "disputes": 0,
+      "samplingRatio": 0.1,
+      "stages": [
+        { "stage": "initial", "pending": 6, "reviewed": 90, "approved": 86, "returned": 4 },
+        { "stage": "second", "pending": 26, "reviewed": 64, "approved": 60, "returned": 4 }
+      ],
+      "reviewerNames": ["王雷"],
+      "deadline": "2026-06-20 24:00",
+      "aiReviewEnabled": false,
+      "updatedAt": "昨天 22:14"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 4
+}

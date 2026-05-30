@@ -74,6 +74,87 @@ public class AnnotationRepository {
         .findFirst();
   }
 
+  public long countDraftsForLabeler(long labelerId) {
+    Long total = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM drafts d
+        JOIN assignments a ON a.id = d.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE a.labeler_id = ?
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+        """,
+        Long.class,
+        labelerId);
+    return total == null ? 0L : total;
+  }
+
+  public List<LabelerDraftRecord> listDraftsForLabeler(long labelerId, int limit, int offset) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          a.id AS assignment_id,
+          a.task_id,
+          a.item_id,
+          a.labeler_id,
+          a.status AS assignment_status,
+          t.title AS task_title,
+          t.status AS task_status,
+          t.deadline AS task_deadline,
+          t.deleted_at AS task_deleted_at,
+          JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
+          tsv.id AS schema_version_id,
+          tsv.version AS schema_version,
+          d.updated_at AS draft_updated_at,
+          (
+            SELECT COUNT(*)
+            FROM assignments ranked
+            WHERE ranked.task_id = a.task_id
+              AND ranked.labeler_id = a.labeler_id
+              AND ranked.status <> 'voided'
+              AND ranked.id <= a.id
+          ) AS item_index
+        FROM drafts d
+        JOIN assignments a ON a.id = d.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        JOIN items i ON i.id = a.item_id
+        LEFT JOIN task_schema_versions tsv ON tsv.id = COALESCE(
+          CAST(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.schemaVersionId')), '') AS UNSIGNED),
+          (
+            SELECT latest_tsv.id
+            FROM task_schema_versions latest_tsv
+            WHERE latest_tsv.task_id = a.task_id
+            ORDER BY latest_tsv.version DESC
+            LIMIT 1
+          )
+        )
+        WHERE a.labeler_id = ?
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+        ORDER BY d.updated_at DESC, d.id DESC
+        LIMIT ? OFFSET ?
+        """,
+        (rs, rowNum) -> new LabelerDraftRecord(
+            rs.getLong("assignment_id"),
+            rs.getLong("task_id"),
+            rs.getLong("item_id"),
+            rs.getLong("labeler_id"),
+            rs.getString("assignment_status"),
+            rs.getString("task_title"),
+            rs.getString("task_status"),
+            toLocalDateTime(rs.getTimestamp("task_deadline")),
+            toLocalDateTime(rs.getTimestamp("task_deleted_at")),
+            rs.getString("task_type"),
+            toLong(rs.getObject("schema_version_id")),
+            toInteger(rs.getObject("schema_version")),
+            toLocalDateTime(rs.getTimestamp("draft_updated_at")),
+            rs.getInt("item_index")),
+        labelerId,
+        limit,
+        offset);
+  }
+
   public Optional<AnnotationRecord> findLatestAnnotation(long assignmentId) {
     return jdbcTemplate.query(
         """
@@ -278,8 +359,8 @@ public class AnnotationRepository {
         annotationId);
   }
 
-  public void deleteDraft(long assignmentId) {
-    jdbcTemplate.update("DELETE FROM drafts WHERE assignment_id = ?", assignmentId);
+  public int deleteDraft(long assignmentId) {
+    return jdbcTemplate.update("DELETE FROM drafts WHERE assignment_id = ?", assignmentId);
   }
 
   public long createAiReviewJob(
@@ -423,6 +504,22 @@ public class AnnotationRepository {
       long assignmentId,
       String answerJson,
       LocalDateTime updatedAt) {}
+
+  public record LabelerDraftRecord(
+      long assignmentId,
+      long taskId,
+      long itemId,
+      long labelerId,
+      String assignmentStatus,
+      String taskTitle,
+      String taskStatus,
+      LocalDateTime taskDeadline,
+      LocalDateTime taskDeletedAt,
+      String taskType,
+      Long schemaVersionId,
+      Integer schemaVersion,
+      LocalDateTime draftUpdatedAt,
+      int itemIndex) {}
 
   /** 进度条逐题状态判定用:作业项状态 + 草稿答案(可空) */
   public record AssignmentProgressRecord(

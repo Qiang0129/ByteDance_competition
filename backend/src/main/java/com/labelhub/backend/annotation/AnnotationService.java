@@ -10,9 +10,11 @@ import com.labelhub.backend.ai.AiReviewService;
 import com.labelhub.backend.annotation.AnnotationRepository.AssignmentItemRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.AnnotationRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.DraftRecord;
+import com.labelhub.backend.annotation.AnnotationRepository.LabelerDraftRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
+import com.labelhub.backend.task.PageResponse;
 import com.labelhub.backend.task.TaskService;
 import com.labelhub.backend.workflow.StateMachineService;
 import com.labelhub.backend.workflow.WorkflowEntityType;
@@ -122,6 +124,29 @@ public class AnnotationService {
         assignment.assignmentId(),
         writeJson(visibleAnswerJson));
     return toDraftResponse(saved);
+  }
+
+  public PageResponse<LabelerDraftResponse> listDrafts(
+      Authentication authentication,
+      Integer page,
+      Integer pageSize) {
+    AuthenticatedUser labeler = requireLabeler(authentication);
+    int safePage = page == null || page < 1 ? 1 : page;
+    int safePageSize = pageSize == null || pageSize < 1 ? 50 : Math.min(pageSize, 100);
+    long total = annotationRepository.countDraftsForLabeler(labeler.id());
+    List<LabelerDraftResponse> items = annotationRepository
+        .listDraftsForLabeler(labeler.id(), safePageSize, (safePage - 1) * safePageSize)
+        .stream()
+        .map(this::toLabelerDraftResponse)
+        .toList();
+    return new PageResponse<>(items, safePage, safePageSize, total);
+  }
+
+  public void deleteDraft(Authentication authentication, long assignmentId) {
+    AuthenticatedUser labeler = requireLabeler(authentication);
+    AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
+    ensureAssignmentUsable(assignment);
+    annotationRepository.deleteDraft(assignment.assignmentId());
   }
 
   @Transactional
@@ -379,6 +404,23 @@ public class AnnotationService {
         && !isDeadlineExpired(assignment.taskDeadline());
   }
 
+  private boolean isEditableDraft(LabelerDraftRecord draft) {
+    if (draft.taskDeletedAt() != null) {
+      return false;
+    }
+    String taskStatus = draft.taskStatus() == null
+        ? ""
+        : draft.taskStatus().toLowerCase(Locale.ROOT);
+    if (!"published".equals(taskStatus)) {
+      return false;
+    }
+    String status = draft.assignmentStatus() == null
+        ? ""
+        : draft.assignmentStatus().toLowerCase(Locale.ROOT);
+    return List.of("claimed", "returned", "submitted").contains(status)
+        && !isDeadlineExpired(draft.taskDeadline());
+  }
+
   private boolean isDeadlineExpired(LocalDateTime deadline) {
     return deadline != null && deadline.isBefore(LocalDateTime.now());
   }
@@ -606,6 +648,27 @@ public class AnnotationService {
         Long.toString(record.assignmentId()),
         readJson(record.answerJson()),
         formatDateTime(record.updatedAt()));
+  }
+
+  private LabelerDraftResponse toLabelerDraftResponse(LabelerDraftRecord record) {
+    String taskTitle = blankToDefault(record.taskTitle(), "标注任务");
+    String taskType = blankToDefault(record.taskType(), "Annotation Task");
+    String schemaVersion = record.schemaVersion() == null
+        ? ""
+        : "v" + record.schemaVersion();
+    int itemIndex = Math.max(record.itemIndex(), 1);
+    return new LabelerDraftResponse(
+        Long.toString(record.assignmentId()),
+        Long.toString(record.taskId()),
+        Long.toString(record.itemId()),
+        taskTitle + " - 第 " + itemIndex + " 题",
+        taskTitle,
+        taskType,
+        toTaskTypeKey(taskType),
+        record.schemaVersionId() == null ? "" : Long.toString(record.schemaVersionId()),
+        schemaVersion,
+        formatDateTime(record.draftUpdatedAt()),
+        isEditableDraft(record));
   }
 
   private AnnotationResponse toAnnotationResponse(AnnotationRecord record, String returnReason) {
@@ -1147,6 +1210,26 @@ public class AnnotationService {
 
   private String blankToDefault(String value, String fallback) {
     return value == null || value.isBlank() ? fallback : value;
+  }
+
+  private String toTaskTypeKey(String taskType) {
+    if (taskType == null || taskType.isBlank()) {
+      return "annotation_task";
+    }
+    String normalized = taskType.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
+    if (normalized.contains("preference")) {
+      return "preference_compare";
+    }
+    if (normalized.contains("image")) {
+      return "image_classification";
+    }
+    if (normalized.contains("safety")) {
+      return "safety_tagging";
+    }
+    if (normalized.contains("qa")) {
+      return "qa_quality";
+    }
+    return normalized;
   }
 
   private void putIfPresent(ObjectNode node, String field, String value) {

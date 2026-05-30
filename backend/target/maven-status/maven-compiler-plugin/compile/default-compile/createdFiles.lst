@@ -52,6 +52,8 @@ com\labelhub\backend\ai\AiReviewJobResponse.class
 com\labelhub\backend\task\AssignmentResponse.class
 com\labelhub\backend\review\AiReviewResultResponse.class
 com\labelhub\backend\review\ReviewBatchResponse.class
+com\labelhub\backend\annotation\AnnotationRepository$LabelerDraftRecord.class
+com\labelhub\backend\annotation\LabelerDraftResponse.class
 com\labelhub\backend\annotation\AnnotationRepository$AnnotationRecord.class
 com\labelhub\backend\export\ExportService.class
 com\labelhub\backend\ai\AiModelConfigResponse.class

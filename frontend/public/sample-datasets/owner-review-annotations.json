@@ -1,0 +1,72 @@
+{
+  "items": [
+    {
+      "annotationId": "A-9001",
+      "itemId": "Q0014",
+      "labelerName": "Olivia Clark",
+      "submittedAt": "今天 11:08",
+      "currentStage": "second",
+      "status": "reviewing",
+      "aiDecision": "NEED_HUMAN_REVIEW",
+      "lastDecision": "APPROVE",
+      "lastReviewer": "李婧",
+      "updatedAt": "今天 11:55",
+      "sampling": false
+    },
+    {
+      "annotationId": "A-9002",
+      "itemId": "Q0015",
+      "labelerName": "Michael Davis",
+      "submittedAt": "今天 10:32",
+      "currentStage": "final",
+      "status": "approved",
+      "aiDecision": "PASS",
+      "lastDecision": "APPROVE",
+      "lastReviewer": "王雷",
+      "updatedAt": "今天 12:11",
+      "sampling": true
+    },
+    {
+      "annotationId": "A-9003",
+      "itemId": "Q0016",
+      "labelerName": "Wei Lan",
+      "submittedAt": "今天 09:55",
+      "currentStage": "initial",
+      "status": "returned",
+      "aiDecision": "NEED_HUMAN_REVIEW",
+      "lastDecision": "RETURN",
+      "lastReviewer": "Olivia Brown",
+      "updatedAt": "今天 10:48",
+      "sampling": false
+    },
+    {
+      "annotationId": "A-9004",
+      "itemId": "Q-2041-007",
+      "labelerName": "张敏",
+      "submittedAt": "今天 18:01",
+      "currentStage": "second",
+      "status": "revised",
+      "aiDecision": "PASS",
+      "lastDecision": "REVISE",
+      "lastReviewer": "李婧",
+      "updatedAt": "今天 18:42",
+      "sampling": true
+    },
+    {
+      "annotationId": "A-9005",
+      "itemId": "Q-2041-018",
+      "labelerName": "陈昊",
+      "submittedAt": "今天 16:30",
+      "currentStage": "final",
+      "status": "disputed",
+      "aiDecision": "REJECT",
+      "lastDecision": "ESCALATE",
+      "lastReviewer": "王雷",
+      "updatedAt": "今天 17:20",
+      "sampling": false
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 5
+}

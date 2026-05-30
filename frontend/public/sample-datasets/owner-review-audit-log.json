@@ -1,0 +1,88 @@
+{
+  "items": [
+    {
+      "logId": "L-1001",
+      "entityType": "annotation",
+      "entityId": "A-9001",
+      "taskId": "T-2041",
+      "taskTitle": "电商标题清洗与类目标注",
+      "operatorName": "李婧",
+      "operatorRole": "reviewer",
+      "action": "annotation.review.approve",
+      "fromState": "reviewing",
+      "toState": "accepted",
+      "occurredAt": "今天 14:22"
+    },
+    {
+      "logId": "L-1002",
+      "entityType": "annotation",
+      "entityId": "A-9003",
+      "taskId": "T-2041",
+      "taskTitle": "电商标题清洗与类目标注",
+      "operatorName": "Olivia Brown",
+      "operatorRole": "reviewer",
+      "action": "annotation.review.return",
+      "fromState": "reviewing",
+      "toState": "returned",
+      "reason": "类目错误,应为「服饰 - 居家服」",
+      "occurredAt": "今天 13:48"
+    },
+    {
+      "logId": "L-1003",
+      "entityType": "annotation",
+      "entityId": "A-9005",
+      "taskId": "T-2041",
+      "taskTitle": "电商标题清洗与类目标注",
+      "operatorName": "王雷",
+      "operatorRole": "reviewer",
+      "action": "annotation.review.escalate",
+      "fromState": "reviewing",
+      "toState": "disputed",
+      "reason": "AI 建议打回但人工初审通过,转入争议样本终审",
+      "occurredAt": "今天 13:11"
+    },
+    {
+      "logId": "L-1004",
+      "entityType": "ai_review_job",
+      "entityId": "J-7765",
+      "taskId": "T-3022",
+      "taskTitle": "QA 质量评估（多轮）",
+      "operatorName": "system",
+      "operatorRole": "system_agent",
+      "action": "ai_review.complete",
+      "fromState": "running",
+      "toState": "succeeded",
+      "occurredAt": "今天 12:55"
+    },
+    {
+      "logId": "L-1005",
+      "entityType": "annotation",
+      "entityId": "A-9004",
+      "taskId": "T-2041",
+      "taskTitle": "电商标题清洗与类目标注",
+      "operatorName": "李婧",
+      "operatorRole": "reviewer",
+      "action": "annotation.review.revise",
+      "fromState": "returned",
+      "toState": "revised",
+      "reason": "Labeler 二次提交,关键词扩展至 5 个",
+      "occurredAt": "今天 11:30"
+    },
+    {
+      "logId": "L-1006",
+      "entityType": "annotation",
+      "entityId": "A-9006",
+      "taskId": "T-3050",
+      "taskTitle": "图文偏好对比标注",
+      "operatorName": "王雷",
+      "operatorRole": "reviewer",
+      "action": "annotation.review.approve",
+      "fromState": "reviewing",
+      "toState": "accepted",
+      "occurredAt": "今天 10:42"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 6
+}

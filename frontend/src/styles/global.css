@@ -8511,3 +8511,233 @@ body {
   color: #5b6675;
 }
 
+
+
+/* ========== Owner · 人工审核页 ========== */
+
+/* 二级 KPI 网格,数值与计划书 4.6 指标对齐 */
+.owner-review-kpi-row .owner-stat-card .ant-card-body {
+  padding: 18px 20px;
+}
+
+.owner-review-kpi-row .owner-stat-card .anticon {
+  font-size: 18px;
+  color: var(--lh-primary);
+}
+
+.owner-review-kpi-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* 三阶段进度条:用三段堆叠条 + 文本标签,体现初审 / 复审 / 终审 */
+.owner-review-stage-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.owner-review-stage-bar-track {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+.owner-review-stage-seg {
+  height: 100%;
+  display: block;
+  transition: width 0.3s ease;
+}
+
+.owner-review-stage-seg.is-initial {
+  background: linear-gradient(90deg, #93c5fd, #3b82f6);
+}
+
+.owner-review-stage-seg.is-second {
+  background: linear-gradient(90deg, #6366f1, #4338ca);
+}
+
+.owner-review-stage-seg.is-final {
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+}
+
+.owner-review-stage-seg.is-pending {
+  background: repeating-linear-gradient(
+    45deg,
+    #e2e8f0,
+    #e2e8f0 4px,
+    #f1f5f9 4px,
+    #f1f5f9 8px
+  );
+}
+
+.owner-review-stage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.owner-review-stage-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.owner-review-stage-legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* 任务行内的 SLA / 抽检率胶囊 */
+.owner-review-meta-tag.ant-tag {
+  border-radius: 999px;
+  padding: 0 10px;
+  border: none;
+  font-size: 11px;
+}
+
+.owner-review-meta-tag.is-deadline {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+}
+
+.owner-review-meta-tag.is-sampling {
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
+}
+
+/* 审核员负载迷你卡 */
+.owner-review-workload-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.owner-review-workload-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fafbfd;
+  border: 1px solid #eef0f5;
+}
+
+.owner-review-workload-name {
+  font-weight: 600;
+  color: #1f2a44;
+}
+
+.owner-review-workload-meta {
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  gap: 12px;
+}
+
+.owner-review-workload-meta strong {
+  color: #1f2a44;
+}
+
+/* 审计日志 timeline:与 antd Timeline 配合的微调 */
+.owner-review-audit-card .ant-timeline-item-content {
+  margin-inline-start: 16px;
+}
+
+.owner-review-audit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.owner-review-audit-row .ant-typography {
+  margin-bottom: 0 !important;
+}
+
+.owner-review-audit-action {
+  font-weight: 600;
+  color: #1f2a44;
+}
+
+.owner-review-audit-meta {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.owner-review-audit-reason {
+  font-size: 12px;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.08);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border-left: 3px solid #f59e0b;
+  margin-top: 4px;
+}
+
+/* 任务详情抽屉:阶段卡 + 条目表 */
+.owner-review-stage-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.owner-review-stage-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #eef0f5;
+  background: #fafbfd;
+}
+
+.owner-review-stage-card-title {
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.owner-review-stage-card-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1f2a44;
+  line-height: 1.1;
+}
+
+.owner-review-stage-card-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  gap: 10px;
+}
+
+.owner-review-stage-card-meta strong {
+  color: #1f2a44;
+}
+
+/* 暗色模式适配:沿用现有 dark 规则的色彩语义,避免新增暗色 token */
+:root[data-color-mode='dark'] .owner-review-workload-item,
+:root[data-color-mode='dark'] .owner-review-stage-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-color-mode='dark'] .owner-review-stage-bar-track {
+  background: rgba(255, 255, 255, 0.08);
+}

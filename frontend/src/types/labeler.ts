@@ -122,6 +122,21 @@ export interface Draft {
   updatedAt: string;
 }
 
+/** 草稿箱列表项 */
+export interface LabelerDraft {
+  assignmentId: string;
+  taskId: string;
+  itemId: string;
+  title: string;
+  taskTitle: string;
+  taskType: string;
+  taskTypeKey: string;
+  schemaVersionId: string;
+  schemaVersion: string;
+  updatedAt: string;
+  editable: boolean;
+}
+
 /** 提交答卷请求体 */
 export interface SubmitAnnotationRequest {
   schemaVersionId: string;

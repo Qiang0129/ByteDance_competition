@@ -15,6 +15,7 @@ import type {
   AssignmentItem,
   BatchSubmitResponse,
   Draft,
+  LabelerDraft,
   MarketTask,
   MarketTasksQuery,
   PageResult,
@@ -30,6 +31,15 @@ function toQueryString(query?: MarketTasksQuery): string {
   if (query.mediaType) search.set('mediaType', query.mediaType);
   if (query.aiReview) search.set('aiReview', query.aiReview);
   if (query.sortBy) search.set('sortBy', query.sortBy);
+  if (query.page) search.set('page', String(query.page));
+  if (query.pageSize) search.set('pageSize', String(query.pageSize));
+  const qs = search.toString();
+  return qs ? `?${qs}` : '';
+}
+
+function toPageQueryString(query?: { page?: number; pageSize?: number }): string {
+  if (!query) return '';
+  const search = new URLSearchParams();
   if (query.page) search.set('page', String(query.page));
   if (query.pageSize) search.set('pageSize', String(query.pageSize));
   const qs = search.toString();
@@ -74,6 +84,18 @@ export const labelerApi = {
     return apiRequest<Draft>(`/assignments/${assignmentId}/draft`, {
       method: 'PUT',
       body: JSON.stringify({ answerJson, schemaDigest }),
+    });
+  },
+
+  /** 草稿箱:拉取当前标注员全部未提交草稿 */
+  listDrafts(query?: { page?: number; pageSize?: number }): Promise<PageResult<LabelerDraft>> {
+    return apiRequest<PageResult<LabelerDraft>>(`/labeler/drafts${toPageQueryString(query)}`);
+  },
+
+  /** 草稿箱:仅删除草稿记录,不删除 assignment */
+  deleteDraft(assignmentId: string): Promise<void> {
+    return apiRequest<void>(`/assignments/${assignmentId}/draft`, {
+      method: 'DELETE',
     });
   },
 

@@ -1,0 +1,36 @@
+{
+  "rangeDays": 30,
+  "pendingAnnotations": 184,
+  "todayApproved": 92,
+  "todayReturned": 14,
+  "todayDisputes": 3,
+  "samplingCoverage": 0.18,
+  "consistencyRate": 0.91,
+  "returnRate": 0.073,
+  "reviewerWorkloads": [
+    {
+      "reviewerId": "U-2001",
+      "reviewerName": "李婧",
+      "pending": 32,
+      "reviewedToday": 41,
+      "avgDurationSec": 96,
+      "consistencyRate": 0.94
+    },
+    {
+      "reviewerId": "U-2002",
+      "reviewerName": "王雷",
+      "pending": 27,
+      "reviewedToday": 33,
+      "avgDurationSec": 112,
+      "consistencyRate": 0.89
+    },
+    {
+      "reviewerId": "U-2003",
+      "reviewerName": "Olivia Brown",
+      "pending": 18,
+      "reviewedToday": 24,
+      "avgDurationSec": 88,
+      "consistencyRate": 0.92
+    }
+  ]
+}
