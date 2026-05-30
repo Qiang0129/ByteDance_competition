@@ -7,7 +7,6 @@ import {
   FileTextOutlined,
   FireOutlined,
   PictureOutlined,
-  RobotOutlined,
   SearchOutlined,
   TagsOutlined,
   TeamOutlined,
@@ -34,6 +33,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 import { labelerApi } from '../../api/labeler';
+import { AiAssistantIcon } from '../../components/icons';
 import type {
   AssignStrategy,
   MarketTask,
@@ -584,7 +584,7 @@ function TaskCard({
         {task.aiReviewEnabled && (
           <Tooltip title={`AI 预审规则: ${task.aiReviewRule ?? '默认'}`}>
             <Tag className="market-ai-tag">
-              <RobotOutlined /> AI 预审
+              <AiAssistantIcon /> AI 预审
             </Tag>
           </Tooltip>
         )}
@@ -666,7 +666,7 @@ function TaskDetail({ task }: { task: MarketTask }) {
         })}
         {task.aiReviewEnabled && (
           <Tag className="market-ai-tag">
-            <RobotOutlined /> AI 预审 · {task.aiReviewRule ?? '默认规则'}
+            <AiAssistantIcon /> AI 预审 · {task.aiReviewRule ?? '默认规则'}
           </Tag>
         )}
       </Space>

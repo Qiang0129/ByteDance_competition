@@ -5,6 +5,9 @@
       "assignmentId": "S-2041-014",
       "itemId": "Q0014",
       "schemaVersionId": "r12",
+      "taskId": "T-2041",
+      "taskTitle": "电商标题清洗与类目标注",
+      "taskType": "文本清洗",
       "labelerName": "Olivia Clark",
       "submittedAt": "今天 11:08",
       "answerJson": {
@@ -26,7 +29,8 @@
         "decision": "NEED_HUMAN_REVIEW",
         "comment": "标题去掉了\"大码 / 家居服\",可能影响关键词检索;主类目正确。",
         "risk_flags": ["coverage_warning"],
-        "evidence": ["origin 含\"大码 家居服\",cleaned 缺失"]
+        "evidence": ["origin 含\"大码 家居服\",cleaned 缺失"],
+        "version": "v2.3 · doubao-pro-32k"
       },
       "revisionNo": 1,
       "isDispute": false
@@ -36,6 +40,9 @@
       "assignmentId": "S-2041-015",
       "itemId": "Q0015",
       "schemaVersionId": "r12",
+      "taskId": "T-2041",
+      "taskTitle": "电商标题清洗与类目标注",
+      "taskType": "文本清洗",
       "labelerName": "Michael Davis",
       "submittedAt": "今天 10:32",
       "answerJson": {
@@ -67,6 +74,9 @@
       "assignmentId": "S-2041-016",
       "itemId": "Q0016",
       "schemaVersionId": "r12",
+      "taskId": "T-2099",
+      "taskTitle": "服饰类目卖点提取",
+      "taskType": "信息抽取",
       "labelerName": "Wei Lan",
       "submittedAt": "今天 09:55",
       "answerJson": {
@@ -92,9 +102,49 @@
       },
       "revisionNo": 1,
       "isDispute": false
+    },
+    {
+      "annotationId": "A-9004",
+      "assignmentId": "S-2041-007",
+      "itemId": "Q-2041-007",
+      "schemaVersionId": "r12",
+      "taskId": "T-2041",
+      "taskTitle": "电商标题清洗与类目标注",
+      "taskType": "文本清洗",
+      "labelerName": "张敏",
+      "submittedAt": "今天 18:01",
+      "previousAnswerJson": {
+        "cleaned_title": "户外便携野营折叠桌椅套装 5 件套",
+        "category": "家居用品",
+        "keywords": ["折叠", "户外"]
+      },
+      "answerJson": {
+        "cleaned_title": "户外野营便携折叠桌椅 5 件套",
+        "category": "户外运动",
+        "keywords": ["折叠", "户外", "5 件套", "便携", "露营"]
+      },
+      "rawPayload": {
+        "origin_title": "户外便携野营折叠桌椅套装 5 件套 露营装备"
+      },
+      "aiResult": {
+        "scores": {
+          "relevance": 92,
+          "accuracy": 84,
+          "format_compliance": 88,
+          "safety": 99
+        },
+        "total_score": 86,
+        "decision": "PASS",
+        "comment": "关键词较第 1 轮已补充至 5 个并覆盖品类核心卖点;类目改为「户外运动」更贴合事实。建议通过。",
+        "risk_flags": ["keyword_loss", "category_error"],
+        "evidence": ["第 1 轮 keywords 仅 2 个", "category 由 家居用品 -> 户外运动"],
+        "version": "v2.3 · doubao-pro-32k"
+      },
+      "revisionNo": 2,
+      "isDispute": false
     }
   ],
   "page": 1,
   "pageSize": 20,
-  "total": 3
+  "total": 4
 }

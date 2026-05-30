@@ -9,4 +9,6 @@ public record AiReviewResultResponse(
     String decision,
     String comment,
     List<String> risk_flags,
-    List<String> evidence) {}
+    List<String> evidence,
+    String version,
+    String modelName) {}

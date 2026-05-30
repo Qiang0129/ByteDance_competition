@@ -47,8 +47,14 @@ export interface AnnotationToReview {
   schemaVersionId: string;
   labelerName: string;
   submittedAt: string;
+  /** 所属任务(AI 预审按任务分组展示用) */
+  taskId?: string;
+  taskTitle?: string;
+  taskType?: string;
   /** 标注员实际填写的 answer */
   answerJson: Record<string, unknown>;
+  /** 上一轮提交的答案(多轮复审对比用,首轮为空) */
+  previousAnswerJson?: Record<string, unknown>;
   /** 原始题目展示数据 */
   rawPayload: Record<string, unknown>;
   /** AI 预审结果(可能为空,代表 AI 还在排队) */
@@ -58,6 +64,40 @@ export interface AnnotationToReview {
   revisionNo: number;
   /** 是否被标为争议样本 */
   isDispute?: boolean;
+  /** 审核阶段时间线:第一轮 AI 预审,第二轮人工复审 */
+  reviewTimeline?: ReviewTimelineStage[];
+}
+
+export interface ReviewTimelineStage {
+  roundNo: number;
+  stage: 'ai_review' | 'human_review';
+  title: string;
+  status: 'pending' | 'completed' | 'failed';
+  actor: string;
+  decision?: string;
+  score?: number;
+  comment?: string;
+  reason?: string;
+  occurredAt?: string;
+}
+
+/**
+ * AI 预审「按任务」聚合摘要,用于 AI 预审页的任务列表(可展开)。
+ * 后端建议端点:GET /reviewer/ai-review/tasks
+ */
+export interface AiReviewTaskSummary {
+  taskId: string;
+  taskTitle: string;
+  taskType?: string;
+  /** 该任务下已出 AI 结论的标注总数 */
+  total: number;
+  /** 各决策计数 */
+  passCount: number;
+  needHumanCount: number;
+  rejectCount: number;
+  /** 尚未人工裁决的条数(用于角标提示) */
+  pendingHuman: number;
+  updatedAt?: string;
 }
 
 /** AI 预审结果,字段对齐计划书 4.4 AIReviewResult */
@@ -74,6 +114,9 @@ export interface AiReviewResult {
   comment: string;
   risk_flags: string[];
   evidence: string[];
+  /** AI 规则/模型版本标识(如 v2.3 · doubao-pro-32k),展示用 */
+  version?: string;
+  modelName?: string;
 }
 
 /** 提交审核结论的请求体 */

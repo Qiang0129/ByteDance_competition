@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiOutlined,
   InfoCircleOutlined,
-  RobotOutlined,
   SaveOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
@@ -24,6 +23,7 @@ import {
 import { aiReviewApi } from '../../api/aiReview';
 import { getApiErrorMessage } from '../../api/client';
 import type { AiModelConfig, AiModelConfigRequest } from '../../types/aiReview';
+import { AiAssistantIcon } from '../../components/icons';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -218,7 +218,7 @@ export default function ModelSettings() {
                   placeholder="例如: OpenAI-compatible 网关"
                   value={config.providerName}
                   onChange={(event) => update({ providerName: event.target.value })}
-                  prefix={<RobotOutlined style={{ color: '#94a3b8' }} />}
+                  prefix={<AiAssistantIcon style={{ color: '#94a3b8' }} />}
                 />
               </div>
             </Col>

@@ -15,7 +15,6 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ProjectOutlined,
-  RobotOutlined,
   SearchOutlined,
   ShopOutlined,
   SwapOutlined,
@@ -47,6 +46,7 @@ import {
 } from '../utils/authNavigation';
 import { PageErrorBoundary } from './PageErrorBoundary';
 import ColorModeSwitcher from './ColorModeSwitcher';
+import { AiAssistantIcon } from '../components/icons';
 
 const { Header, Sider, Content } = Layout;
 
@@ -77,8 +77,7 @@ const segmentLabel: Record<string, string> = {
   dashboard: '数据看板',
   export: '导出中心',
   overview: '工作概览',
-  queue: '待审队列',
-  ai: 'AI 审核',
+  ai: '待审队列',
   disputes: '争议样本',
   reports: '审核报表',
   settings: '系统设置',
@@ -109,7 +108,7 @@ const ownerMenuItems: MenuProps['items'] = [
     key: 'g-owner-review',
     label: '审核与质检',
     children: [
-      { key: '/owner/ai-review', icon: <RobotOutlined />, label: 'AI 预审规则' },
+      { key: '/owner/ai-review', icon: <AiAssistantIcon />, label: 'AI 预审规则' },
       { key: '/owner/settings/model', icon: <ApiOutlined />, label: '模型配置' },
       { key: '/owner/review', icon: <AuditOutlined />, label: '人工审核' },
     ],
@@ -169,8 +168,7 @@ const reviewerMenuItems: MenuProps['items'] = [
     key: 'g-reviewer-review',
     label: 'REVIEW',
     children: [
-      { key: '/reviewer/queue', icon: <AuditOutlined />, label: '待审队列' },
-      { key: '/reviewer/ai', icon: <RobotOutlined />, label: 'AI 审核' },
+      { key: '/reviewer/ai', icon: <AuditOutlined />, label: '待审队列' },
       { key: '/reviewer/disputes', icon: <ExclamationCircleOutlined />, label: '争议样本' },
     ],
   },
@@ -189,7 +187,7 @@ const aiReviewerMenuItems: MenuProps['items'] = [
     label: 'AI REVIEW',
     children: [
       { key: '/ai-reviewer', icon: <DashboardOutlined />, label: '作业概览' },
-      { key: '/ai-reviewer/jobs', icon: <RobotOutlined />, label: 'Job 队列' },
+      { key: '/ai-reviewer/jobs', icon: <AiAssistantIcon />, label: 'Job 队列' },
       { key: '/ai-reviewer/settings/model', icon: <ApiOutlined />, label: '模型配置' },
     ],
   },
@@ -222,7 +220,6 @@ function resolveSelectedKey(section: RoleSection, pathname: string): string {
   }
   if (section === 'reviewer') {
     const reviewerKeys = [
-      '/reviewer/queue',
       '/reviewer/ai',
       '/reviewer/disputes',
       '/reviewer/reports',
@@ -406,7 +403,7 @@ export default function AppLayout() {
     },
     {
       key: 'profile',
-      icon: section === 'ai_reviewer' || section === 'owner' ? <RobotOutlined /> : <UserOutlined />,
+      icon: section === 'ai_reviewer' || section === 'owner' ? <AiAssistantIcon /> : <UserOutlined />,
       label: section === 'ai_reviewer' || section === 'owner' ? '模型配置' : '个人资料',
     },
     { key: 'appearance', icon: <BgColorsOutlined />, label: '外观主题' },

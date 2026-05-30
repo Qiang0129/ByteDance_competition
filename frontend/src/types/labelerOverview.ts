@@ -1,0 +1,50 @@
+export interface LabelerOverview {
+  heroStats: {
+    weeklySubmitted: number;
+    reviewPassRate: number;
+    monthlyRewardEstimate: number;
+  };
+  kpis: {
+    activeTasks: number;
+    submittedToday: number;
+    returnedItems: number;
+    avgDurationSec: number;
+  };
+  todayProgress: {
+    target: number;
+    submitted: number;
+    aiPassed: number;
+    humanConfirmed: number;
+    percent: number;
+    avgDurationSec: number;
+    estimatedFinishTime: string;
+  };
+  reviewDistribution: {
+    aiPass: number;
+    aiNeedHuman: number;
+    aiReject: number;
+    humanPass: number;
+    humanReturned: number;
+  };
+  recentBatches: LabelerOverviewRecentBatch[];
+  supportedItemTypes: LabelerOverviewSupportedItemType[];
+}
+
+export interface LabelerOverviewRecentBatch {
+  taskId: string;
+  assignmentId?: string;
+  title: string;
+  description: string;
+  taskType: string;
+  taskTypeKey: string;
+  remainingQuota: number;
+  totalQuota: number;
+  deadline: string;
+  rewardPerItem?: number | null;
+  updatedAt: string;
+}
+
+export interface LabelerOverviewSupportedItemType {
+  key: string;
+  label: string;
+}

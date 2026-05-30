@@ -53,6 +53,27 @@ public class ReviewController {
     return reviewService.listAnnotations(authentication, batchId, decision, page, pageSize);
   }
 
+  @GetMapping("/ai-review/tasks")
+  public ReviewerPageResponse<AiReviewTaskSummaryResponse> listAiReviewTasks(
+      Authentication authentication,
+      @RequestParam(required = false) String decision,
+      @RequestParam(required = false) String keyword,
+      @RequestParam(required = false) Integer page,
+      @RequestParam(required = false) Integer pageSize) {
+    return reviewService.listAiReviewTasks(authentication, decision, keyword, page, pageSize);
+  }
+
+  @GetMapping("/ai-review/tasks/{taskId}/annotations")
+  public ReviewerPageResponse<AnnotationToReviewResponse> listAiReviewAnnotations(
+      Authentication authentication,
+      @PathVariable long taskId,
+      @RequestParam(required = false) String decision,
+      @RequestParam(required = false) String keyword,
+      @RequestParam(required = false) Integer page,
+      @RequestParam(required = false) Integer pageSize) {
+    return reviewService.listAiReviewAnnotations(authentication, taskId, decision, keyword, page, pageSize);
+  }
+
   @PostMapping("/annotations/{annotationId}/decision")
   public AnnotationToReviewResponse submitDecision(
       Authentication authentication,

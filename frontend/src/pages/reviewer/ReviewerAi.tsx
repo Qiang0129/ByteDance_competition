@@ -1,186 +1,112 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CheckOutlined,
-  CloseOutlined,
+  ArrowRightOutlined,
   ExclamationCircleOutlined,
-  RobotOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
 import {
   App as AntdApp,
   Button,
   Card,
+  Empty,
   Input,
   Segmented,
   Space,
-  Table,
+  Spin,
   Tag,
   Typography,
 } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import { useNavigate } from 'react-router-dom';
 
 import { reviewerApi } from '../../api/reviewer';
-import type { AiReviewResult, AnnotationToReview } from '../../types/reviewer';
+import { AiAssistantIcon } from '../../components/icons';
+import type {
+  AiReviewResult,
+  AiReviewTaskSummary,
+  AnnotationToReview,
+} from '../../types/reviewer';
 
 /**
- * AI 审核页:聚合所有 AI 已出具结论的标注,Reviewer 可批量确认。
- * 计划书 4.4:AIReviewResult.decision 是 PASS / REJECT / NEED_HUMAN_REVIEW。
- * 4.5:Reviewer 在此可对 AI 结论一键确认或推翻,审计日志写入。
+ * AI 预审页:按「任务」聚合展示 AI 已出结论的标注。
+ *   - 顶层是优美的任务卡片,显示 PASS / NEED_HUMAN / REJECT 计数;
+ *   - 每张卡片带「进入审核」按钮,点击跳到三栏审核工作台 /reviewer/ai/{taskId}。
+ * 后端接口(待实现):
+ *   GET  /reviewer/ai-review/tasks
+ *   GET  /reviewer/ai-review/tasks/{taskId}/annotations
+ *   POST /reviewer/annotations/{annotationId}/decision
  */
 
-const decisionMeta: Record<
-  AiReviewResult['decision'],
-  { color: string; label: string }
-> = {
-  PASS: { color: 'success', label: 'PASS' },
-  REJECT: { color: 'error', label: 'REJECT' },
-  NEED_HUMAN_REVIEW: { color: 'warning', label: 'NEED_HUMAN' },
-};
+type DecisionFilter = 'all' | AiReviewResult['decision'];
 
 export default function ReviewerAi() {
   const { message } = AntdApp.useApp();
-  const [items, setItems] = useState<AnnotationToReview[]>([]);
-  const [filter, setFilter] = useState<'all' | AiReviewResult['decision']>('all');
+  const navigate = useNavigate();
+  const [tasks, setTasks] = useState<AiReviewTaskSummary[]>([]);
+  const [filter, setFilter] = useState<DecisionFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
+  const loadTasks = useCallback(async () => {
+    setLoading(true);
+    try {
+      const resp = await reviewerApi.listAiReviewTasks({
+        decision: filter,
+        keyword: keyword || undefined,
+      });
+      setTasks(resp.items ?? []);
+      setUsingFallback(false);
+    } catch {
       try {
-        // 后端真实场景:GET /reviewer/ai-results,这里复用 annotations endpoint
-        const resp = await reviewerApi.listAnnotations('all', { pageSize: 100 });
-        if (cancelled) return;
-        setItems(resp.items ?? []);
-        setUsingFallback(false);
+        const res = await fetch('/sample-datasets/reviewer-annotations.json');
+        const data = await res.json();
+        const items = (data.items as AnnotationToReview[]) ?? [];
+        setTasks(groupTasksFromItems(items));
+        setUsingFallback(true);
       } catch {
-        try {
-          const res = await fetch('/sample-datasets/reviewer-annotations.json');
-          const data = await res.json();
-          if (cancelled) return;
-          setItems((data.items as AnnotationToReview[]) ?? []);
-          setUsingFallback(true);
-        } catch {
-          if (!cancelled) message.error('加载 AI 审核结果失败');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        message.error('加载 AI 预审任务失败');
+        setTasks([]);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [message]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, keyword, message]);
 
-  const filtered = useMemo(() => {
-    return items.filter((it) => {
-      if (!it.aiResult) return false;
-      if (filter !== 'all' && it.aiResult.decision !== filter) return false;
-      if (keyword) {
-        const kw = keyword.toLowerCase();
-        if (
-          !`${it.annotationId} ${it.itemId} ${it.labelerName}`
-            .toLowerCase()
-            .includes(kw)
-        )
-          return false;
+  useEffect(() => {
+    void loadTasks();
+  }, [loadTasks]);
+
+  const visibleTasks = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (filter !== 'all') {
+        const count =
+          filter === 'PASS'
+            ? t.passCount
+            : filter === 'REJECT'
+              ? t.rejectCount
+              : t.needHumanCount;
+        if (count <= 0) return false;
+      }
+      if (kw && !`${t.taskTitle} ${t.taskType ?? ''}`.toLowerCase().includes(kw)) {
+        return false;
       }
       return true;
     });
-  }, [items, filter, keyword]);
+  }, [tasks, filter, keyword]);
 
-  async function commit(annotationId: string, decision: 'APPROVE' | 'RETURN') {
-    try {
-      await reviewerApi.submitReview(annotationId, { decision });
-    } catch {
-      // 后端未起,演示模式继续
-    }
-    setItems((prev) => prev.filter((it) => it.annotationId !== annotationId));
-    message.success(decision === 'APPROVE' ? '已确认通过' : '已打回');
-  }
-
-  const columns: ColumnsType<AnnotationToReview> = [
-    {
-      title: 'Annotation',
-      dataIndex: 'annotationId',
-      width: 120,
-      render: (id: string) => <code className="dataset-id">{id}</code>,
-    },
-    {
-      title: 'Item / Schema',
-      key: 'item',
-      width: 160,
-      render: (_v, record) => (
-        <Space direction="vertical" size={2}>
-          <span>{record.itemId}</span>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            Schema {record.schemaVersionId}
-          </Typography.Text>
-        </Space>
-      ),
-    },
-    { title: 'Labeler', dataIndex: 'labelerName', width: 140 },
-    {
-      title: 'AI 决策',
-      key: 'decision',
-      width: 130,
-      render: (_v, record) => {
-        const ai = record.aiResult;
-        if (!ai) return <Tag>无</Tag>;
-        const meta = decisionMeta[ai.decision];
-        return <Tag color={meta.color}>{meta.label}</Tag>;
-      },
-    },
-    {
-      title: '总分',
-      key: 'score',
-      width: 90,
-      render: (_v, record) => (record.aiResult ? record.aiResult.total_score : '-'),
-      sorter: (a, b) => (a.aiResult?.total_score ?? 0) - (b.aiResult?.total_score ?? 0),
-    },
-    {
-      title: 'AI 评语',
-      key: 'comment',
-      ellipsis: true,
-      render: (_v, record) => record.aiResult?.comment ?? '-',
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 200,
-      render: (_v, record) => (
-        <Space size={4}>
-          <Button
-            type="link"
-            size="small"
-            icon={<CheckOutlined />}
-            onClick={() => void commit(record.annotationId, 'APPROVE')}
-          >
-            确认通过
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            icon={<CloseOutlined />}
-            onClick={() => void commit(record.annotationId, 'RETURN')}
-          >
-            打回
-          </Button>
-        </Space>
-      ),
-    },
-  ];
+  const totalAnnotations = useMemo(
+    () => visibleTasks.reduce((sum, t) => sum + t.total, 0),
+    [visibleTasks],
+  );
 
   return (
     <Space direction="vertical" size="large" className="page-stack">
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
-          <Typography.Title level={3}>AI 审核</Typography.Title>
+          <Typography.Title level={3}>待审队列</Typography.Title>
           <Typography.Text type="secondary">
-            集中查看 AI 预审结果,对 NEED_HUMAN_REVIEW 项一键裁决,对 AI 误判可推翻。
+            按任务集中查看 AI 预审结果,点击「进入审核」逐条裁决并入库。
           </Typography.Text>
         </Space>
         {usingFallback && <Tag color="gold">演示模式 · 接口未连接</Tag>}
@@ -191,7 +117,7 @@ export default function ReviewerAi() {
           <Input
             allowClear
             prefix={<SearchOutlined />}
-            placeholder="搜索 annotation / item / 标注员"
+            placeholder="搜索任务名称 / 类型"
             style={{ width: 280 }}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
@@ -200,38 +126,137 @@ export default function ReviewerAi() {
             options={[
               { label: '全部', value: 'all' },
               { label: 'PASS', value: 'PASS' },
-              { label: 'NEED_HUMAN', value: 'NEED_HUMAN_REVIEW' },
+              { label: '人工复核', value: 'NEED_HUMAN_REVIEW' },
               { label: 'REJECT', value: 'REJECT' },
             ]}
             value={filter}
-            onChange={(v) => setFilter(v as typeof filter)}
+            onChange={(v) => setFilter(v as DecisionFilter)}
           />
-          <Tag icon={<RobotOutlined />} color="processing">
-            共 {filtered.length} 条 AI 结果
+          <Tag icon={<AiAssistantIcon />} color="processing">
+            {visibleTasks.length} 个任务 · {totalAnnotations} 条 AI 结果
           </Tag>
         </Space>
       </Card>
 
-      <Card>
-        <Table<AnnotationToReview>
-          rowKey="annotationId"
-          columns={columns}
-          dataSource={filtered}
-          loading={loading}
-          pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
-        />
-      </Card>
+      <Spin spinning={loading}>
+        {visibleTasks.length === 0 && !loading ? (
+          <Card>
+            <Empty description="暂无 AI 预审结果" />
+          </Card>
+        ) : (
+          <div className="ai-review-card-grid">
+            {visibleTasks.map((task) => (
+              <AiReviewTaskCard
+                key={task.taskId}
+                task={task}
+                onEnter={() => navigate(`/reviewer/ai/${encodeURIComponent(task.taskId)}`)}
+              />
+            ))}
+          </div>
+        )}
+      </Spin>
 
       <Card>
-        <Space direction="vertical" size={6}>
-          <Space size={6} wrap>
-            <ExclamationCircleOutlined style={{ color: '#f59e0b' }} />
-            <Typography.Text type="secondary">
-              当 AI 结果与人工裁决出现分歧并升级时,会进入「争议样本」页;计划书 4.4 要求保留 prompt 与 response 快照。
-            </Typography.Text>
-          </Space>
+        <Space size={6} wrap>
+          <ExclamationCircleOutlined style={{ color: '#f59e0b' }} />
+          <Typography.Text type="secondary">
+            当 AI 结果与人工裁决出现分歧并升级时,会进入「争议样本」页;计划书 4.4 要求保留 prompt 与 response 快照。
+          </Typography.Text>
         </Space>
       </Card>
     </Space>
   );
+}
+
+/* ============ 任务卡片 ============ */
+function AiReviewTaskCard({
+  task,
+  onEnter,
+}: {
+  task: AiReviewTaskSummary;
+  onEnter: () => void;
+}) {
+  const donePct = task.total > 0 ? Math.round(((task.total - task.pendingHuman) / task.total) * 100) : 0;
+
+  return (
+    <Card className="ai-review-card" hoverable onClick={onEnter}>
+      <div className="ai-review-card-head">
+        <div className="ai-review-card-icon">
+          <AiAssistantIcon />
+        </div>
+        <div className="ai-review-card-titles">
+          <span className="ai-review-card-title">{task.taskTitle}</span>
+          {task.taskType && <span className="ai-review-card-type">{task.taskType}</span>}
+        </div>
+      </div>
+
+      <div className="ai-review-card-stats">
+        <div className="ai-review-stat is-pass">
+          <span className="ai-review-stat-num">{task.passCount}</span>
+          <span className="ai-review-stat-label">建议通过</span>
+        </div>
+        <div className="ai-review-stat is-human">
+          <span className="ai-review-stat-num">{task.needHumanCount}</span>
+          <span className="ai-review-stat-label">人工复核</span>
+        </div>
+        <div className="ai-review-stat is-reject">
+          <span className="ai-review-stat-num">{task.rejectCount}</span>
+          <span className="ai-review-stat-label">建议打回</span>
+        </div>
+      </div>
+
+      <div className="ai-review-card-progress">
+        <div className="ai-review-card-progress-bar">
+          <span style={{ width: `${donePct}%` }} />
+        </div>
+        <span className="ai-review-card-progress-text">
+          待审 {task.pendingHuman} · 共 {task.total} 条
+        </span>
+      </div>
+
+      <Button
+        type="primary"
+        block
+        className="ai-review-card-enter"
+        onClick={(e) => {
+          e.stopPropagation();
+          onEnter();
+        }}
+      >
+        进入审核 <ArrowRightOutlined />
+      </Button>
+    </Card>
+  );
+}
+
+/* ============ 工具函数 ============ */
+
+/** 把扁平标注列表按任务聚合成任务摘要(演示模式 / 无后端聚合接口时使用) */
+export function groupTasksFromItems(items: AnnotationToReview[]): AiReviewTaskSummary[] {
+  const map = new Map<string, AiReviewTaskSummary>();
+  for (const it of items) {
+    if (!it.aiResult) continue;
+    const taskId = it.taskId ?? `schema-${it.schemaVersionId}`;
+    const taskTitle = it.taskTitle ?? `Schema ${it.schemaVersionId} 任务`;
+    let summary = map.get(taskId);
+    if (!summary) {
+      summary = {
+        taskId,
+        taskTitle,
+        taskType: it.taskType,
+        total: 0,
+        passCount: 0,
+        needHumanCount: 0,
+        rejectCount: 0,
+        pendingHuman: 0,
+      };
+      map.set(taskId, summary);
+    }
+    summary.total += 1;
+    summary.pendingHuman += 1;
+    if (it.aiResult.decision === 'PASS') summary.passCount += 1;
+    if (it.aiResult.decision === 'REJECT') summary.rejectCount += 1;
+    if (it.aiResult.decision === 'NEED_HUMAN_REVIEW') summary.needHumanCount += 1;
+  }
+  return Array.from(map.values());
 }

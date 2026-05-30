@@ -104,6 +104,60 @@ public class ReviewService {
         reviewRepository.countAnnotations(taskId, normalizedDecision));
   }
 
+  public ReviewerPageResponse<AiReviewTaskSummaryResponse> listAiReviewTasks(
+      Authentication authentication,
+      String decision,
+      String keyword,
+      Integer page,
+      Integer pageSize) {
+    requireReviewer(authentication);
+    String normalizedDecision = normalizeAiDecisionFilter(decision);
+    int safePage = page == null || page < 1 ? 1 : page;
+    int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
+    List<AiReviewTaskSummaryResponse> items = reviewRepository
+        .listAiReviewTaskSummaries(
+            normalizedDecision,
+            keyword,
+            safePageSize,
+            (safePage - 1) * safePageSize)
+        .stream()
+        .map(this::toAiReviewTaskSummaryResponse)
+        .toList();
+    return new ReviewerPageResponse<>(
+        items,
+        safePage,
+        safePageSize,
+        reviewRepository.countAiReviewTaskSummaries(normalizedDecision, keyword));
+  }
+
+  public ReviewerPageResponse<AnnotationToReviewResponse> listAiReviewAnnotations(
+      Authentication authentication,
+      long taskId,
+      String decision,
+      String keyword,
+      Integer page,
+      Integer pageSize) {
+    requireReviewer(authentication);
+    String normalizedDecision = normalizeAiDecisionFilter(decision);
+    int safePage = page == null || page < 1 ? 1 : page;
+    int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
+    List<AnnotationToReviewResponse> items = reviewRepository
+        .listAiReviewAnnotations(
+            taskId,
+            normalizedDecision,
+            keyword,
+            safePageSize,
+            (safePage - 1) * safePageSize)
+        .stream()
+        .map(this::toAnnotationResponse)
+        .toList();
+    return new ReviewerPageResponse<>(
+        items,
+        safePage,
+        safePageSize,
+        reviewRepository.countAiReviewAnnotations(taskId, normalizedDecision, keyword));
+  }
+
   @Transactional
   public AnnotationToReviewResponse submitDecision(
       Authentication authentication,
@@ -369,6 +423,20 @@ public class ReviewService {
         formatDateTime(record.updatedAt()));
   }
 
+  private AiReviewTaskSummaryResponse toAiReviewTaskSummaryResponse(
+      ReviewRepository.AiReviewTaskSummaryRecord record) {
+    return new AiReviewTaskSummaryResponse(
+        Long.toString(record.taskId()),
+        record.taskTitle(),
+        record.taskType(),
+        record.total(),
+        record.passCount(),
+        record.needHumanCount(),
+        record.rejectCount(),
+        record.pendingHuman(),
+        formatDateTime(record.updatedAt()));
+  }
+
   private AnnotationToReviewResponse toAnnotationResponse(ReviewRepository.AnnotationReviewRecord record) {
     return new AnnotationToReviewResponse(
         Long.toString(record.annotationId()),
@@ -377,12 +445,17 @@ public class ReviewService {
         Long.toString(record.schemaVersionId()),
         record.labelerName(),
         formatDateTime(record.submittedAt()),
+        Long.toString(record.taskId()),
+        record.taskTitle(),
+        record.taskType(),
         readJson(record.answerJson()),
+        readJson(record.previousAnswerJson()),
         readJson(record.rawPayloadJson()),
         toAiResult(record),
         record.humanDecision() == null ? null : record.humanDecision().toUpperCase(Locale.ROOT),
         record.revisionNo(),
-        record.dispute());
+        record.dispute(),
+        buildReviewTimeline(record));
   }
 
   private DisputeItemResponse toDisputeResponse(ReviewRepository.DisputeRecord record) {
@@ -403,15 +476,27 @@ public class ReviewService {
       return null;
     }
     Map<String, Double> scores = readScores(record.aiScoresJson());
-    double total = scores.values().stream().mapToDouble(Double::doubleValue).average().orElse(0);
+    double total = record.aiTotalScore() == null
+        ? scores.values().stream().mapToDouble(Double::doubleValue).average().orElse(0)
+        : record.aiTotalScore();
     JsonNode response = readJson(record.aiResponseJson());
+    List<String> riskFlags = readStringArray(readJson(record.aiRiskFlagsJson()));
+    if (riskFlags.isEmpty()) {
+      riskFlags = readStringArray(response.path("risk_flags"));
+    }
+    List<String> evidence = readStringArray(readJson(record.aiEvidenceJson()));
+    if (evidence.isEmpty()) {
+      evidence = readStringArray(response.path("evidence"));
+    }
     return new AiReviewResultResponse(
         scores,
         total,
         record.aiDecision(),
         record.aiComment() == null ? "" : record.aiComment(),
-        readStringArray(response.path("risk_flags")),
-        readStringArray(response.path("evidence")));
+        riskFlags,
+        evidence,
+        buildAiResultVersion(record),
+        record.aiModelName());
   }
 
   private Map<String, Double> readScores(String json) {
@@ -473,6 +558,20 @@ public class ReviewService {
     return normalized;
   }
 
+  private String normalizeAiDecisionFilter(String decision) {
+    if (decision == null || decision.isBlank() || "all".equalsIgnoreCase(decision)) {
+      return null;
+    }
+    String normalized = decision.trim().toUpperCase(Locale.ROOT);
+    if ("NEED_HUMAN".equals(normalized)) {
+      normalized = "NEED_HUMAN_REVIEW";
+    }
+    if (!List.of("PASS", "NEED_HUMAN_REVIEW", "REJECT").contains(normalized)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_DECISION", "unsupported ai review decision");
+    }
+    return normalized;
+  }
+
   private String normalizeReviewDecision(String decision) {
     if (decision == null || decision.isBlank()) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REVIEW_DECISION", "review decision is required");
@@ -501,6 +600,55 @@ public class ReviewService {
 
   private String formatDateTime(LocalDateTime dateTime) {
     return dateTime == null ? "" : DATE_TIME.format(dateTime);
+  }
+
+  private List<ReviewTimelineStageResponse> buildReviewTimeline(
+      ReviewRepository.AnnotationReviewRecord record) {
+    AiReviewResultResponse aiResult = toAiResult(record);
+    ReviewTimelineStageResponse aiStage = new ReviewTimelineStageResponse(
+        1,
+        "ai_review",
+        "第一轮审核（AI预审）",
+        aiResult == null ? "pending" : "completed",
+        "AI Agent",
+        aiResult == null ? null : aiResult.decision(),
+        aiResult == null ? null : aiResult.total_score(),
+        aiResult == null ? "等待 AI 预审结果" : aiResult.comment(),
+        null,
+        formatDateTime(record.aiFinishedAt()));
+
+    String humanDecision = record.humanDecision() == null
+        ? null
+        : record.humanDecision().toUpperCase(Locale.ROOT);
+    ReviewTimelineStageResponse humanStage = new ReviewTimelineStageResponse(
+        2,
+        "human_review",
+        "第二轮审核（人工复审）",
+        humanDecision == null ? "pending" : "completed",
+        record.humanReviewerName() == null || record.humanReviewerName().isBlank()
+            ? "Reviewer"
+            : record.humanReviewerName(),
+        humanDecision,
+        null,
+        humanDecision == null ? "等待 Reviewer 人工复审" : null,
+        record.humanReason(),
+        formatDateTime(record.humanReviewedAt()));
+    return List.of(aiStage, humanStage);
+  }
+
+  private String buildAiResultVersion(ReviewRepository.AnnotationReviewRecord record) {
+    String ruleName = record.aiRuleName();
+    String ruleVersion = record.aiRuleVersion();
+    String modelName = record.aiModelName();
+    String rulePart = ruleName == null || ruleName.isBlank()
+        ? ""
+        : ruleVersion == null || ruleVersion.isBlank()
+            ? ruleName
+            : ruleName + " v" + ruleVersion;
+    if (modelName == null || modelName.isBlank()) {
+      return rulePart.isBlank() ? null : rulePart;
+    }
+    return rulePart.isBlank() ? modelName : rulePart + " · " + modelName;
   }
 
   private AuthenticatedUser requireReviewer(Authentication authentication) {

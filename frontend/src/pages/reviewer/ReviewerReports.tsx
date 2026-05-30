@@ -3,9 +3,10 @@ import {
   CloseCircleFilled,
   DownloadOutlined,
   ExclamationCircleFilled,
-  RobotOutlined,
 } from '@ant-design/icons';
 import { Button, Card, Col, Row, Space, Tag, Typography } from 'antd';
+
+import { AiAssistantIcon } from '../../components/icons';
 
 /**
  * 审核报表(占位骨架)。
@@ -19,7 +20,7 @@ const stats = [
   { key: 'approve', label: '通过率', value: '92.3%', color: '#22c55e', icon: <CheckCircleFilled /> },
   { key: 'return', label: '打回率', value: '6.1%', color: '#f59e0b', icon: <CloseCircleFilled /> },
   { key: 'dispute', label: '争议率', value: '1.6%', color: '#ef4444', icon: <ExclamationCircleFilled /> },
-  { key: 'ai', label: 'AI 一致率', value: '88.4%', color: '#2f7bff', icon: <RobotOutlined /> },
+  { key: 'ai', label: 'AI 一致率', value: '88.4%', color: '#2f7bff', icon: <AiAssistantIcon /> },
 ];
 
 const trend = [

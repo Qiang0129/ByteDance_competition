@@ -2,6 +2,7 @@ package com.labelhub.backend.review;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -126,27 +127,56 @@ public class ReviewRepository {
           an.id AS annotation_id,
           an.assignment_id,
           a.item_id,
+          a.task_id,
+          t.title AS task_title,
+          JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
           an.schema_version_id,
           u.name AS labeler_name,
           an.submitted_at,
           CAST(an.answer_json AS CHAR) AS answer_json,
+          (
+            SELECT CAST(prev.answer_json AS CHAR)
+            FROM annotations prev
+            WHERE prev.assignment_id = an.assignment_id
+              AND prev.revision_no < an.revision_no
+              AND prev.status <> 'voided'
+            ORDER BY prev.revision_no DESC, prev.id DESC
+            LIMIT 1
+          ) AS previous_answer_json,
           CAST(i.raw_payload AS CHAR) AS raw_payload_json,
           an.status AS annotation_status,
           an.revision_no,
           hr.decision AS human_decision,
           COALESCE(dispute_counts.disputes, 0) AS dispute_count,
           aj.id AS ai_job_id,
+          aj.finished_at AS ai_finished_at,
           air.decision AS ai_decision,
           CAST(air.scores_json AS CHAR) AS ai_scores_json,
+          air.total_score AS ai_total_score,
           air.comment AS ai_comment,
-          CAST(air.response_json AS CHAR) AS ai_response_json
+          CAST(air.risk_flags_json AS CHAR) AS ai_risk_flags_json,
+          CAST(air.evidence_json AS CHAR) AS ai_evidence_json,
+          CAST(air.response_json AS CHAR) AS ai_response_json,
+          air.model_name AS ai_model_name,
+          COALESCE(r.name, JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.name'))) AS ai_rule_name,
+          JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.version')) AS ai_rule_version,
+          hr.reason AS human_reason,
+          hr.created_at AS human_reviewed_at,
+          reviewer.name AS human_reviewer_name
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         JOIN items i ON i.id = a.item_id
         JOIN users u ON u.id = a.labeler_id
-        LEFT JOIN ai_review_jobs aj ON aj.annotation_id = an.id
+        LEFT JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          WHERE latest_job.annotation_id = an.id
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
         LEFT JOIN ai_review_results air ON air.job_id = aj.id
+        LEFT JOIN ai_review_rules r ON r.id = aj.rule_id
         LEFT JOIN human_reviews hr ON hr.id = (
           SELECT latest_hr.id
           FROM human_reviews latest_hr
@@ -154,6 +184,7 @@ public class ReviewRepository {
           ORDER BY latest_hr.round_no DESC, latest_hr.id DESC
           LIMIT 1
         )
+        LEFT JOIN users reviewer ON reviewer.id = hr.reviewer_id
         LEFT JOIN (
           SELECT annotation_id, COUNT(*) AS disputes
           FROM human_reviews
@@ -191,6 +222,186 @@ public class ReviewRepository {
     return listAnnotations(taskId, decision, Integer.MAX_VALUE, 0).size();
   }
 
+  public List<AiReviewTaskSummaryRecord> listAiReviewTaskSummaries(
+      String decision,
+      String keyword,
+      int limit,
+      int offset) {
+    List<Object> args = new ArrayList<>();
+    String filters = buildAiReviewPendingFilters(decision, keyword, args);
+    args.add(limit);
+    args.add(offset);
+    String sql = """
+        SELECT
+          t.id AS task_id,
+          t.title AS task_title,
+          JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
+          COUNT(*) AS total,
+          SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END) AS pass_count,
+          SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END) AS need_human_count,
+          SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END) AS reject_count,
+          COUNT(*) AS pending_human,
+          MAX(COALESCE(air.created_at, an.updated_at)) AS updated_at
+        FROM annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          JOIN ai_review_results latest_result ON latest_result.job_id = latest_job.id
+          WHERE latest_job.annotation_id = an.id
+            AND latest_job.status = 'succeeded'
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
+        JOIN ai_review_results air ON air.job_id = aj.id
+        WHERE
+        """ + filters + """
+        GROUP BY t.id, t.title, task_type
+        ORDER BY updated_at DESC, t.id DESC
+        LIMIT ? OFFSET ?
+        """;
+    return jdbcTemplate.query(sql, this::mapAiReviewTaskSummary, args.toArray());
+  }
+
+  public long countAiReviewTaskSummaries(String decision, String keyword) {
+    List<Object> args = new ArrayList<>();
+    String filters = buildAiReviewPendingFilters(decision, keyword, args);
+    Long count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM (
+          SELECT t.id
+          FROM annotations an
+          JOIN assignments a ON a.id = an.assignment_id
+          JOIN tasks t ON t.id = a.task_id
+          JOIN ai_review_jobs aj ON aj.id = (
+            SELECT latest_job.id
+            FROM ai_review_jobs latest_job
+            JOIN ai_review_results latest_result ON latest_result.job_id = latest_job.id
+            WHERE latest_job.annotation_id = an.id
+              AND latest_job.status = 'succeeded'
+            ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+            LIMIT 1
+          )
+          JOIN ai_review_results air ON air.job_id = aj.id
+          WHERE
+        """ + filters + """
+          GROUP BY t.id
+        ) pending_tasks
+        """,
+        Long.class,
+        args.toArray());
+    return count == null ? 0 : count;
+  }
+
+  public List<AnnotationReviewRecord> listAiReviewAnnotations(
+      long taskId,
+      String decision,
+      String keyword,
+      int limit,
+      int offset) {
+    List<Object> args = new ArrayList<>();
+    args.add(taskId);
+    String filters = buildAiReviewPendingFilters(decision, keyword, args);
+    args.add(limit);
+    args.add(offset);
+    String sql = """
+        SELECT
+          an.id AS annotation_id,
+          an.assignment_id,
+          a.item_id,
+          a.task_id,
+          t.title AS task_title,
+          JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
+          an.schema_version_id,
+          u.name AS labeler_name,
+          an.submitted_at,
+          CAST(an.answer_json AS CHAR) AS answer_json,
+          (
+            SELECT CAST(prev.answer_json AS CHAR)
+            FROM annotations prev
+            WHERE prev.assignment_id = an.assignment_id
+              AND prev.revision_no < an.revision_no
+              AND prev.status <> 'voided'
+            ORDER BY prev.revision_no DESC, prev.id DESC
+            LIMIT 1
+          ) AS previous_answer_json,
+          CAST(i.raw_payload AS CHAR) AS raw_payload_json,
+          an.status AS annotation_status,
+          an.revision_no,
+          NULL AS human_decision,
+          0 AS dispute_count,
+          aj.id AS ai_job_id,
+          aj.finished_at AS ai_finished_at,
+          air.decision AS ai_decision,
+          CAST(air.scores_json AS CHAR) AS ai_scores_json,
+          air.total_score AS ai_total_score,
+          air.comment AS ai_comment,
+          CAST(air.risk_flags_json AS CHAR) AS ai_risk_flags_json,
+          CAST(air.evidence_json AS CHAR) AS ai_evidence_json,
+          CAST(air.response_json AS CHAR) AS ai_response_json,
+          air.model_name AS ai_model_name,
+          COALESCE(r.name, JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.name'))) AS ai_rule_name,
+          JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.version')) AS ai_rule_version,
+          NULL AS human_reason,
+          NULL AS human_reviewed_at,
+          NULL AS human_reviewer_name
+        FROM annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        JOIN items i ON i.id = a.item_id
+        JOIN users u ON u.id = a.labeler_id
+        JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          JOIN ai_review_results latest_result ON latest_result.job_id = latest_job.id
+          WHERE latest_job.annotation_id = an.id
+            AND latest_job.status = 'succeeded'
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
+        JOIN ai_review_results air ON air.job_id = aj.id
+        LEFT JOIN ai_review_rules r ON r.id = aj.rule_id
+        WHERE a.task_id = ?
+          AND
+        """ + filters + """
+        ORDER BY an.updated_at DESC, an.id DESC
+        LIMIT ? OFFSET ?
+        """;
+    return jdbcTemplate.query(sql, this::mapAnnotation, args.toArray());
+  }
+
+  public long countAiReviewAnnotations(long taskId, String decision, String keyword) {
+    List<Object> args = new ArrayList<>();
+    args.add(taskId);
+    String filters = buildAiReviewPendingFilters(decision, keyword, args);
+    Long count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        JOIN items i ON i.id = a.item_id
+        JOIN users u ON u.id = a.labeler_id
+        JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          JOIN ai_review_results latest_result ON latest_result.job_id = latest_job.id
+          WHERE latest_job.annotation_id = an.id
+            AND latest_job.status = 'succeeded'
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
+        JOIN ai_review_results air ON air.job_id = aj.id
+        WHERE a.task_id = ?
+          AND
+        """ + filters,
+        Long.class,
+        args.toArray());
+    return count == null ? 0 : count;
+  }
+
   public Optional<AnnotationReviewRecord> findAnnotation(long annotationId) {
     return jdbcTemplate.query(
         """
@@ -198,27 +409,56 @@ public class ReviewRepository {
           an.id AS annotation_id,
           an.assignment_id,
           a.item_id,
+          a.task_id,
+          t.title AS task_title,
+          JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
           an.schema_version_id,
           u.name AS labeler_name,
           an.submitted_at,
           CAST(an.answer_json AS CHAR) AS answer_json,
+          (
+            SELECT CAST(prev.answer_json AS CHAR)
+            FROM annotations prev
+            WHERE prev.assignment_id = an.assignment_id
+              AND prev.revision_no < an.revision_no
+              AND prev.status <> 'voided'
+            ORDER BY prev.revision_no DESC, prev.id DESC
+            LIMIT 1
+          ) AS previous_answer_json,
           CAST(i.raw_payload AS CHAR) AS raw_payload_json,
           an.status AS annotation_status,
           an.revision_no,
           hr.decision AS human_decision,
           COALESCE(dispute_counts.disputes, 0) AS dispute_count,
           aj.id AS ai_job_id,
+          aj.finished_at AS ai_finished_at,
           air.decision AS ai_decision,
           CAST(air.scores_json AS CHAR) AS ai_scores_json,
+          air.total_score AS ai_total_score,
           air.comment AS ai_comment,
-          CAST(air.response_json AS CHAR) AS ai_response_json
+          CAST(air.risk_flags_json AS CHAR) AS ai_risk_flags_json,
+          CAST(air.evidence_json AS CHAR) AS ai_evidence_json,
+          CAST(air.response_json AS CHAR) AS ai_response_json,
+          air.model_name AS ai_model_name,
+          COALESCE(r.name, JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.name'))) AS ai_rule_name,
+          JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.version')) AS ai_rule_version,
+          hr.reason AS human_reason,
+          hr.created_at AS human_reviewed_at,
+          reviewer.name AS human_reviewer_name
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         JOIN items i ON i.id = a.item_id
         JOIN users u ON u.id = a.labeler_id
-        LEFT JOIN ai_review_jobs aj ON aj.annotation_id = an.id
+        LEFT JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          WHERE latest_job.annotation_id = an.id
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
         LEFT JOIN ai_review_results air ON air.job_id = aj.id
+        LEFT JOIN ai_review_rules r ON r.id = aj.rule_id
         LEFT JOIN human_reviews hr ON hr.id = (
           SELECT latest_hr.id
           FROM human_reviews latest_hr
@@ -226,6 +466,7 @@ public class ReviewRepository {
           ORDER BY latest_hr.round_no DESC, latest_hr.id DESC
           LIMIT 1
         )
+        LEFT JOIN users reviewer ON reviewer.id = hr.reviewer_id
         LEFT JOIN (
           SELECT annotation_id, COUNT(*) AS disputes
           FROM human_reviews
@@ -441,25 +682,97 @@ public class ReviewRepository {
         toLocalDateTime(rs.getTimestamp("updated_at")));
   }
 
+  private AiReviewTaskSummaryRecord mapAiReviewTaskSummary(
+      java.sql.ResultSet rs,
+      int rowNum) throws java.sql.SQLException {
+    return new AiReviewTaskSummaryRecord(
+        rs.getLong("task_id"),
+        rs.getString("task_title"),
+        blankToDefault(rs.getString("task_type"), "Annotation Task"),
+        rs.getLong("total"),
+        rs.getLong("pass_count"),
+        rs.getLong("need_human_count"),
+        rs.getLong("reject_count"),
+        rs.getLong("pending_human"),
+        toLocalDateTime(rs.getTimestamp("updated_at")));
+  }
+
   private AnnotationReviewRecord mapAnnotation(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
     return new AnnotationReviewRecord(
         rs.getLong("annotation_id"),
         rs.getLong("assignment_id"),
         rs.getLong("item_id"),
+        rs.getLong("task_id"),
+        rs.getString("task_title"),
+        blankToDefault(rs.getString("task_type"), "Annotation Task"),
         rs.getLong("schema_version_id"),
         rs.getString("labeler_name"),
         toLocalDateTime(rs.getTimestamp("submitted_at")),
         rs.getString("answer_json"),
+        rs.getString("previous_answer_json"),
         rs.getString("raw_payload_json"),
         rs.getString("annotation_status"),
         rs.getInt("revision_no"),
         rs.getString("human_decision"),
         rs.getInt("dispute_count") > 0,
         toLong(rs.getObject("ai_job_id")),
+        toLocalDateTime(rs.getTimestamp("ai_finished_at")),
         rs.getString("ai_decision"),
         rs.getString("ai_scores_json"),
+        toDouble(rs.getObject("ai_total_score")),
         rs.getString("ai_comment"),
-        rs.getString("ai_response_json"));
+        rs.getString("ai_risk_flags_json"),
+        rs.getString("ai_evidence_json"),
+        rs.getString("ai_response_json"),
+        rs.getString("ai_model_name"),
+        rs.getString("ai_rule_name"),
+        rs.getString("ai_rule_version"),
+        rs.getString("human_reason"),
+        toLocalDateTime(rs.getTimestamp("human_reviewed_at")),
+        rs.getString("human_reviewer_name"));
+  }
+
+  private String buildAiReviewPendingFilters(String decision, String keyword, List<Object> args) {
+    StringBuilder filters = new StringBuilder(
+        """
+        t.deleted_at IS NULL
+          AND a.status <> 'voided'
+          AND an.status = 'reviewing'
+          AND an.id = (
+            SELECT latest.id
+            FROM annotations latest
+            WHERE latest.assignment_id = an.assignment_id
+              AND latest.status <> 'voided'
+            ORDER BY latest.revision_no DESC, latest.id DESC
+            LIMIT 1
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM human_reviews hr_pending
+            WHERE hr_pending.annotation_id = an.id
+          )
+        """);
+    if (decision != null && !decision.isBlank()) {
+      filters.append("  AND air.decision = ?\n");
+      args.add(decision);
+    }
+    if (keyword != null && !keyword.isBlank()) {
+      String like = "%" + keyword.trim() + "%";
+      filters.append(
+          """
+            AND (
+              t.title LIKE ?
+              OR JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) LIKE ?
+              OR CAST(t.id AS CHAR) LIKE ?
+              OR CAST(an.id AS CHAR) LIKE ?
+            )
+          """);
+      args.add(like);
+      args.add(like);
+      args.add(like);
+      args.add(like);
+    }
+    return filters.toString();
   }
 
   private LocalDateTime toLocalDateTime(Timestamp timestamp) {
@@ -468,6 +781,10 @@ public class ReviewRepository {
 
   private Long toLong(Object value) {
     return value == null ? null : ((Number) value).longValue();
+  }
+
+  private Double toDouble(Object value) {
+    return value == null ? null : ((Number) value).doubleValue();
   }
 
   private String blankToDefault(String value, String fallback) {
@@ -487,24 +804,49 @@ public class ReviewRepository {
       LocalDateTime deadline,
       LocalDateTime updatedAt) {}
 
+  public record AiReviewTaskSummaryRecord(
+      long taskId,
+      String taskTitle,
+      String taskType,
+      long total,
+      long passCount,
+      long needHumanCount,
+      long rejectCount,
+      long pendingHuman,
+      LocalDateTime updatedAt) {}
+
   public record AnnotationReviewRecord(
       long annotationId,
       long assignmentId,
       long itemId,
+      long taskId,
+      String taskTitle,
+      String taskType,
       long schemaVersionId,
       String labelerName,
       LocalDateTime submittedAt,
       String answerJson,
+      String previousAnswerJson,
       String rawPayloadJson,
       String annotationStatus,
       int revisionNo,
       String humanDecision,
       boolean dispute,
       Long aiJobId,
+      LocalDateTime aiFinishedAt,
       String aiDecision,
       String aiScoresJson,
+      Double aiTotalScore,
       String aiComment,
-      String aiResponseJson) {}
+      String aiRiskFlagsJson,
+      String aiEvidenceJson,
+      String aiResponseJson,
+      String aiModelName,
+      String aiRuleName,
+      String aiRuleVersion,
+      String humanReason,
+      LocalDateTime humanReviewedAt,
+      String humanReviewerName) {}
 
   public record AnnotationStateRecord(
       long annotationId,

@@ -10,7 +10,6 @@ import {
   PlusOutlined,
   ProjectOutlined,
   RiseOutlined,
-  RobotOutlined,
   SearchOutlined,
   TeamOutlined,
   UserOutlined,
@@ -33,6 +32,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 
 import { dashboardApi } from '../../api/dashboard';
+import { AiAssistantIcon } from '../../components/icons';
 import type {
   DashboardOverview,
   LabelerPerformance,
@@ -320,7 +320,7 @@ function KpiRow({ overview }: { overview: DashboardOverview }) {
     },
     {
       key: 'aiPassRate',
-      icon: <RobotOutlined />,
+      icon: <AiAssistantIcon />,
       title: 'AI 通过率',
       value: `${(kpis.aiPassRate * 100).toFixed(1)}%`,
       delta: kpis.deltas.aiPassRate,

@@ -7,7 +7,6 @@ import {
   DeleteOutlined,
   PauseCircleFilled,
   PlusOutlined,
-  RobotOutlined,
   StopFilled,
   SyncOutlined,
 } from '@ant-design/icons';
@@ -38,6 +37,7 @@ import { aiReviewApi } from '../../api/aiReview';
 import { datasetApi } from '../../api/dataset';
 import { ownerApi } from '../../api/owner';
 import { schemaApi } from '../../api/schema';
+import { AiAssistantIcon } from '../../components/icons';
 import type { DatasetMeta } from '../../types/dataset';
 import type { AiReviewRule } from '../../types/aiReview';
 import type {
@@ -544,7 +544,7 @@ export default function OwnerTasks() {
               {submittedCount.toLocaleString()}
             </div>
             <Tag color="processing" className="owner-stat-trend">
-              <RobotOutlined /> AI 预审已开启
+              <AiAssistantIcon /> AI 预审已开启
             </Tag>
           </Card>
         </Col>

@@ -5,7 +5,6 @@ import {
   DashboardOutlined,
   ExclamationCircleFilled,
   ReloadOutlined,
-  RobotOutlined,
 } from '@ant-design/icons';
 import {
   App as AntdApp,
@@ -23,6 +22,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { aiReviewApi } from '../../api/aiReview';
 import { JobsPanel } from '../owner/OwnerAiReview';
 import type { AiReviewJob } from '../../types/aiReview';
+import { AiAssistantIcon } from '../../components/icons';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -53,7 +53,7 @@ function AiReviewerShell({
             {description}
           </Paragraph>
         </Space>
-        <Tag color="processing" icon={<RobotOutlined />}>
+        <Tag color="processing" icon={<AiAssistantIcon />}>
           AI Reviewer
         </Tag>
       </div>
@@ -109,7 +109,7 @@ function AiReviewerOverview() {
         </Col>
         <Col xs={12} md={4}>
           <Card className="owner-stat-card" loading={loading}>
-            <Statistic title="执行中" value={stats.running} prefix={<RobotOutlined />} />
+            <Statistic title="执行中" value={stats.running} prefix={<AiAssistantIcon />} />
           </Card>
         </Col>
         <Col xs={12} md={4}>
@@ -136,7 +136,7 @@ function AiReviewerOverview() {
 
       <Card className="owner-toolbar">
         <Space wrap>
-          <Button type="primary" icon={<RobotOutlined />} onClick={() => navigate('/ai-reviewer/jobs')}>
+          <Button type="primary" icon={<AiAssistantIcon />} onClick={() => navigate('/ai-reviewer/jobs')}>
             查看 Job 队列
           </Button>
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>

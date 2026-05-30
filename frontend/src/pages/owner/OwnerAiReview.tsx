@@ -10,7 +10,6 @@ import {
   PlusOutlined,
   RedoOutlined,
   ReloadOutlined,
-  RobotOutlined,
   ThunderboltFilled,
 } from '@ant-design/icons';
 import {
@@ -37,6 +36,7 @@ import type { ColumnsType } from 'antd/es/table';
 
 import { aiReviewApi } from '../../api/aiReview';
 import { getApiErrorMessage } from '../../api/client';
+import { AiAssistantIcon } from '../../components/icons';
 import type {
   AiReviewDimension,
   AiReviewJob,
@@ -1098,7 +1098,7 @@ function JobResultDrawer({
     <Drawer
       title={
         <Space>
-          <RobotOutlined />
+          <AiAssistantIcon />
           <span>AI 预审结果</span>
           {job && <Text type="secondary">{job.jobId}</Text>}
         </Space>

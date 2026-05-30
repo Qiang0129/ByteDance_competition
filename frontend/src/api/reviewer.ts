@@ -6,6 +6,7 @@
 
 import { apiRequest } from './client';
 import type {
+  AiReviewTaskSummary,
   AnnotationToReview,
   DisputeItem,
   ReviewBatch,
@@ -18,6 +19,40 @@ export const reviewerApi = {
   /** 工作概览 */
   getOverview(rangeDays = 30): Promise<ReviewerOverview> {
     return apiRequest<ReviewerOverview>(`/reviewer/overview?days=${rangeDays}`);
+  },
+
+  /**
+   * AI 预审 - 按任务聚合的任务列表。
+   * 后端待实现:GET /reviewer/ai-review/tasks?decision=&keyword=
+   * decision 取值:all | PASS | NEED_HUMAN_REVIEW | REJECT
+   */
+  listAiReviewTasks(
+    params: { decision?: string; keyword?: string } = {},
+  ): Promise<ReviewerPageResult<AiReviewTaskSummary>> {
+    const search = new URLSearchParams();
+    if (params.decision && params.decision !== 'all') search.set('decision', params.decision);
+    if (params.keyword) search.set('keyword', params.keyword);
+    const qs = search.toString();
+    return apiRequest(`/reviewer/ai-review/tasks${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * AI 预审 - 拉取某任务下已出 AI 结论的标注明细(展开任务时调用)。
+   * 后端待实现:GET /reviewer/ai-review/tasks/{taskId}/annotations?decision=&page=&pageSize=
+   */
+  listAiReviewAnnotations(
+    taskId: string,
+    params: { decision?: string; keyword?: string; page?: number; pageSize?: number } = {},
+  ): Promise<ReviewerPageResult<AnnotationToReview>> {
+    const search = new URLSearchParams();
+    if (params.decision && params.decision !== 'all') search.set('decision', params.decision);
+    if (params.keyword) search.set('keyword', params.keyword);
+    if (params.page) search.set('page', String(params.page));
+    if (params.pageSize) search.set('pageSize', String(params.pageSize));
+    const qs = search.toString();
+    return apiRequest(
+      `/reviewer/ai-review/tasks/${taskId}/annotations${qs ? `?${qs}` : ''}`,
+    );
   },
 
   /** 待审批次列表 */

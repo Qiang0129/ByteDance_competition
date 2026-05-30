@@ -23,9 +23,9 @@ import {
 } from '../pages/owner';
 import {
   ReviewerAi,
+  ReviewerAiWorkbench,
   ReviewerDisputes,
   ReviewerOverview,
-  ReviewerQueue,
   ReviewerReports,
 } from '../pages/reviewer';
 import { AppearanceSettings } from '../pages/settings';
@@ -71,8 +71,9 @@ export function AppRoutes() {
         <Route path="/labeler/answer/:assignmentId" element={<AnswerPage />} />
 
         <Route path="/reviewer" element={<ReviewerOverview />} />
-        <Route path="/reviewer/queue" element={<ReviewerQueue />} />
+        <Route path="/reviewer/queue" element={<Navigate to="/reviewer/ai" replace />} />
         <Route path="/reviewer/ai" element={<ReviewerAi />} />
+        <Route path="/reviewer/ai/:taskId" element={<ReviewerAiWorkbench />} />
         <Route path="/reviewer/disputes" element={<ReviewerDisputes />} />
         <Route path="/reviewer/reports" element={<ReviewerReports />} />
 

@@ -5,7 +5,6 @@ import {
   CheckCircleFilled,
   CloseCircleFilled,
   ExclamationCircleFilled,
-  RobotOutlined,
   ThunderboltFilled,
 } from '@ant-design/icons';
 import {
@@ -21,6 +20,8 @@ import {
   Typography,
 } from 'antd';
 import { useNavigate } from 'react-router-dom';
+
+import { AiAssistantIcon } from '../../components/icons';
 
 import { reviewerApi } from '../../api/reviewer';
 import type { ReviewBatch, ReviewerOverview as ReviewerOverviewMeta } from '../../types/reviewer';
@@ -131,7 +132,7 @@ export default function ReviewerOverview() {
         </Space>
         <Space>
           {usingFallback && <Tag color="gold">演示模式 · 接口未连接</Tag>}
-          <Button type="primary" onClick={() => navigate('/reviewer/queue')}>
+          <Button type="primary" onClick={() => navigate('/reviewer/ai')}>
             领取审核任务
           </Button>
         </Space>
@@ -160,7 +161,7 @@ export default function ReviewerOverview() {
           <Card
             title="待审队列"
             extra={
-              <Button type="link" onClick={() => navigate('/reviewer/queue')}>
+              <Button type="link" onClick={() => navigate('/reviewer/ai')}>
                 查看全部 <ArrowRightOutlined />
               </Button>
             }
@@ -190,7 +191,7 @@ export default function ReviewerOverview() {
                           type="primary"
                           size="small"
                           onClick={() =>
-                            navigate(`/reviewer/queue?batchId=${batch.batchId}`)
+                            navigate(`/reviewer/ai/${encodeURIComponent(batch.taskId)}`)
                           }
                         >
                           开始审核
@@ -264,7 +265,7 @@ export default function ReviewerOverview() {
           <Card title="工作建议">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
               <Tip
-                icon={<RobotOutlined />}
+                icon={<AiAssistantIcon />}
                 color="#2f7bff"
                 text="优先处理 AI 标记 NEED_HUMAN_REVIEW 的条目,这部分信号最强。"
               />
