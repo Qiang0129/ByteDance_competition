@@ -77,10 +77,14 @@ export interface AiReviewJob {
   decision?: AiDecision;
   totalScore?: number;
   /** 已尝试次数 */
-  attempts: number;
+  attempts?: number;
+  retryCount?: number;
   /** 失败时的最后一次错误信息 */
   lastError?: string;
+  errorSummary?: string;
   createdAt: string;
+  availableAt?: string;
+  startedAt?: string;
   finishedAt?: string;
 }
 
@@ -110,4 +114,42 @@ export interface ListAiReviewJobsQuery {
   endAt?: string;
   page?: number;
   pageSize?: number;
+}
+
+export interface AiModelConfig {
+  configId?: string;
+  providerName: string;
+  notes?: string;
+  licenseUrl?: string;
+  apiBaseUrl: string;
+  useFullUrl: boolean;
+  modelName: string;
+  reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
+  wireApi: 'responses';
+  apiKeyMask?: string;
+  status?: 'active' | 'inactive';
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface AiModelConfigRequest {
+  providerName: string;
+  notes?: string;
+  licenseUrl?: string;
+  apiBaseUrl: string;
+  useFullUrl: boolean;
+  modelName: string;
+  reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
+  wireApi: 'responses';
+  apiKey?: string;
+}
+
+export interface AiModelModelsRequest {
+  apiBaseUrl?: string;
+  useFullUrl?: boolean;
+  apiKey?: string;
+}
+
+export interface AiModelModelsResponse {
+  modelIds: string[];
 }

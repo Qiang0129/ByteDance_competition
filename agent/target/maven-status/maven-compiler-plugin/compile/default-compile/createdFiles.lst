@@ -1,0 +1,17 @@
+com\labelhub\agent\jobs\AiReviewWorker.class
+com\labelhub\agent\config\AgentProperties$Llm.class
+com\labelhub\agent\client\BackendClient.class
+com\labelhub\agent\config\AgentProperties.class
+com\labelhub\agent\parser\AiReviewOutputParser.class
+com\labelhub\agent\config\AgentProperties$Worker.class
+com\labelhub\agent\model\AiReviewJobClaimResponse.class
+com\labelhub\agent\AgentApplication.class
+com\labelhub\agent\llm\ResponsesLlmClient$RuntimeConfig.class
+com\labelhub\agent\model\AiModelRuntimeConfig.class
+com\labelhub\agent\model\AiReviewCompleteRequest.class
+com\labelhub\agent\client\BackendClient$LoginResponse.class
+com\labelhub\agent\model\AiReviewJobResponse.class
+com\labelhub\agent\config\AgentProperties$Backend.class
+com\labelhub\agent\model\AiReviewFailRequest.class
+com\labelhub\agent\llm\ResponsesLlmClient.class
+com\labelhub\agent\model\AiReviewLlmResult.class

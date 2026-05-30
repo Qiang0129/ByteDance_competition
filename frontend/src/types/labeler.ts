@@ -130,6 +130,20 @@ export interface SubmitAnnotationRequest {
   draftVersion?: number;
 }
 
+export interface BatchSubmitResponse {
+  taskId: string;
+  submittedCount: number;
+  annotationIds: string[];
+}
+
+export interface BatchSubmitInvalidItem {
+  assignmentId: string;
+  itemId: string;
+  index: number;
+  reason: string;
+  fieldErrors?: Record<string, string>;
+}
+
 /** 答题页拉取的题目内容(包含原题数据 + Schema 字段定义) */
 export interface AssignmentItem {
   assignmentId: string;
@@ -160,6 +174,10 @@ export interface AssignmentItem {
     total: number;
     prevAssignmentId?: string;
     nextAssignmentId?: string;
+    /** 该任务下当前标注员全部作业项的有序 id 列表,用于进度条点击任意题跳转 */
+    assignmentIds?: string[];
+    /** 与 assignmentIds 同序的逐题状态:completed 绿 / incomplete 黄 / empty 灰 */
+    statuses?: Array<'completed' | 'incomplete' | 'empty'>;
   };
   /** 上一次提交被打回的备注(若有) */
   returnReason?: string;

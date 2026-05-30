@@ -13,6 +13,8 @@ public record TaskMetadata(
     Long schemaVersionId,
     Integer schemaVersion,
     Boolean aiReviewEnabled,
+    Long aiReviewRuleId,
+    String aiReviewRuleName,
     String taskType,
     Double rewardPerItem) {
 

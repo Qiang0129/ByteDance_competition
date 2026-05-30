@@ -1,0 +1,26 @@
+server:
+  port: ${LABELHUB_AGENT_PORT:8091}
+
+spring:
+  application:
+    name: labelhub-agent
+  main:
+    banner-mode: off
+
+labelhub:
+  backend:
+    base-url: ${LABELHUB_BACKEND_BASE_URL:http://localhost:8080}
+    username: ${LABELHUB_AGENT_USERNAME:system_agent}
+    password: ${LABELHUB_AGENT_PASSWORD:agent123}
+    role: ${LABELHUB_AGENT_ROLE:system_agent}
+  worker:
+    enabled: ${LABELHUB_AGENT_WORKER_ENABLED:true}
+    poll-interval-ms: ${LABELHUB_AGENT_POLL_INTERVAL_MS:5000}
+    idle-delay-ms: ${LABELHUB_AGENT_IDLE_DELAY_MS:1500}
+  llm:
+    base-url: ${LABELHUB_LLM_BASE_URL:https://www.pqapi.store/v1}
+    api-key: ${LABELHUB_LLM_API_KEY:}
+    model: ${LABELHUB_LLM_MODEL:gpt-5.5}
+    reasoning-effort: ${LABELHUB_LLM_REASONING_EFFORT:high}
+    wire-api: ${LABELHUB_LLM_WIRE_API:responses}
+    timeout-ms: ${LABELHUB_LLM_TIMEOUT_MS:120000}

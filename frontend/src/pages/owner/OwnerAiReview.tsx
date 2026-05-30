@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  StopOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
   DeleteOutlined,
@@ -55,6 +56,7 @@ import type {
  */
 
 const { Title, Paragraph, Text } = Typography;
+const RUNNING_STUCK_MINUTES = 10;
 
 const decisionMeta: Record<AiDecision, { label: string; color: string }> = {
   PASS: { label: 'PASS', color: 'success' },
@@ -115,7 +117,7 @@ export default function OwnerAiReview() {
 
 /* ================ 规则管理面板 ================ */
 
-function RulesPanel() {
+export function RulesPanel() {
   const { message } = AntdApp.useApp();
   const [rules, setRules] = useState<AiReviewRule[]>([]);
   const [loading, setLoading] = useState(false);
@@ -660,12 +662,14 @@ function RuleEditDrawer({
 
 /* ================ 执行记录面板 ================ */
 
-function JobsPanel() {
-  const { message } = AntdApp.useApp();
+export function JobsPanel() {
+  const { message, modal } = AntdApp.useApp();
   const [jobs, setJobs] = useState<AiReviewJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
   const [statusFilter, setStatusFilter] = useState<AiReviewJobStatus | 'all'>('all');
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
   const [resultDrawer, setResultDrawer] = useState<{
     open: boolean;
     job?: AiReviewJob;
@@ -714,13 +718,48 @@ function JobsPanel() {
         setJobs((prev) =>
           prev.map((j) =>
             j.jobId === job.jobId
-              ? { ...j, status: 'pending', attempts: j.attempts + 1, lastError: undefined }
+              ? {
+                  ...j,
+                  status: 'pending',
+                  attempts: (j.attempts ?? j.retryCount ?? 0) + 1,
+                  retryCount: (j.retryCount ?? j.attempts ?? 0) + 1,
+                  lastError: undefined,
+                  errorSummary: undefined,
+                }
               : j,
           ),
         );
         message.warning('后端未就绪,改动仅保存在演示模式中');
       } else {
         message.error('重试失败');
+      }
+    }
+  };
+
+  const handleCancel = async (job: AiReviewJob) => {
+    try {
+      await aiReviewApi.cancelJob(job.jobId);
+      message.success(`作业 ${job.jobId} 已取消并重新排队`);
+      await loadJobs();
+    } catch {
+      if (usingFallback) {
+        setJobs((prev) =>
+          prev.map((j) =>
+            j.jobId === job.jobId
+              ? {
+                  ...j,
+                  status: 'pending',
+                  lastError: undefined,
+                  errorSummary: undefined,
+                  startedAt: undefined,
+                  finishedAt: undefined,
+                }
+              : j,
+          ),
+        );
+        message.warning('后端未就绪,改动仅保存在演示模式中');
+      } else {
+        message.error('取消失败');
       }
     }
   };
@@ -749,6 +788,37 @@ function JobsPanel() {
     }
   };
 
+  /** 批量删除选中的作业 */
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) return;
+    modal.confirm({
+      title: '确认批量删除',
+      content: `即将删除 ${selectedRowKeys.length} 条作业记录，此操作不可恢复。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setDeleting(true);
+        try {
+          await aiReviewApi.deleteJobs(selectedRowKeys as string[]);
+          message.success(`已删除 ${selectedRowKeys.length} 条作业`);
+          setSelectedRowKeys([]);
+          await loadJobs();
+        } catch {
+          if (usingFallback) {
+            // 演示模式:本地移除
+            setJobs((prev) => prev.filter((j) => !selectedRowKeys.includes(j.jobId)));
+            setSelectedRowKeys([]);
+            message.warning('后端未就绪,改动仅保存在演示模式中');
+          } else {
+            message.error('批量删除失败');
+          }
+        } finally {
+          setDeleting(false);
+        }
+      },
+    });
+  };
+
   const columns: ColumnsType<AiReviewJob> = [
     {
       title: 'Job ID',
@@ -773,9 +843,14 @@ function JobsPanel() {
       title: '状态',
       dataIndex: 'status',
       width: 100,
-      render: (status: AiReviewJobStatus) => {
+      render: (status: AiReviewJobStatus, job) => {
         const meta = jobStatusMeta[status];
-        return <Tag color={meta.color}>{meta.label}</Tag>;
+        return (
+          <Space size={4} wrap>
+            <Tag color={meta.color}>{meta.label}</Tag>
+            {isRunningStuck(job) ? <Tag color="warning">疑似卡住</Tag> : null}
+          </Space>
+        );
       },
     },
     {
@@ -792,26 +867,27 @@ function JobsPanel() {
       title: '总分',
       dataIndex: 'totalScore',
       width: 80,
-      render: (score?: number) =>
-        score === undefined ? <Text type="secondary">-</Text> : <Text strong>{score.toFixed(2)}</Text>,
+      render: (score?: number | null) =>
+        score == null ? <Text type="secondary">-</Text> : <Text strong>{score.toFixed(2)}</Text>,
     },
     {
       title: '尝试',
-      dataIndex: 'attempts',
       width: 70,
+      render: (_, job) => job.retryCount ?? job.attempts ?? 0,
     },
     {
       title: '最后错误',
-      dataIndex: 'lastError',
       ellipsis: true,
-      render: (err?: string) =>
-        err ? (
+      render: (_, job) => {
+        const err = job.errorSummary ?? job.lastError;
+        return err ? (
           <Text type="danger" ellipsis style={{ fontSize: 12 }}>
             {err}
           </Text>
         ) : (
           <Text type="secondary">-</Text>
-        ),
+        );
+      },
     },
     {
       title: '时间',
@@ -843,15 +919,34 @@ function JobsPanel() {
             />
           </Tooltip>
           {j.status === 'failed' && (
-            <Tooltip title="重新入队">
+            <Tooltip title="重新执行">
               <Button
                 type="text"
                 size="small"
                 icon={<RedoOutlined />}
-                aria-label="重试作业"
+                aria-label="重新执行"
                 onClick={() => void handleRetry(j)}
               />
             </Tooltip>
+          )}
+          {j.status === 'running' && (
+            <Popconfirm
+              title="取消并重新排队"
+              description="旧 Agent 如果稍后回写，会因 runToken 失效被拒绝；该 Job 会重新进入 pending 队列。"
+              okText="确认取消"
+              cancelText="再等等"
+              onConfirm={() => void handleCancel(j)}
+            >
+              <Tooltip title={isRunningStuck(j) ? '疑似卡住，取消并重新排队' : '取消并重新排队'}>
+                <Button
+                  danger={isRunningStuck(j)}
+                  type="text"
+                  size="small"
+                  icon={<StopOutlined />}
+                  aria-label="取消并重新排队"
+                />
+              </Tooltip>
+            </Popconfirm>
           )}
         </Space>
       ),
@@ -878,6 +973,16 @@ function JobsPanel() {
           <Button icon={<ReloadOutlined />} onClick={() => void loadJobs()}>
             刷新
           </Button>
+          {selectedRowKeys.length > 0 && (
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              loading={deleting}
+              onClick={handleBatchDelete}
+            >
+              删除选中 ({selectedRowKeys.length})
+            </Button>
+          )}
           {usingFallback && <Tag color="gold">演示模式 · 后端未就绪</Tag>}
         </Space>
       </Card>
@@ -887,6 +992,10 @@ function JobsPanel() {
           rowKey="jobId"
           columns={columns}
           dataSource={jobs}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys as string[]),
+          }}
           pagination={{
             defaultPageSize: 10,
             showSizeChanger: true,
@@ -907,7 +1016,20 @@ function JobsPanel() {
   );
 }
 
-function JobsKpi({ jobs }: { jobs: AiReviewJob[] }) {
+function isRunningStuck(job: AiReviewJob) {
+  if (job.status !== 'running' || !job.startedAt) return false;
+  const startedAt = parseDateTime(job.startedAt);
+  if (!startedAt) return false;
+  return Date.now() - startedAt.getTime() >= RUNNING_STUCK_MINUTES * 60 * 1000;
+}
+
+function parseDateTime(value: string) {
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function JobsKpi({ jobs }: { jobs: AiReviewJob[] }) {
   const stats = useMemo(() => {
     const today = jobs.length;
     const success = jobs.filter((j) => j.status === 'success').length;
@@ -1003,7 +1125,7 @@ function JobResultDrawer({
                 <Text type="secondary">总分</Text>
                 <div style={{ marginTop: 4 }}>
                   <Text strong style={{ fontSize: 22 }}>
-                    {result.total_score.toFixed(2)}
+                    {result.total_score == null ? '-' : result.total_score.toFixed(2)}
                   </Text>
                 </div>
               </Col>
@@ -1013,7 +1135,7 @@ function JobResultDrawer({
           {/* 各维度评分 */}
           <Card title="评分明细">
             <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              {Object.entries(result.scores).map(([key, value]) => (
+              {Object.entries(result.scores ?? {}).map(([key, value]) => (
                 <ScoreRow key={key} label={key} value={value ?? 0} />
               ))}
             </Space>
@@ -1027,7 +1149,7 @@ function JobResultDrawer({
           </Card>
 
           {/* Risk flags */}
-          {result.risk_flags.length > 0 && (
+          {(result.risk_flags?.length ?? 0) > 0 && (
             <Card title="风险标记">
               <Space wrap>
                 {result.risk_flags.map((flag) => (
@@ -1040,7 +1162,7 @@ function JobResultDrawer({
           )}
 
           {/* Evidence */}
-          {result.evidence.length > 0 && (
+          {(result.evidence?.length ?? 0) > 0 && (
             <Card title="证据 / 引用字段">
               <Space wrap>
                 {result.evidence.map((ev) => (

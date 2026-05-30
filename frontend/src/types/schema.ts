@@ -26,6 +26,16 @@ export type MaterialKind =
 
 /** 物料分类(左侧面板分组) */
 export type MaterialCategory = 'input' | 'choice' | 'media' | 'advanced' | 'layout';
+export type SchemaSemanticType =
+  | 'text'
+  | 'single_choice'
+  | 'multi_choice'
+  | 'tags'
+  | 'json'
+  | 'file'
+  | 'llm'
+  | 'display'
+  | 'layout';
 
 export interface MaterialMeta {
   kind: MaterialKind;
@@ -83,6 +93,8 @@ export interface SchemaField {
   /** 内部稳定 ID,前端用,提交时不必传 */
   id: string;
   kind: MaterialKind;
+  /** 答案语义类型,由后端根据 kind 权威补齐;前端渲染和校验优先读取该字段 */
+  semanticType?: SchemaSemanticType;
   /** 后端最终落库的字段名(英文) */
   fieldName: string;
   /** 显示标签(中文) */

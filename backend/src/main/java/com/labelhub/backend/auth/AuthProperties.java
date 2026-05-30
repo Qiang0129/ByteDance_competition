@@ -32,6 +32,8 @@ public class AuthProperties {
     private String ownerPassword = "owner123";
     private String labelerPassword = "labeler123";
     private String reviewerPassword = "reviewer123";
+    private String aiReviewerPassword = "ai_reviewer123";
+    private String systemAgentPassword = "agent123";
     private String allRolesPassword = "demo123";
 
     public boolean isEnabled() {
@@ -64,6 +66,22 @@ public class AuthProperties {
 
     public void setReviewerPassword(String reviewerPassword) {
       this.reviewerPassword = reviewerPassword;
+    }
+
+    public String getAiReviewerPassword() {
+      return aiReviewerPassword;
+    }
+
+    public void setAiReviewerPassword(String aiReviewerPassword) {
+      this.aiReviewerPassword = aiReviewerPassword;
+    }
+
+    public String getSystemAgentPassword() {
+      return systemAgentPassword;
+    }
+
+    public void setSystemAgentPassword(String systemAgentPassword) {
+      this.systemAgentPassword = systemAgentPassword;
     }
 
     public String getAllRolesPassword() {

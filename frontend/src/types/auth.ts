@@ -1,4 +1,4 @@
-export type UserRole = 'owner' | 'labeler' | 'reviewer' | 'admin';
+export type UserRole = 'owner' | 'labeler' | 'reviewer' | 'ai_reviewer' | 'admin' | 'system_agent';
 
 export interface LoginRequest {
   username: string;
@@ -9,7 +9,7 @@ export interface LoginRequest {
 export interface RegisterRequest {
   username: string;
   password: string;
-  role?: Exclude<UserRole, 'admin'>;
+  role?: Exclude<UserRole, 'admin' | 'system_agent' | 'ai_reviewer'>;
 }
 
 export interface AuthUser {

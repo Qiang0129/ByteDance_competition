@@ -6,5 +6,6 @@ export {
   getValueByPath,
   normalizeSchemaFields,
   resolveRuntimeRules,
+  resolveSemanticType,
 } from './schemaCompiler';
 export { normalizeValidators, validateSchemaFields } from './schemaValidation';

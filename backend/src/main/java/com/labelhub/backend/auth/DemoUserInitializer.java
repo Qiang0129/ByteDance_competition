@@ -35,11 +35,22 @@ public class DemoUserInitializer implements ApplicationRunner {
     authRepository.upsertDemoUser(
         "reviewer", "Reviewer Demo", passwordEncoder.encode(demoUsers.getReviewerPassword()), "reviewer");
     authRepository.upsertDemoUser(
+        "ai_reviewer",
+        "AI Reviewer Demo",
+        passwordEncoder.encode(demoUsers.getAiReviewerPassword()),
+        "ai_reviewer");
+    authRepository.upsertDemoUser(
+        "system_agent",
+        "System Agent",
+        passwordEncoder.encode(demoUsers.getSystemAgentPassword()),
+        "system_agent");
+    authRepository.upsertDemoUser(
         "demo",
         "All Roles Demo",
         passwordEncoder.encode(demoUsers.getAllRolesPassword()),
         "owner",
         "labeler",
-        "reviewer");
+        "reviewer",
+        "ai_reviewer");
   }
 }

@@ -165,6 +165,44 @@ Started LabelHubBackendApplication
 
 如果提示 `Port 8080 was already in use`,可以停止占用端口的旧进程,或设置 `LABELHUB_BACKEND_PORT` 使用其它端口。前端 Vite 代理默认转发到 `http://127.0.0.1:8080`,改后端端口时也要同步调整 `frontend/vite.config.ts`。
 
+## 启动 Agent
+
+AI Agent 是独立 Spring Boot Worker，代码在 `agent/` 目录。它不直连数据库，只登录后端 API，轮询 `pending` 的 AI 审核 Job，调用 Responses API 后把结果回写后端。
+
+启动顺序：
+
+1. 先启动 MySQL、Redis 和后端。
+2. 后端正常运行在 `http://localhost:8080`。
+3. 再启动 Agent。
+4. 最后启动前端。
+
+PowerShell 启动方式：
+
+```powershell
+cd F:\研究生阶段\字节开发比赛\ByteDance_competition\agent
+
+$env:LABELHUB_BACKEND_BASE_URL="http://localhost:8080"
+$env:LABELHUB_AGENT_USERNAME="system_agent"
+$env:LABELHUB_AGENT_PASSWORD="agent123"
+$env:LABELHUB_AGENT_ROLE="system_agent"
+
+$env:LABELHUB_LLM_BASE_URL="https://www.pqapi.store/v1"
+$env:LABELHUB_LLM_API_KEY="你的 API Key"
+$env:LABELHUB_LLM_MODEL="gpt-5.5"
+$env:LABELHUB_LLM_REASONING_EFFORT="high"
+$env:LABELHUB_LLM_WIRE_API="responses"
+
+.\mvnw.cmd spring-boot:run
+```
+
+注意：
+
+- `LABELHUB_LLM_API_KEY` 只在本机终端设置，不要写入仓库文件。
+- 如果暂时没有待审核任务，Agent 会保持轮询，不会立刻输出消费日志。
+- Labeler 最后一题统一提交成功后，会创建 `pending` 的 AI review job；这时 Agent 才会领取并处理。
+- 启动成功后，日志通常会出现 `LabelHub Agent logged in as system_agent`。
+- 处理成功后，日志通常会出现 `AI review job ... completed with decision ...`。
+
 ## 启动前端
 
 另开一个终端：
@@ -187,7 +225,7 @@ Vite 开发代理会把 `/api` 转发到：
 http://127.0.0.1:8080
 ```
 
-本地联调时建议启动顺序为：MySQL -> Redis -> 后端 -> 前端。
+本地联调时建议启动顺序为：MySQL -> Redis -> 后端 -> Agent -> 前端；如果暂时不验证 AI 预审，可以跳过 Agent。
 
 ## 演示账号
 

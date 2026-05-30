@@ -13,7 +13,7 @@ import type { LoginRequest, RegisterRequest, UserRole } from '../types/auth';
 import { resolveLandingPath } from '../utils/authNavigation';
 
 type AuthMode = 'login' | 'signup';
-type LoginRole = Exclude<UserRole, 'admin'>;
+type LoginRole = Exclude<UserRole, 'admin' | 'system_agent'>;
 type DemoLoginSource = LoginRole | 'allRoles';
 type LoginSource = 'manual' | DemoLoginSource;
 
@@ -23,6 +23,7 @@ const roleOptions: Array<{ label: string; value: LoginRole }> = [
   { label: 'Owner', value: 'owner' },
   { label: 'Labeler', value: 'labeler' },
   { label: 'Reviewer', value: 'reviewer' },
+  { label: 'AI Reviewer', value: 'ai_reviewer' },
 ];
 
 const demoAccounts: Array<{
@@ -36,6 +37,7 @@ const demoAccounts: Array<{
   { source: 'owner', role: 'owner', label: 'Owner', username: 'owner', password: 'owner123' },
   { source: 'labeler', role: 'labeler', label: 'Labeler', username: 'labeler', password: 'labeler123' },
   { source: 'reviewer', role: 'reviewer', label: 'Reviewer', username: 'reviewer', password: 'reviewer123' },
+  { source: 'ai_reviewer', role: 'ai_reviewer', label: 'AI Reviewer', username: 'ai_reviewer', password: 'ai_reviewer123' },
 ];
 
 export default function Login() {

@@ -22,6 +22,7 @@ public record CreateTaskRequest(
     String schema,
     String schemaVersionId,
     Boolean aiReviewEnabled,
+    String aiReviewRuleId,
     String description,
     String taskType,
     String status) {}

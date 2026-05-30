@@ -33,6 +33,13 @@ public class AnnotationRepository {
         "FOR UPDATE").stream().findFirst();
   }
 
+  public List<AssignmentItemRecord> lockTaskAssignmentsForLabeler(long taskId, long labelerId) {
+    return queryAssignment(
+        "WHERE a.task_id = ? AND a.labeler_id = ? AND a.status <> 'voided'",
+        List.of(taskId, labelerId),
+        "ORDER BY a.id ASC FOR UPDATE");
+  }
+
   public Optional<SchemaSnapshotRecord> findSchema(long schemaVersionId) {
     return jdbcTemplate.query(
         """
@@ -120,6 +127,30 @@ public class AnnotationRepository {
         ORDER BY id ASC
         """,
         (rs, rowNum) -> rs.getLong("id"),
+        taskId,
+        labelerId);
+  }
+
+  /**
+   * 批量拉取某任务下当前标注员全部作业项的状态与草稿答案,
+   * 用于答题页进度条逐题着色(已完成/必填缺失/未作答),按 id 升序与题序对齐。
+   * 一次 LEFT JOIN 取回草稿,避免逐题查询。
+   */
+  public List<AssignmentProgressRecord> listAssignmentProgress(long taskId, long labelerId) {
+    return jdbcTemplate.query(
+        """
+        SELECT a.id AS assignment_id,
+               a.status AS assignment_status,
+               CAST(d.answer_json AS CHAR) AS answer_json
+        FROM assignments a
+        LEFT JOIN drafts d ON d.assignment_id = a.id
+        WHERE a.task_id = ? AND a.labeler_id = ? AND a.status <> 'voided'
+        ORDER BY a.id ASC
+        """,
+        (rs, rowNum) -> new AssignmentProgressRecord(
+            rs.getLong("assignment_id"),
+            rs.getString("assignment_status"),
+            rs.getString("answer_json")),
         taskId,
         labelerId);
   }
@@ -251,20 +282,26 @@ public class AnnotationRepository {
     jdbcTemplate.update("DELETE FROM drafts WHERE assignment_id = ?", assignmentId);
   }
 
-  public long createAiReviewJob(long annotationId, long schemaVersionId) {
-    String jobKey = "annotation:%d:schema:%d:prompt:default-v1"
-        .formatted(annotationId, schemaVersionId);
+  public long createAiReviewJob(
+      long annotationId,
+      long schemaVersionId,
+      long ruleId,
+      String ruleSnapshotJson) {
+    String jobKey = "annotation:%d:schema:%d:rule:%d"
+        .formatted(annotationId, schemaVersionId, ruleId);
     KeyHolder keyHolder = new GeneratedKeyHolder();
     jdbcTemplate.update(connection -> {
       var statement = connection.prepareStatement(
           """
           INSERT INTO ai_review_jobs
-            (annotation_id, job_key, status, retry_count, available_at)
-          VALUES (?, ?, 'pending', 0, CURRENT_TIMESTAMP)
+            (annotation_id, job_key, rule_id, rule_snapshot_json, status, retry_count, available_at)
+          VALUES (?, ?, ?, CAST(? AS JSON), 'pending', 0, CURRENT_TIMESTAMP)
           """,
           Statement.RETURN_GENERATED_KEYS);
       statement.setLong(1, annotationId);
       statement.setString(2, jobKey);
+      statement.setLong(3, ruleId);
+      statement.setString(4, ruleSnapshotJson);
       return statement;
     }, keyHolder);
     Number key = keyHolder.getKey();
@@ -386,6 +423,12 @@ public class AnnotationRepository {
       long assignmentId,
       String answerJson,
       LocalDateTime updatedAt) {}
+
+  /** 进度条逐题状态判定用:作业项状态 + 草稿答案(可空) */
+  public record AssignmentProgressRecord(
+      long assignmentId,
+      String assignmentStatus,
+      String answerJson) {}
 
   public record AnnotationRecord(
       long id,

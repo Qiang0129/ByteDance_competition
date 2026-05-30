@@ -1,5 +1,9 @@
 import { apiRequest } from './client';
 import type {
+  AiModelConfig,
+  AiModelConfigRequest,
+  AiModelModelsRequest,
+  AiModelModelsResponse,
   AiReviewJob,
   AiReviewPageResult,
   AiReviewResult,
@@ -82,7 +86,40 @@ export const aiReviewApi = {
     });
   },
 
+  /** 批量删除作业(按 jobId 列表) */
+  deleteJobs(jobIds: string[]): Promise<void> {
+    return apiRequest<void>('/ai-review/jobs/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({ jobIds }),
+    });
+  },
+
+  cancelJob(jobId: string, reason = 'manual cancel and requeue'): Promise<AiReviewJob> {
+    return apiRequest<AiReviewJob>(`/ai-review/jobs/${jobId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
   getJobResult(annotationId: string): Promise<AiReviewResult> {
     return apiRequest<AiReviewResult>(`/ai-review/results/${annotationId}`);
+  },
+
+  getModelConfig(): Promise<AiModelConfig | null> {
+    return apiRequest<AiModelConfig | null>('/ai-review/model-config');
+  },
+
+  saveModelConfig(payload: AiModelConfigRequest): Promise<AiModelConfig> {
+    return apiRequest<AiModelConfig>('/ai-review/model-config', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  listProviderModels(payload: AiModelModelsRequest): Promise<AiModelModelsResponse> {
+    return apiRequest<AiModelModelsResponse>('/ai-review/model-config/models', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };

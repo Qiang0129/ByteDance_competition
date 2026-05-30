@@ -29,6 +29,8 @@ import {
   ReviewerReports,
 } from '../pages/reviewer';
 import { AppearanceSettings } from '../pages/settings';
+import ModelSettings from '../pages/aiReviewer/ModelSettings';
+import AiReviewerDashboard from '../pages/aiReviewer/AiReviewerDashboard';
 import { getStoredAuthUser } from '../api/auth';
 import { getAuthToken } from '../api/client';
 import { resolveLandingPath } from '../utils/authNavigation';
@@ -58,6 +60,7 @@ export function AppRoutes() {
         <Route path="/owner/review" element={<OwnerReview />} />
         <Route path="/owner/dashboard" element={<OwnerDashboard />} />
         <Route path="/owner/export" element={<OwnerExport />} />
+        <Route path="/owner/settings/model" element={<ModelSettings />} />
 
         {/* Labeler 端:计划书 4.3 */}
         <Route path="/labeler" element={<LabelerOverview />} />
@@ -73,12 +76,18 @@ export function AppRoutes() {
         <Route path="/reviewer/disputes" element={<ReviewerDisputes />} />
         <Route path="/reviewer/reports" element={<ReviewerReports />} />
 
+        <Route path="/ai-reviewer" element={<AiReviewerDashboard />} />
+        <Route path="/ai-reviewer/jobs" element={<AiReviewerDashboard />} />
+        <Route path="/ai-reviewer/rules" element={<AiReviewerDashboard />} />
+
         {/* 系统设置:外观主题选择,所有角色共用同一个组件,
            但通过给每个角色挂独立路径,保留 URL 中的角色前缀,
            AppLayout 的 resolveSection 据此正确判断当前角色。 */}
         <Route path="/owner/settings/appearance" element={<AppearanceSettings />} />
         <Route path="/labeler/settings/appearance" element={<AppearanceSettings />} />
         <Route path="/reviewer/settings/appearance" element={<AppearanceSettings />} />
+        <Route path="/ai-reviewer/settings/appearance" element={<AppearanceSettings />} />
+        <Route path="/ai-reviewer/settings/model" element={<ModelSettings />} />
         {/* 旧路径兼容:已分发到老用户书签的 /settings/appearance,
            回落到 owner 端避免 404 */}
         <Route

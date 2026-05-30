@@ -4,6 +4,7 @@ import type {
   SchemaField,
   SchemaReactionAction,
   SchemaReactionOperator,
+  SchemaSemanticType,
   SchemaValidationResult,
   SchemaValidatorRule,
   SchemaValidatorType,
@@ -61,6 +62,17 @@ export const ALLOWED_REACTION_ACTIONS = new Set<SchemaReactionAction>([
 
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const CHOICE_KINDS = new Set<MaterialKind>(['single-choice', 'multi-choice', 'tags']);
+const ALLOWED_SEMANTIC_TYPES = new Set<SchemaSemanticType>([
+  'text',
+  'single_choice',
+  'multi_choice',
+  'tags',
+  'json',
+  'file',
+  'llm',
+  'display',
+  'layout',
+]);
 
 export function normalizeValidators(field: SchemaField): SchemaValidatorRule[] {
   const rules: SchemaValidatorRule[] = [...(field.validators ?? [])];
@@ -102,6 +114,14 @@ export function validateSchemaFields(fields: SchemaField[]): SchemaValidationRes
         code: 'INVALID_FIELD_KIND',
         fieldName: field.fieldName,
         message: `${label} 的物料类型不受支持。`,
+      });
+    }
+    if (field.semanticType && !ALLOWED_SEMANTIC_TYPES.has(field.semanticType)) {
+      errors.push({
+        level: 'error',
+        code: 'INVALID_SEMANTIC_TYPE',
+        fieldName: field.fieldName,
+        message: `${label} 的语义类型不受支持。`,
       });
     }
 

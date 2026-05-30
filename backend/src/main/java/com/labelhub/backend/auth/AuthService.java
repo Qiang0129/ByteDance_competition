@@ -9,7 +9,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class AuthService {
 
-  private static final List<String> LOGIN_ROLES = List.of("owner", "labeler", "reviewer");
+  private static final List<String> LOGIN_ROLES =
+      List.of("owner", "labeler", "reviewer", "ai_reviewer", "system_agent");
 
   private final AuthProperties authProperties;
   private final AuthRepository authRepository;

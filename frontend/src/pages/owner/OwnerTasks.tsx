@@ -29,14 +29,17 @@ import {
   Table,
   Tag,
   Typography,
+  Switch,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import { getApiErrorMessage } from '../../api/client';
+import { aiReviewApi } from '../../api/aiReview';
 import { datasetApi } from '../../api/dataset';
 import { ownerApi } from '../../api/owner';
 import { schemaApi } from '../../api/schema';
 import type { DatasetMeta } from '../../types/dataset';
+import type { AiReviewRule } from '../../types/aiReview';
 import type {
   AssignableLabeler,
   CreateOwnerTaskRequest,
@@ -61,6 +64,8 @@ interface PublishFormValues {
   assignedLabelerIds?: string[];
   schema?: string;
   schemaVersionId?: string;
+  aiReviewEnabled?: boolean;
+  aiReviewRuleId?: string;
 }
 
 const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm';
@@ -104,6 +109,7 @@ export default function OwnerTasks() {
   const [rows, setRows] = useState<OwnerTaskRow[]>([]);
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [schemas, setSchemas] = useState<SchemaSummary[]>([]);
+  const [aiRules, setAiRules] = useState<AiReviewRule[]>([]);
   const [assignableLabelers, setAssignableLabelers] = useState<AssignableLabeler[]>([]);
   const [loading, setLoading] = useState(false);
   const [schemaLoading, setSchemaLoading] = useState(false);
@@ -114,9 +120,10 @@ export default function OwnerTasks() {
   const selectedStrategy = Form.useWatch('strategy', form);
   const selectedDatasetId = Form.useWatch('datasetId', form);
   const selectedSchemaVersionId = Form.useWatch('schemaVersionId', form);
+  const selectedAiReviewEnabled = Form.useWatch('aiReviewEnabled', form);
 
   useEffect(() => {
-    void Promise.all([loadTasks(), loadDatasets(), loadSchemas(), loadAssignableLabelers()]);
+    void Promise.all([loadTasks(), loadDatasets(), loadSchemas(), loadAiRules(), loadAssignableLabelers()]);
   }, []);
 
   const filteredRows = useMemo(
@@ -152,6 +159,11 @@ export default function OwnerTasks() {
       })),
     [publishedSchemas],
   );
+
+  const aiRuleOptions = aiRules.map((rule) => ({
+    label: `${rule.name} v${rule.version}`,
+    value: rule.ruleId,
+  }));
 
   useEffect(() => {
     if (!drawerOpen || !activeRow?.schemaVersionId) {
@@ -345,6 +357,15 @@ export default function OwnerTasks() {
     }
   }
 
+  async function loadAiRules() {
+    try {
+      const response = await aiReviewApi.listRules({ status: 'enabled', page: 1, pageSize: 100 });
+      setAiRules(response.items);
+    } catch (error) {
+      message.error(getApiErrorMessage(error, 'AI 预审规则加载失败'));
+    }
+  }
+
   async function loadAssignableLabelers() {
     try {
       const response = await ownerApi.listAssignableLabelers();
@@ -380,6 +401,8 @@ export default function OwnerTasks() {
         row?.schemaVersionId && publishedSchemas.some((schema) => schema.versionId === row.schemaVersionId)
           ? row.schemaVersionId
           : undefined,
+      aiReviewEnabled: row?.aiReviewEnabled ?? true,
+      aiReviewRuleId: row?.aiReviewRuleId ?? aiRules[0]?.ruleId,
     };
   }
 
@@ -414,7 +437,8 @@ export default function OwnerTasks() {
         values.strategy === 'assigned' ? values.assignedLabelerIds ?? [] : [],
       schema: schemaLabel || undefined,
       schemaVersionId: schema?.versionId,
-      aiReviewEnabled: true,
+      aiReviewEnabled: values.aiReviewEnabled ?? true,
+      aiReviewRuleId: values.aiReviewEnabled === false ? undefined : values.aiReviewRuleId,
       status,
     };
   }
@@ -754,12 +778,34 @@ export default function OwnerTasks() {
             </Card>
           ) : null}
 
-          <Form.Item label="启用 AI 预审">
-            <Space>
-              <Tag color="success">已开启</Tag>
-              <Typography.Text type="secondary">规则：电商相关性 v2</Typography.Text>
-            </Space>
+          <Form.Item label="启用 AI 预审" name="aiReviewEnabled" valuePropName="checked">
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
           </Form.Item>
+
+          {selectedAiReviewEnabled !== false ? (
+            <Form.Item
+              label="AI 预审规则"
+              name="aiReviewRuleId"
+              extra="任务启用 AI 预审时，发布前必须绑定一条启用中的规则。"
+              rules={[
+                {
+                  validator: async (_rule, value) => {
+                    if (submitStateRef.current === 'published' && !value) {
+                      throw new Error('请选择 AI 预审规则');
+                    }
+                  },
+                },
+              ]}
+            >
+              <Select
+                placeholder="选择启用中的 AI 预审规则"
+                options={aiRuleOptions}
+                showSearch
+                allowClear
+                optionFilterProp="label"
+              />
+            </Form.Item>
+          ) : null}
         </Form>
       </Drawer>
     </Space>

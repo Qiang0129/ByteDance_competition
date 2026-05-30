@@ -7,6 +7,8 @@ import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.auth.AuthRepository;
 import com.labelhub.backend.auth.UserAccount;
+import com.labelhub.backend.ai.AiReviewRepository;
+import com.labelhub.backend.ai.AiReviewService;
 import com.labelhub.backend.dataset.DatasetRecord;
 import com.labelhub.backend.dataset.DatasetRepository;
 import com.labelhub.backend.schema.SchemaRecord;
@@ -44,6 +46,7 @@ public class TaskService {
   private final DatasetRepository datasetRepository;
   private final TaskRepository taskRepository;
   private final SchemaRepository schemaRepository;
+  private final AiReviewService aiReviewService;
   private final StateMachineService stateMachineService;
   private final ObjectMapper objectMapper;
 
@@ -52,12 +55,14 @@ public class TaskService {
       DatasetRepository datasetRepository,
       TaskRepository taskRepository,
       SchemaRepository schemaRepository,
+      AiReviewService aiReviewService,
       StateMachineService stateMachineService,
       ObjectMapper objectMapper) {
     this.authRepository = authRepository;
     this.datasetRepository = datasetRepository;
     this.taskRepository = taskRepository;
     this.schemaRepository = schemaRepository;
+    this.aiReviewService = aiReviewService;
     this.stateMachineService = stateMachineService;
     this.objectMapper = objectMapper;
   }
@@ -67,7 +72,7 @@ public class TaskService {
     AuthenticatedUser owner = requireOwner(authentication);
     String state = normalizeState(request.status(), "published", CREATE_STATES);
     DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
-    TaskMetadata metadata = buildTaskMetadata(owner.id(), request, dataset, null);
+    TaskMetadata metadata = buildTaskMetadata(owner.id(), request, dataset, state, null);
     validatePublishedSchemaConfiguration(owner.id(), metadata, state, null);
     validateStrategyConfiguration(metadata, state);
 
@@ -105,7 +110,12 @@ public class TaskService {
     String state = normalizeState(request.status(), existing.status(), TASK_STATES);
     stateMachineService.validate(WorkflowEntityType.TASK, existing.status(), state, "owner");
     DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
-    TaskMetadata metadata = buildTaskMetadata(owner.id(), request, dataset, readMetadata(existing.rewardRuleJson()));
+    TaskMetadata metadata = buildTaskMetadata(
+        owner.id(),
+        request,
+        dataset,
+        state,
+        readMetadata(existing.rewardRuleJson()));
     validatePublishedSchemaConfiguration(owner.id(), metadata, state, existing);
     validateStrategyConfiguration(metadata, state);
 
@@ -307,6 +317,7 @@ public class TaskService {
       long ownerId,
       CreateTaskRequest request,
       DatasetRecord dataset,
+      String state,
       TaskMetadata fallbackMetadata) {
     SchemaSelection selectedSchema = resolveSelectedSchema(ownerId, request.schemaVersionId());
     String schemaLabel = blankToNull(request.schema());
@@ -326,6 +337,12 @@ public class TaskService {
       }
     }
 
+    AiReviewRuleSelection aiReviewRule = resolveAiReviewRuleSelection(
+        request.aiReviewEnabled(),
+        request.aiReviewRuleId(),
+        "published".equals(state),
+        fallbackMetadata);
+
     return new TaskMetadata(
         normalizeTags(request.tags()),
         blankToNull(request.reward()),
@@ -337,8 +354,32 @@ public class TaskService {
         schemaVersionId,
         schemaVersion,
         request.aiReviewEnabled(),
+        aiReviewRule.ruleId(),
+        aiReviewRule.ruleName(),
         resolveTaskType(request),
         resolveRewardPerItem(request.reward()));
+  }
+
+  private AiReviewRuleSelection resolveAiReviewRuleSelection(
+      Boolean aiReviewEnabled,
+      String requestedRuleId,
+      boolean requireRule,
+      TaskMetadata fallbackMetadata) {
+    boolean enabled = aiReviewEnabled == null || aiReviewEnabled;
+    if (!enabled) {
+      return new AiReviewRuleSelection(null, null);
+    }
+    Long ruleId = null;
+    if (requestedRuleId != null && !requestedRuleId.isBlank()) {
+      ruleId = parseLongId(requestedRuleId.trim(), "INVALID_AI_REVIEW_RULE_ID");
+    } else if (fallbackMetadata != null) {
+      ruleId = fallbackMetadata.aiReviewRuleId();
+    }
+    if (ruleId == null && !requireRule) {
+      return new AiReviewRuleSelection(null, null);
+    }
+    AiReviewRepository.AiReviewRuleRecord rule = aiReviewService.resolveEnabledRule(ruleId, null);
+    return new AiReviewRuleSelection(rule.id(), rule.name());
   }
 
   private DatasetRecord resolveSelectedDataset(long ownerId, String datasetIdValue) {
@@ -518,7 +559,9 @@ public class TaskService {
         metadata.reward(),
         metadata.tags() == null ? List.of() : metadata.tags(),
         record.description(),
-        metadata.resolvedAiReviewEnabled());
+        metadata.resolvedAiReviewEnabled(),
+        metadata.aiReviewRuleId() == null ? null : Long.toString(metadata.aiReviewRuleId()),
+        metadata.aiReviewRuleName());
   }
 
   private MarketTaskResponse toMarketResponse(TaskRecord record, long currentUserId) {
@@ -545,7 +588,7 @@ public class TaskService {
         mediaTypes.isEmpty() ? List.of("text") : mediaTypes,
         record.ownerName(),
         metadata.resolvedAiReviewEnabled(),
-        metadata.resolvedAiReviewEnabled() ? "电商相关性 v2" : null,
+        metadata.resolvedAiReviewEnabled() ? metadata.aiReviewRuleName() : null,
         formatDateTime(record.publishedAt() == null ? record.createdAt() : record.publishedAt()),
         metadata.resolvedMaxClaimPerUser(),
         taskRepository.hasTaskAssignment(record.id(), currentUserId));
@@ -932,6 +975,8 @@ public class TaskService {
         null,
         null,
         true,
+        null,
+        null,
         "Annotation Task",
         null);
   }
@@ -1190,4 +1235,6 @@ public class TaskService {
   }
 
   private record SchemaSelection(long id, int version, String label) {}
+
+  private record AiReviewRuleSelection(Long ruleId, String ruleName) {}
 }

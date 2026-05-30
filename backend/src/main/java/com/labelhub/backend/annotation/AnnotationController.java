@@ -50,4 +50,11 @@ public class AnnotationController {
       @RequestBody(required = false) SubmitAnnotationRequest request) {
     return annotationService.submit(authentication, assignmentId, request);
   }
+
+  @PostMapping("/tasks/{taskId}/assignments/submit")
+  public BatchSubmitResponse submitTaskAssignments(
+      Authentication authentication,
+      @PathVariable long taskId) {
+    return annotationService.submitTaskAssignments(authentication, taskId);
+  }
 }

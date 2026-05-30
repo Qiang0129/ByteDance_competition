@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.labelhub.backend.ai.AiReviewRepository;
+import com.labelhub.backend.ai.AiReviewService;
 import com.labelhub.backend.annotation.AnnotationRepository.AssignmentItemRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.AnnotationRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.DraftRecord;
@@ -19,9 +21,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -37,16 +41,19 @@ public class AnnotationService {
 
   private final AnnotationRepository annotationRepository;
   private final TaskService taskService;
+  private final AiReviewService aiReviewService;
   private final StateMachineService stateMachineService;
   private final ObjectMapper objectMapper;
 
   public AnnotationService(
       AnnotationRepository annotationRepository,
       TaskService taskService,
+      AiReviewService aiReviewService,
       StateMachineService stateMachineService,
       ObjectMapper objectMapper) {
     this.annotationRepository = annotationRepository;
     this.taskService = taskService;
+    this.aiReviewService = aiReviewService;
     this.stateMachineService = stateMachineService;
     this.objectMapper = objectMapper;
   }
@@ -85,7 +92,7 @@ public class AnnotationService {
         schema.digest(),
         buildRawPayload(assignment),
         schema.fields(),
-        resolvePosition(assignment),
+        resolvePosition(assignment, schema),
         returnReason,
         draft,
         latestAnnotation);
@@ -156,8 +163,7 @@ public class AnnotationService {
         "submitted");
     annotationRepository.markSubmitted(assignment.assignmentId(), assignment.itemId());
     annotationRepository.deleteDraft(assignment.assignmentId());
-    long aiReviewJobId = annotationRepository.createAiReviewJob(annotationId, schema.id());
-    annotationRepository.updateAnnotationStatus(annotationId, "ai_reviewing");
+    Long aiReviewJobId = enqueueAiReviewIfEnabled(assignment, annotationId, schema);
     auditSubmit(
         labeler,
         assignment,
@@ -175,9 +181,98 @@ public class AnnotationService {
         Long.toString(schema.id()),
         visibleAnswerJson,
         readJson(schema.schemaJson()),
-        "AI_REVIEWING",
+        aiReviewJobId == null ? "REVIEWING" : "AI_REVIEWING",
         revisionNo,
         null);
+  }
+
+  @Transactional
+  public BatchSubmitResponse submitTaskAssignments(Authentication authentication, long taskId) {
+    AuthenticatedUser labeler = requireLabeler(authentication);
+    List<AssignmentItemRecord> assignments = annotationRepository.lockTaskAssignmentsForLabeler(
+        taskId,
+        labeler.id());
+    if (assignments.isEmpty()) {
+      throw new ApiException(
+          HttpStatus.NOT_FOUND,
+          "ASSIGNMENT_NOT_FOUND",
+          "task has no assignment for current labeler");
+    }
+
+    List<BatchSubmitInvalidItem> invalidItems = new ArrayList<>();
+    List<PreparedBatchSubmission> preparedSubmissions = new ArrayList<>();
+    for (int index = 0; index < assignments.size(); index += 1) {
+      AssignmentItemRecord assignment = assignments.get(index);
+      ensureEditableAssignment(assignment);
+      SchemaContext schema = resolveSchema(assignment, true);
+      DraftRecord draft = annotationRepository.findDraft(assignment.assignmentId()).orElse(null);
+      if (draft == null) {
+        invalidItems.add(toBatchInvalidItem(assignment, index + 1, "该题还没有保存草稿", Map.of()));
+        continue;
+      }
+
+      try {
+        JsonNode answerJson = requireAnswerObject(readJson(draft.answerJson()));
+        JsonNode visibleAnswerJson = filterVisibleAnswer(answerJson, schema.fields());
+        validateAnswer(visibleAnswerJson, schema.fields());
+        int revisionNo = annotationRepository.nextRevisionNo(assignment.assignmentId());
+        boolean resubmit = revisionNo > 1 || "returned".equalsIgnoreCase(assignment.assignmentStatus());
+        preparedSubmissions.add(new PreparedBatchSubmission(
+            assignment,
+            schema,
+            visibleAnswerJson,
+            revisionNo,
+            resubmit));
+      } catch (ApiException exception) {
+        if (isDraftValidationError(exception)) {
+          invalidItems.add(toBatchInvalidItem(
+              assignment,
+              index + 1,
+              exception.getMessage(),
+              Map.of("_form", exception.getMessage())));
+          continue;
+        }
+        throw exception;
+      }
+    }
+
+    if (!invalidItems.isEmpty()) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "BATCH_SUBMIT_INCOMPLETE",
+          "部分题目未完成或校验失败，请修正后再提交",
+          invalidItems);
+    }
+
+    List<String> annotationIds = new ArrayList<>();
+    for (PreparedBatchSubmission prepared : preparedSubmissions) {
+      AssignmentItemRecord assignment = prepared.assignment();
+      SchemaContext schema = prepared.schema();
+      String assignmentBeforeStatus = assignment.assignmentStatus();
+      long annotationId = annotationRepository.createAnnotation(
+          assignment.assignmentId(),
+          schema.id(),
+          schema.schemaJson(),
+          writeJson(prepared.answerJson()),
+          prepared.revisionNo(),
+          "submitted");
+      annotationRepository.markSubmitted(assignment.assignmentId(), assignment.itemId());
+      annotationRepository.deleteDraft(assignment.assignmentId());
+      Long aiReviewJobId = enqueueAiReviewIfEnabled(assignment, annotationId, schema);
+      auditSubmit(
+          labeler,
+          assignment,
+          assignmentBeforeStatus,
+          annotationId,
+          aiReviewJobId,
+          schema.id(),
+          prepared.answerJson(),
+          prepared.revisionNo(),
+          prepared.resubmit());
+      annotationIds.add(Long.toString(annotationId));
+    }
+
+    return new BatchSubmitResponse(Long.toString(taskId), annotationIds.size(), annotationIds);
   }
 
   private AssignmentItemRecord loadAssignment(long labelerId, long assignmentId) {
@@ -186,6 +281,47 @@ public class AnnotationService {
             HttpStatus.NOT_FOUND,
             "ASSIGNMENT_NOT_FOUND",
             "assignment not found"));
+  }
+
+  private BatchSubmitInvalidItem toBatchInvalidItem(
+      AssignmentItemRecord assignment,
+      int index,
+      String reason,
+      Map<String, String> fieldErrors) {
+    return new BatchSubmitInvalidItem(
+        Long.toString(assignment.assignmentId()),
+        Long.toString(assignment.itemId()),
+        index,
+        reason,
+        fieldErrors);
+  }
+
+  private boolean isDraftValidationError(ApiException exception) {
+    return Set.of(
+        "ANSWER_VALIDATION_FAILED",
+        "INVALID_ANSWER_JSON",
+        "INVALID_JSON").contains(exception.getCode());
+  }
+
+  private Long enqueueAiReviewIfEnabled(
+      AssignmentItemRecord assignment,
+      long annotationId,
+      SchemaContext schema) {
+    if (!readMetadataAiReviewEnabled(assignment.rewardRuleJson())) {
+      annotationRepository.updateAnnotationStatus(annotationId, "reviewing");
+      return null;
+    }
+    Long ruleId = readMetadataAiReviewRuleId(assignment.rewardRuleJson());
+    AiReviewRepository.AiReviewRuleRecord rule =
+        aiReviewService.resolveEnabledRule(ruleId, assignment.taskId());
+    String ruleSnapshot = aiReviewService.writeRuleSnapshot(rule);
+    long aiReviewJobId = annotationRepository.createAiReviewJob(
+        annotationId,
+        schema.id(),
+        rule.id(),
+        ruleSnapshot);
+    annotationRepository.updateAnnotationStatus(annotationId, "ai_reviewing");
+    return aiReviewJobId;
   }
 
   private void ensureAssignmentUsable(AssignmentItemRecord assignment) {
@@ -287,13 +423,40 @@ public class AnnotationService {
           "SCHEMA_WITHDRAWN",
           "schema has been withdrawn");
     }
-    JsonNode root = readJson(schema.schemaJson());
+    ObjectNode root = normalizeRuntimeSchemaRoot(readJson(schema.schemaJson()));
     JsonNode fields = root.path("fields");
     ArrayNode fieldArray = fields.isArray()
-        ? fields.deepCopy()
+        ? (ArrayNode) fields
         : objectMapper.createArrayNode();
     String schemaJson = writeJson(root);
     return new SchemaContext(schema.id(), schemaJson, schemaDigest(schemaJson), fieldArray, runtimeUsable);
+  }
+
+  private ObjectNode normalizeRuntimeSchemaRoot(JsonNode root) {
+    ObjectNode normalized = root != null && root.isObject()
+        ? ((ObjectNode) root).deepCopy()
+        : objectMapper.createObjectNode();
+    JsonNode fields = normalized.path("fields");
+    normalized.set(
+        "fields",
+        fields.isArray() ? normalizeRuntimeFields(fields) : objectMapper.createArrayNode());
+    return normalized;
+  }
+
+  private ArrayNode normalizeRuntimeFields(JsonNode fields) {
+    ArrayNode normalized = objectMapper.createArrayNode();
+    for (JsonNode field : fields) {
+      if (!field.isObject()) {
+        normalized.add(field.deepCopy());
+        continue;
+      }
+      ObjectNode next = ((ObjectNode) field).deepCopy();
+      if (!next.hasNonNull("semanticType") || next.path("semanticType").asText("").isBlank()) {
+        next.put("semanticType", inferSemanticType(text(next, "kind", "")));
+      }
+      normalized.add(next);
+    }
+    return normalized;
   }
 
   private void ensureSchemaDigestMatches(String requestDigest, SchemaContext schema) {
@@ -334,6 +497,40 @@ public class AnnotationService {
     return null;
   }
 
+  private boolean readMetadataAiReviewEnabled(String rewardRuleJson) {
+    if (rewardRuleJson == null || rewardRuleJson.isBlank()) {
+      return true;
+    }
+    JsonNode root = readJson(rewardRuleJson);
+    JsonNode value = root.path("aiReviewEnabled");
+    return value.isMissingNode() || value.isNull() || value.asBoolean(true);
+  }
+
+  private Long readMetadataAiReviewRuleId(String rewardRuleJson) {
+    if (rewardRuleJson == null || rewardRuleJson.isBlank()) {
+      return null;
+    }
+    JsonNode root = readJson(rewardRuleJson);
+    JsonNode value = root.path("aiReviewRuleId");
+    if (value.isMissingNode() || value.isNull()) {
+      return null;
+    }
+    if (value.isNumber()) {
+      return value.longValue();
+    }
+    if (value.isTextual() && !value.asText().isBlank()) {
+      try {
+        return Long.parseLong(value.asText());
+      } catch (NumberFormatException exception) {
+        throw new ApiException(
+            HttpStatus.BAD_REQUEST,
+            "INVALID_AI_REVIEW_RULE_ID",
+            "ai review rule id format is invalid");
+      }
+    }
+    return null;
+  }
+
   private ObjectNode buildRawPayload(AssignmentItemRecord assignment) {
     JsonNode parsed = readJson(assignment.rawPayloadJson());
     ObjectNode raw;
@@ -349,17 +546,59 @@ public class AnnotationService {
     return raw;
   }
 
-  private AssignmentPositionResponse resolvePosition(AssignmentItemRecord assignment) {
-    List<Long> ids = annotationRepository.listAssignmentIdsForPosition(
-        assignment.taskId(),
-        assignment.labelerId());
-    int zeroBased = ids.indexOf(assignment.assignmentId());
-    if (zeroBased < 0) {
-      return new AssignmentPositionResponse(1, 1, null, null);
+  private AssignmentPositionResponse resolvePosition(AssignmentItemRecord assignment, SchemaContext schema) {
+    List<AnnotationRepository.AssignmentProgressRecord> progress =
+        annotationRepository.listAssignmentProgress(assignment.taskId(), assignment.labelerId());
+    List<String> idStrings = new ArrayList<>(progress.size());
+    List<String> statuses = new ArrayList<>(progress.size());
+    int zeroBased = -1;
+    for (int i = 0; i < progress.size(); i += 1) {
+      AnnotationRepository.AssignmentProgressRecord record = progress.get(i);
+      idStrings.add(Long.toString(record.assignmentId()));
+      statuses.add(resolveDotStatus(record, schema));
+      if (record.assignmentId() == assignment.assignmentId()) {
+        zeroBased = i;
+      }
     }
-    String prev = zeroBased > 0 ? Long.toString(ids.get(zeroBased - 1)) : null;
-    String next = zeroBased + 1 < ids.size() ? Long.toString(ids.get(zeroBased + 1)) : null;
-    return new AssignmentPositionResponse(zeroBased + 1, ids.size(), prev, next);
+    if (zeroBased < 0) {
+      String self = Long.toString(assignment.assignmentId());
+      return new AssignmentPositionResponse(1, 1, null, null, List.of(self), List.of("empty"));
+    }
+    String prev = zeroBased > 0 ? idStrings.get(zeroBased - 1) : null;
+    String next = zeroBased + 1 < idStrings.size() ? idStrings.get(zeroBased + 1) : null;
+    return new AssignmentPositionResponse(
+        zeroBased + 1, idStrings.size(), prev, next, idStrings, statuses);
+  }
+
+  /**
+   * 判定单题进度条着色状态:
+   *   已提交 -> completed;
+   *   有草稿且必填齐全 -> completed;
+   *   有草稿但必填缺失 -> incomplete;
+   *   无草稿 -> empty。
+   * 复用 validateAnswer,仅捕获必填校验失败(ANSWER_VALIDATION_FAILED),
+   * 其它异常按未完成处理,避免单题异常影响整体进度展示。
+   */
+  private String resolveDotStatus(
+      AnnotationRepository.AssignmentProgressRecord record, SchemaContext schema) {
+    String status = record.assignmentStatus() == null
+        ? ""
+        : record.assignmentStatus().toLowerCase(Locale.ROOT);
+    if ("submitted".equals(status) || "accepted".equals(status)) {
+      return "completed";
+    }
+    if (record.answerJson() == null || record.answerJson().isBlank()) {
+      return "empty";
+    }
+    try {
+      JsonNode answerJson = requireAnswerObject(readJson(record.answerJson()));
+      JsonNode visibleAnswerJson = filterVisibleAnswer(answerJson, schema.fields());
+      validateAnswer(visibleAnswerJson, schema.fields());
+      return "completed";
+    } catch (ApiException exception) {
+      // 必填缺失或其它校验失败,统一按未完成着色,不影响整体进度展示
+      return "incomplete";
+    }
   }
 
   private DraftResponse toDraftResponse(DraftRecord record) {
@@ -404,7 +643,8 @@ public class AnnotationService {
     Set<String> conditionalRequiredFields = resolveConditionalRequiredFields(fields, answerJson);
     for (JsonNode field : fields) {
       String kind = text(field, "kind", "");
-      if ("show-item".equals(kind)) {
+      String semanticType = semanticType(field);
+      if ("display".equals(semanticType) || "layout".equals(semanticType)) {
         continue;
       }
       String fieldName = text(field, "fieldName", "");
@@ -425,14 +665,14 @@ public class AnnotationService {
       if (maxLength > 0 && value != null && value.isTextual() && value.asText().length() > maxLength) {
         throwAnswerValidation(label + " exceeds max length " + maxLength);
       }
-      if ("json-editor".equals(kind) && value != null && value.isTextual() && !value.asText().isBlank()) {
+      if ("json".equals(semanticType) && value != null && value.isTextual() && !value.asText().isBlank()) {
         try {
           objectMapper.readTree(value.asText());
         } catch (JsonProcessingException exception) {
           throwAnswerValidation(label + " is not valid JSON");
         }
       }
-      validateChoiceValue(kind, field, value, label);
+      validateChoiceValue(semanticType, field, value, label);
       validateStructuredValidators(field, value, label);
     }
   }
@@ -441,8 +681,8 @@ public class AnnotationService {
     Set<String> hiddenFields = resolveHiddenFields(fields, answerJson);
     ObjectNode filtered = objectMapper.createObjectNode();
     for (JsonNode field : fields) {
-      String kind = text(field, "kind", "");
-      if (!isSubmittableKind(kind)) {
+      String semanticType = semanticType(field);
+      if (!isSubmittableSemanticType(semanticType)) {
         continue;
       }
       String fieldName = text(field, "fieldName", "");
@@ -454,21 +694,19 @@ public class AnnotationService {
     return filtered;
   }
 
-  private boolean isSubmittableKind(String kind) {
+  private boolean isSubmittableSemanticType(String semanticType) {
     return List.of(
-        "text-single",
-        "text-multi",
-        "single-choice",
-        "multi-choice",
+        "text",
+        "single_choice",
+        "multi_choice",
         "tags",
-        "rich-text",
-        "file-upload",
-        "json-editor",
-        "llm-trigger").contains(kind);
+        "file",
+        "json",
+        "llm").contains(semanticType);
   }
 
-  private void validateChoiceValue(String kind, JsonNode field, JsonNode value, String label) {
-    if (!List.of("single-choice", "multi-choice", "tags").contains(kind) || isEmptyAnswer(value)) {
+  private void validateChoiceValue(String semanticType, JsonNode field, JsonNode value, String label) {
+    if (!List.of("single_choice", "multi_choice", "tags").contains(semanticType) || isEmptyAnswer(value)) {
       return;
     }
     Set<String> allowed = new HashSet<>();
@@ -481,7 +719,7 @@ public class AnnotationService {
         }
       }
     }
-    if ("single-choice".equals(kind)) {
+    if ("single_choice".equals(semanticType)) {
       if (!value.isTextual() || !allowed.contains(value.asText())) {
         throwAnswerValidation(label + " has invalid option");
       }
@@ -747,6 +985,28 @@ public class AnnotationService {
         || (value.isArray() && value.isEmpty());
   }
 
+  private String semanticType(JsonNode field) {
+    String semanticType = text(field, "semanticType", "");
+    if (!semanticType.isBlank()) {
+      return semanticType;
+    }
+    return inferSemanticType(text(field, "kind", ""));
+  }
+
+  private String inferSemanticType(String kind) {
+    return switch (kind) {
+      case "single-choice" -> "single_choice";
+      case "multi-choice" -> "multi_choice";
+      case "tags" -> "tags";
+      case "json-editor" -> "json";
+      case "file-upload" -> "file";
+      case "llm-trigger" -> "llm";
+      case "show-item" -> "display";
+      case "group", "multi-tab" -> "layout";
+      default -> "text";
+    };
+  }
+
   private void throwAnswerValidation(String message) {
     throw new ApiException(HttpStatus.BAD_REQUEST, "ANSWER_VALIDATION_FAILED", message);
   }
@@ -756,7 +1016,7 @@ public class AnnotationService {
       AssignmentItemRecord assignment,
       String assignmentBeforeStatus,
       long annotationId,
-      long aiReviewJobId,
+      Long aiReviewJobId,
       long schemaVersionId,
       JsonNode answerJson,
       int revisionNo,
@@ -788,6 +1048,21 @@ public class AnnotationService {
             "revisionNo", revisionNo,
             "answerJson", answerJson),
         null);
+    if (aiReviewJobId == null) {
+      stateMachineService.audit(
+          WorkflowEntityType.ANNOTATION,
+          annotationId,
+          labeler,
+          "system_agent",
+          "annotation.submit",
+          "submitted",
+          "reviewing",
+          "ai review disabled, send to human review",
+          java.util.Map.of("annotationId", annotationId, "status", "submitted"),
+          java.util.Map.of("annotationId", annotationId, "status", "reviewing"),
+          null);
+      return;
+    }
     stateMachineService.audit(
         WorkflowEntityType.ANNOTATION,
         annotationId,
@@ -905,4 +1180,11 @@ public class AnnotationService {
       String digest,
       ArrayNode fields,
       boolean runtimeUsable) {}
+
+  private record PreparedBatchSubmission(
+      AssignmentItemRecord assignment,
+      SchemaContext schema,
+      JsonNode answerJson,
+      int revisionNo,
+      boolean resubmit) {}
 }

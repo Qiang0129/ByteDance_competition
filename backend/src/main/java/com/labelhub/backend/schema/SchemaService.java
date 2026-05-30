@@ -270,9 +270,9 @@ public class SchemaService {
       String datasetId = text(root, "datasetId");
       String datasetName = text(root, "datasetName");
       JsonNode fieldsNode = root.path("fields");
-      ArrayNode fields = fieldsNode.isArray()
-          ? fieldsNode.deepCopy()
-          : objectMapper.createArrayNode();
+      ArrayNode fields = normalizeFields(fieldsNode.isArray()
+          ? fieldsNode
+          : objectMapper.createArrayNode());
       return new SchemaSnapshot(name, description, new DatasetBinding(datasetId, datasetName), fields);
     } catch (JsonProcessingException exception) {
       return new SchemaSnapshot("未命名模板", "", DatasetBinding.empty(), objectMapper.createArrayNode());
@@ -302,7 +302,7 @@ public class SchemaService {
     return fields;
   }
 
-  private JsonNode normalizeFields(JsonNode fields) {
+  private ArrayNode normalizeFields(JsonNode fields) {
     ArrayNode normalized = objectMapper.createArrayNode();
     for (JsonNode field : fields) {
       if (!field.isObject()) {
@@ -310,6 +310,7 @@ public class SchemaService {
         continue;
       }
       ObjectNode nextField = ((ObjectNode) field).deepCopy();
+      ensureSemanticType(nextField);
       JsonNode reactions = nextField.path("reactions");
       if (reactions.isArray()) {
         ArrayNode nextReactions = objectMapper.createArrayNode();
@@ -327,6 +328,32 @@ public class SchemaService {
       normalized.add(nextField);
     }
     return normalized;
+  }
+
+  private void ensureSemanticType(ObjectNode field) {
+    String semanticType = text(field, "semanticType");
+    if (semanticType != null && !semanticType.isBlank()) {
+      return;
+    }
+    String kind = text(field, "kind");
+    field.put("semanticType", inferSemanticType(kind));
+  }
+
+  private String inferSemanticType(String kind) {
+    if (kind == null) {
+      return "text";
+    }
+    return switch (kind) {
+      case "single-choice" -> "single_choice";
+      case "multi-choice" -> "multi_choice";
+      case "tags" -> "tags";
+      case "json-editor" -> "json";
+      case "file-upload" -> "file";
+      case "llm-trigger" -> "llm";
+      case "show-item" -> "display";
+      case "group", "multi-tab" -> "layout";
+      default -> "text";
+    };
   }
 
   private void normalizeReaction(ObjectNode reaction, JsonNode fields) {

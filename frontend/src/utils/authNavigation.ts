@@ -1,23 +1,25 @@
 import type { UserRole } from '../types/auth';
 
-export type WorkspaceRole = Extract<UserRole, 'owner' | 'labeler' | 'reviewer'>;
+export type WorkspaceRole = Extract<UserRole, 'owner' | 'labeler' | 'reviewer' | 'ai_reviewer'>;
 
 export const workspaceRoleLabels: Record<WorkspaceRole, string> = {
   owner: 'Project Owner',
   labeler: 'Labeler',
   reviewer: 'Reviewer',
+  ai_reviewer: 'AI Reviewer',
 };
 
 export const workspaceRolePath: Record<WorkspaceRole, string> = {
   owner: '/owner/tasks',
   labeler: '/labeler',
   reviewer: '/reviewer',
+  ai_reviewer: '/ai-reviewer',
 };
 
-const rolePriority: WorkspaceRole[] = ['owner', 'labeler', 'reviewer'];
+const rolePriority: WorkspaceRole[] = ['owner', 'labeler', 'reviewer', 'ai_reviewer'];
 
 export function isWorkspaceRole(role: UserRole): role is WorkspaceRole {
-  return role === 'owner' || role === 'labeler' || role === 'reviewer';
+  return role === 'owner' || role === 'labeler' || role === 'reviewer' || role === 'ai_reviewer';
 }
 
 export function resolveLandingRole(

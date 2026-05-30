@@ -21,4 +21,6 @@ public record OwnerTaskResponse(
     String reward,
     List<String> tags,
     String description,
-    boolean aiReviewEnabled) {}
+    boolean aiReviewEnabled,
+    String aiReviewRuleId,
+    String aiReviewRuleName) {}

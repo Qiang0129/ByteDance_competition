@@ -38,7 +38,7 @@ public class StateMachineService {
           "voided", Set.of()),
       WorkflowEntityType.AI_REVIEW_JOB, Map.of(
           "pending", Set.of("running", "failed"),
-          "running", Set.of("succeeded", "failed"),
+          "running", Set.of("succeeded", "failed", "pending"),
           "failed", Set.of("pending"),
           "succeeded", Set.of()),
       WorkflowEntityType.EXPORT_JOB, Map.of(
@@ -171,7 +171,7 @@ public class StateMachineService {
       return Set.of("owner");
     }
     if (entityType == WorkflowEntityType.AI_REVIEW_JOB) {
-      return Set.of("system_agent", "reviewer", "owner");
+      return Set.of("system_agent", "ai_reviewer", "reviewer", "owner");
     }
     if (entityType == WorkflowEntityType.ASSIGNMENT) {
       if ("voided".equals(to)) {
@@ -193,8 +193,11 @@ public class StateMachineService {
           && ("submitted".equals(to) || "ai_reviewing".equals(to))) {
         return Set.of("labeler", "system_agent");
       }
-      if ("ai_reviewing".equals(from) && List.of("reviewing", "accepted").contains(to)) {
+      if ("submitted".equals(from) && "reviewing".equals(to)) {
         return Set.of("system_agent", "reviewer", "owner");
+      }
+      if ("ai_reviewing".equals(from) && List.of("reviewing", "accepted").contains(to)) {
+        return Set.of("system_agent", "ai_reviewer", "reviewer", "owner");
       }
       if ("accepted".equals(from) && "exported".equals(to)) {
         return Set.of("owner");

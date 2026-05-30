@@ -30,6 +30,16 @@ public class SchemaDefinitionValidator {
       "group",
       "multi-tab");
   private static final Set<String> CHOICE_KINDS = Set.of("single-choice", "multi-choice", "tags");
+  private static final Set<String> ALLOWED_SEMANTIC_TYPES = Set.of(
+      "text",
+      "single_choice",
+      "multi_choice",
+      "tags",
+      "json",
+      "file",
+      "llm",
+      "display",
+      "layout");
   private static final Set<String> SUBMITTABLE_KINDS = Set.of(
       "text-single",
       "text-multi",
@@ -61,11 +71,15 @@ public class SchemaDefinitionValidator {
 
     for (JsonNode field : fields) {
       String kind = text(field, "kind");
+      String semanticType = fallback(text(field, "semanticType"), inferSemanticType(kind));
       String fieldName = text(field, "fieldName");
       String label = fallback(text(field, "label"), fallback(fieldName, "字段"));
 
       if (!ALLOWED_KINDS.contains(kind)) {
         errors.add(error("INVALID_FIELD_KIND", label + " 的物料类型不受支持。", fieldName));
+      }
+      if (!ALLOWED_SEMANTIC_TYPES.contains(semanticType)) {
+        errors.add(error("INVALID_SEMANTIC_TYPE", label + " 的语义类型不受支持。", fieldName));
       }
       if (SUBMITTABLE_KINDS.contains(kind)) {
         hasSubmittable = true;
@@ -245,5 +259,22 @@ public class SchemaDefinitionValidator {
 
   private String fallback(String value, String fallback) {
     return value == null || value.isBlank() ? fallback : value;
+  }
+
+  private String inferSemanticType(String kind) {
+    if (kind == null) {
+      return "text";
+    }
+    return switch (kind) {
+      case "single-choice" -> "single_choice";
+      case "multi-choice" -> "multi_choice";
+      case "tags" -> "tags";
+      case "json-editor" -> "json";
+      case "file-upload" -> "file";
+      case "llm-trigger" -> "llm";
+      case "show-item" -> "display";
+      case "group", "multi-tab" -> "layout";
+      default -> "text";
+    };
   }
 }

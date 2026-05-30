@@ -22,6 +22,8 @@ export interface OwnerTask {
   tags: string[];
   description?: string;
   aiReviewEnabled: boolean;
+  aiReviewRuleId?: string;
+  aiReviewRuleName?: string;
 }
 
 export interface CreateOwnerTaskRequest {
@@ -37,6 +39,7 @@ export interface CreateOwnerTaskRequest {
   schema?: string;
   schemaVersionId?: string;
   aiReviewEnabled?: boolean;
+  aiReviewRuleId?: string;
   description?: string;
   taskType?: string;
   status: OwnerTaskState;

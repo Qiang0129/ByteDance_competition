@@ -70,7 +70,7 @@ import { createPortal } from 'react-dom';
 import { getApiErrorMessage } from '../../api/client';
 import { datasetApi } from '../../api/dataset';
 import { schemaApi } from '../../api/schema';
-import { LabelHubFormRenderer, normalizeSchemaFields, validateSchemaFields } from '../../modules/schema';
+import { LabelHubFormRenderer, normalizeSchemaFields, resolveSemanticType, validateSchemaFields } from '../../modules/schema';
 import type { DatasetItem, DatasetMeta } from '../../types/dataset';
 import type {
   MaterialCategory,
@@ -260,6 +260,7 @@ function createField(meta: MaterialMeta, existing: SchemaField[]): SchemaField {
   return {
     id: uid(),
     kind: meta.kind,
+    semanticType: resolveSemanticType({ kind: meta.kind }),
     fieldName: nextFieldName(meta.fieldPrefix, existing),
     label: `${meta.label}字段`,
     required: false,

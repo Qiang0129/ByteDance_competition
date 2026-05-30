@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   AppstoreOutlined,
+  ApiOutlined,
   AuditOutlined,
   BgColorsOutlined,
   DashboardOutlined,
@@ -60,6 +61,9 @@ const segmentLabel: Record<string, string> = {
   owner: '任务负责人后台',
   labeler: '标注员',
   reviewer: '审核员',
+  'ai-reviewer': 'AI 审核后台',
+  rules: '规则管理',
+  jobs: 'Job 队列',
   market: '任务市场',
   'my-tasks': '我的任务',
   drafts: '草稿箱',
@@ -79,6 +83,7 @@ const segmentLabel: Record<string, string> = {
   reports: '审核报表',
   settings: '系统设置',
   appearance: '外观主题',
+  model: '模型配置',
 };
 
 /**
@@ -105,6 +110,7 @@ const ownerMenuItems: MenuProps['items'] = [
     label: '审核与质检',
     children: [
       { key: '/owner/ai-review', icon: <RobotOutlined />, label: 'AI 预审规则' },
+      { key: '/owner/settings/model', icon: <ApiOutlined />, label: '模型配置' },
       { key: '/owner/review', icon: <AuditOutlined />, label: '人工审核' },
     ],
   },
@@ -176,7 +182,22 @@ const reviewerMenuItems: MenuProps['items'] = [
   },
 ];
 
+const aiReviewerMenuItems: MenuProps['items'] = [
+  {
+    type: 'group',
+    key: 'g-ai-reviewer',
+    label: 'AI REVIEW',
+    children: [
+      { key: '/ai-reviewer', icon: <DashboardOutlined />, label: '作业概览' },
+      { key: '/ai-reviewer/jobs', icon: <RobotOutlined />, label: 'Job 队列' },
+      { key: '/ai-reviewer/rules', icon: <AuditOutlined />, label: '规则管理' },
+      { key: '/ai-reviewer/settings/model', icon: <ApiOutlined />, label: '模型配置' },
+    ],
+  },
+];
+
 function resolveSection(pathname: string): RoleSection {
+  if (pathname.startsWith('/ai-reviewer')) return 'ai_reviewer';
   if (pathname.startsWith('/labeler')) return 'labeler';
   if (pathname.startsWith('/reviewer')) return 'reviewer';
   return 'owner';
@@ -193,6 +214,7 @@ function resolveSelectedKey(section: RoleSection, pathname: string): string {
       '/owner/templates',
       '/owner/datasets',
       '/owner/ai-review',
+      '/owner/settings/model',
       '/owner/review',
       '/owner/dashboard',
       '/owner/export',
@@ -207,6 +229,14 @@ function resolveSelectedKey(section: RoleSection, pathname: string): string {
       '/reviewer/reports',
     ];
     return reviewerKeys.find((key) => pathname.startsWith(key)) ?? '/reviewer';
+  }
+  if (section === 'ai_reviewer') {
+    const aiReviewerKeys = [
+      '/ai-reviewer/jobs',
+      '/ai-reviewer/rules',
+      '/ai-reviewer/settings/model',
+    ];
+    return aiReviewerKeys.find((key) => pathname.startsWith(key)) ?? '/ai-reviewer';
   }
   return `/${section}`;
 }
@@ -270,7 +300,9 @@ export default function AppLayout() {
       ? labelerMenuItems
       : section === 'reviewer'
         ? reviewerMenuItems
-        : ownerMenuItems;
+        : section === 'ai_reviewer'
+          ? aiReviewerMenuItems
+          : ownerMenuItems;
 
   /**
    * 根据 location.pathname 拆出面包屑节点。
@@ -281,7 +313,13 @@ export default function AppLayout() {
   const breadcrumbItems = (() => {
     const parts = location.pathname.split('/').filter(Boolean);
     const rootLabel =
-      section === 'owner' ? '任务负责人后台' : section === 'labeler' ? '标注员后台' : '审核员后台';
+      section === 'owner'
+        ? '任务负责人后台'
+        : section === 'labeler'
+          ? '标注员后台'
+          : section === 'ai_reviewer'
+            ? 'AI 审核后台'
+            : '审核员后台';
     const items: Array<{ title: React.ReactNode; href?: string }> = [
       {
         title: (
@@ -290,7 +328,7 @@ export default function AppLayout() {
             <span>{rootLabel}</span>
           </span>
         ),
-        href: `/${section}`,
+        href: workspaceRolePath[section],
       },
     ];
     let acc = '';
@@ -334,12 +372,18 @@ export default function AppLayout() {
     }
 
     if (key === 'profile') {
-      message.info('个人资料将在后续用户中心阶段开放。');
+      if (section === 'ai_reviewer') {
+        navigate('/ai-reviewer/settings/model');
+      } else if (section === 'owner') {
+        navigate('/owner/settings/model');
+      } else {
+        message.info('个人资料将在后续用户中心阶段开放。');
+      }
       return;
     }
 
     if (key === 'appearance') {
-      navigate(`/${section}/settings/appearance`);
+      navigate(`${section === 'ai_reviewer' ? '/ai-reviewer' : `/${section}`}/settings/appearance`);
       return;
     }
 
@@ -362,7 +406,11 @@ export default function AppLayout() {
         </div>
       ),
     },
-    { key: 'profile', icon: <UserOutlined />, label: '个人资料' },
+    {
+      key: 'profile',
+      icon: section === 'ai_reviewer' || section === 'owner' ? <RobotOutlined /> : <UserOutlined />,
+      label: section === 'ai_reviewer' || section === 'owner' ? '模型配置' : '个人资料',
+    },
     { key: 'appearance', icon: <BgColorsOutlined />, label: '外观主题' },
     {
       type: 'group',

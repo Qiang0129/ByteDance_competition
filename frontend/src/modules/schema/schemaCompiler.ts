@@ -1,5 +1,15 @@
-import type { SchemaField, SchemaReactionRule } from '../../types/schema';
+import type { MaterialKind, SchemaField, SchemaReactionRule, SchemaSemanticType } from '../../types/schema';
 import { normalizeValidators, SUBMITTABLE_KINDS } from './schemaValidation';
+
+const SUBMITTABLE_SEMANTIC_TYPES = new Set<SchemaSemanticType>([
+  'text',
+  'single_choice',
+  'multi_choice',
+  'tags',
+  'json',
+  'file',
+  'llm',
+]);
 
 export interface RuntimeRuleState {
   visible: Record<string, boolean>;
@@ -87,7 +97,7 @@ export function filterVisibleAnswer(
   const ruleState = resolveRuntimeRules(fields, values);
   const next: Record<string, unknown> = {};
   fields.forEach((field) => {
-    if (!field.fieldName || !SUBMITTABLE_KINDS.has(field.kind)) return;
+    if (!field.fieldName || !isSubmittableField(field)) return;
     if (ruleState.visible[field.fieldName] === false) return;
     if (Object.prototype.hasOwnProperty.call(values, field.fieldName)) {
       next[field.fieldName] = values[field.fieldName];
@@ -117,6 +127,7 @@ export function compileToFormilySchema(fields: SchemaField[], options: CompileOp
 export function normalizeSchemaFields(fields: SchemaField[]): SchemaField[] {
   return fields.map((field) => ({
     ...field,
+    semanticType: resolveSemanticType(field),
     reactions: (field.reactions ?? []).map((rule) => {
       const sourceField = findField(fields, rule.sourceField);
       return {
@@ -146,6 +157,7 @@ function toFormilyFieldSchema(
     readOnly: options.readonly,
     sourcePath: field.sourcePath,
     showText: field.showText,
+    semanticType: resolveSemanticType(field),
     rawPayload,
   };
 
@@ -168,41 +180,74 @@ function toFormilyFieldSchema(
 }
 
 function inferValueType(field: SchemaField) {
-  if (field.kind === 'multi-choice' || field.kind === 'tags') return 'array';
-  if (field.kind === 'json-editor') return 'string';
-  if (!SUBMITTABLE_KINDS.has(field.kind)) return 'void';
+  const semanticType = resolveSemanticType(field);
+  if (semanticType === 'multi_choice' || semanticType === 'tags') return 'array';
+  if (semanticType === 'display' || semanticType === 'layout') return 'void';
+  if (!isSubmittableField(field)) return 'void';
   return 'string';
 }
 
 function componentName(field: SchemaField) {
-  switch (field.kind) {
-    case 'text-single':
+  switch (resolveSemanticType(field)) {
+    case 'text':
+      if (field.kind === 'text-multi') return 'TextAreaInput';
+      if (field.kind === 'rich-text') return 'RichTextInput';
       return 'TextInput';
-    case 'text-multi':
-      return 'TextAreaInput';
-    case 'rich-text':
-      return 'RichTextInput';
-    case 'single-choice':
+    case 'single_choice':
       return 'SingleChoice';
-    case 'multi-choice':
+    case 'multi_choice':
       return 'MultiChoice';
     case 'tags':
       return 'TagsChoice';
-    case 'json-editor':
+    case 'json':
       return 'JsonEditor';
-    case 'file-upload':
+    case 'file':
       return 'FileUpload';
-    case 'llm-trigger':
+    case 'llm':
       return 'LlmTrigger';
-    case 'show-item':
+    case 'display':
       return 'ShowItem';
-    case 'group':
-      return 'GroupContainer';
-    case 'multi-tab':
-      return 'TabContainer';
+    case 'layout':
+      return field.kind === 'multi-tab' ? 'TabContainer' : 'GroupContainer';
     default:
       return 'TextInput';
   }
+}
+
+export function resolveSemanticType(field: Pick<SchemaField, 'kind' | 'semanticType'>): SchemaSemanticType {
+  if (field.semanticType) return field.semanticType;
+  return inferSemanticType(field.kind);
+}
+
+function inferSemanticType(kind: MaterialKind): SchemaSemanticType {
+  switch (kind) {
+    case 'single-choice':
+      return 'single_choice';
+    case 'multi-choice':
+      return 'multi_choice';
+    case 'tags':
+      return 'tags';
+    case 'json-editor':
+      return 'json';
+    case 'file-upload':
+      return 'file';
+    case 'llm-trigger':
+      return 'llm';
+    case 'show-item':
+      return 'display';
+    case 'group':
+    case 'multi-tab':
+      return 'layout';
+    default:
+      return 'text';
+  }
+}
+
+export function isSubmittableField(field: Pick<SchemaField, 'kind' | 'semanticType'>) {
+  if (field.semanticType) {
+    return SUBMITTABLE_SEMANTIC_TYPES.has(field.semanticType);
+  }
+  return SUBMITTABLE_KINDS.has(field.kind);
 }
 
 function toFormilyValidators(field: SchemaField) {

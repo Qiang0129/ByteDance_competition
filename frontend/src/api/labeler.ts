@@ -13,6 +13,7 @@ import type {
   Annotation,
   Assignment,
   AssignmentItem,
+  BatchSubmitResponse,
   Draft,
   MarketTask,
   MarketTasksQuery,
@@ -84,6 +85,13 @@ export const labelerApi = {
     return apiRequest<Annotation>(`/assignments/${assignmentId}/submit`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  /** 提交当前任务下已领取的全部草稿,统一进入 AI 预审 */
+  submitTaskAssignments(taskId: string): Promise<BatchSubmitResponse> {
+    return apiRequest<BatchSubmitResponse>(`/tasks/${taskId}/assignments/submit`, {
+      method: 'POST',
     });
   },
 };
