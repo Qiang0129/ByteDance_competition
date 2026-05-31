@@ -106,14 +106,53 @@ export const aiReviewApi = {
     return apiRequest<AiReviewResult>(`/ai-review/results/${annotationId}`);
   },
 
+  /** 兼容旧接口:获取当前激活的单个配置(Agent 运行时使用) */
   getModelConfig(): Promise<AiModelConfig | null> {
     return apiRequest<AiModelConfig | null>('/ai-review/model-config');
   },
 
+  /** 兼容旧接口:保存/更新当前激活配置 */
   saveModelConfig(payload: AiModelConfigRequest): Promise<AiModelConfig> {
     return apiRequest<AiModelConfig>('/ai-review/model-config', {
       method: 'PUT',
       body: JSON.stringify(payload),
+    });
+  },
+
+  /* ========== 多配置管理接口(新) ========== */
+
+  /** 获取所有模型配置列表 */
+  listModelConfigs(): Promise<AiModelConfig[]> {
+    return apiRequest<AiModelConfig[]>('/ai-review/model-configs');
+  },
+
+  /** 新建模型配置 */
+  createModelConfig(payload: AiModelConfigRequest): Promise<AiModelConfig> {
+    return apiRequest<AiModelConfig>('/ai-review/model-configs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /** 更新指定配置 */
+  updateModelConfig(configId: string, payload: AiModelConfigRequest): Promise<AiModelConfig> {
+    return apiRequest<AiModelConfig>(`/ai-review/model-configs/${configId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /** 删除指定配置(不能删除当前激活的) */
+  deleteModelConfig(configId: string): Promise<void> {
+    return apiRequest<void>(`/ai-review/model-configs/${configId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  /** 激活指定配置(同时把其他配置设为 inactive) */
+  activateModelConfig(configId: string): Promise<AiModelConfig> {
+    return apiRequest<AiModelConfig>(`/ai-review/model-configs/${configId}/activate`, {
+      method: 'POST',
     });
   },
 

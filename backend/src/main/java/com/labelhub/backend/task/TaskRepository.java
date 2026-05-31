@@ -135,6 +135,18 @@ public class TaskRepository {
         "ORDER BY t.created_at DESC");
   }
 
+  public List<TaskRecord> listTasksToSettle(LocalDateTime now) {
+    return queryTasks(
+        """
+        WHERE t.deleted_at IS NULL
+          AND t.status IN ('published', 'paused')
+          AND t.deadline IS NOT NULL
+          AND t.deadline <= ?
+        """,
+        List.of(Timestamp.valueOf(now)),
+        "ORDER BY t.deadline ASC, t.id ASC");
+  }
+
   public int deleteTask(long ownerId, long taskId) {
     return jdbcTemplate.update(
         """
@@ -451,6 +463,18 @@ public class TaskRepository {
         ownerId);
   }
 
+  public int updateTaskStateSystem(long taskId, String state) {
+    return jdbcTemplate.update(
+        """
+        UPDATE tasks
+        SET status = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND deleted_at IS NULL
+        """,
+        state,
+        taskId);
+  }
+
   public void updateLatestSchemaState(long taskId, String state) {
     jdbcTemplate.update(
         """
@@ -658,9 +682,25 @@ public class TaskRepository {
       String normalizedAiReview) {
     List<String> clauses = new ArrayList<>();
     List<Object> args = new ArrayList<>();
-    clauses.add("t.status = 'published'");
     clauses.add("t.deleted_at IS NULL");
-    clauses.add("(t.deadline IS NULL OR t.deadline >= CURRENT_TIMESTAMP)");
+    clauses.add(
+        """
+        (
+          t.status = 'published'
+          OR (
+            t.status = 'ended'
+            AND t.deadline IS NOT NULL
+            AND t.deadline <= CURRENT_TIMESTAMP
+            AND EXISTS (
+              SELECT 1
+              FROM audit_logs al
+              WHERE al.entity_type = 'task'
+                AND al.entity_id = t.id
+                AND al.action = 'task.settle_by_deadline'
+            )
+          )
+        )
+        """);
 
     if (keyword != null && !keyword.isBlank()) {
       clauses.add("(t.title LIKE ? OR t.description LIKE ?)");

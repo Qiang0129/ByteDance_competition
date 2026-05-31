@@ -10,6 +10,8 @@ public record AssignmentItemResponse(
     String status,
     boolean editable,
     String deadline,
+    String resubmitDeadline,
+    String lockReason,
     String schemaVersionId,
     String schemaDigest,
     JsonNode rawPayload,

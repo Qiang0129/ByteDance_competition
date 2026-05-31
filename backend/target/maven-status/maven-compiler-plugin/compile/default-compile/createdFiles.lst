@@ -61,6 +61,7 @@ com\labelhub\backend\auth\ApiException.class
 com\labelhub\backend\schema\SchemaValidationRequest.class
 com\labelhub\backend\dashboard\DashboardIssueFeedbackService.class
 com\labelhub\backend\review\ReviewRepository$AnnotationStateRecord.class
+com\labelhub\backend\review\ReviewService$RevisionSchema.class
 com\labelhub\backend\dataset\DatasetController.class
 com\labelhub\backend\annotation\SubmitAnnotationRequest.class
 com\labelhub\backend\schema\SchemaService$SchemaSnapshot.class
@@ -92,6 +93,7 @@ com\labelhub\backend\annotation\BatchSubmitInvalidItem.class
 com\labelhub\backend\task\OwnerTaskResponse.class
 com\labelhub\backend\labeler\LabelerOverviewRepository$RecentBatchRecord.class
 com\labelhub\backend\review\ReviewRepository$ReviewBatchRecord.class
+com\labelhub\backend\annotation\AnswerValidationService.class
 com\labelhub\backend\ai\AiReviewRepository$AiReviewResultRecord.class
 com\labelhub\backend\annotation\AssignmentPositionResponse.class
 com\labelhub\backend\dashboard\DashboardIssueFeedbackRepository$IssueFeedbackRecord.class
@@ -126,6 +128,7 @@ com\labelhub\backend\ai\AiModelConfigService$ValidConfig.class
 com\labelhub\backend\review\AiReviewTaskSummaryResponse.class
 com\labelhub\backend\ai\AiReviewJobClaimResponse.class
 com\labelhub\backend\ai\AiReviewJobResponse.class
+com\labelhub\backend\task\TaskDeadlineSettlementService.class
 com\labelhub\backend\task\AssignmentResponse.class
 com\labelhub\backend\annotation\AnnotationRepository$LabelerDraftRecord.class
 com\labelhub\backend\task\TaskRepository.class
@@ -143,6 +146,7 @@ com\labelhub\backend\auth\DemoUserInitializer.class
 com\labelhub\backend\ai\AiReviewRepository$AiReviewRuleRecord.class
 com\labelhub\backend\ai\AiReviewService$2.class
 com\labelhub\backend\ai\AiModelModelsRequest.class
+com\labelhub\backend\review\ReviewRepository$ReviewTimelineEventRecord.class
 com\labelhub\backend\schema\SchemaSummaryResponse.class
 com\labelhub\backend\ai\AiModelConfigRepository$AiModelConfigRecord.class
 com\labelhub\backend\ai\AiModelConfigService.class
@@ -150,6 +154,7 @@ com\labelhub\backend\dataset\DatasetFileParser.class
 com\labelhub\backend\ai\AiModelConfigProperties.class
 com\labelhub\backend\dashboard\DashboardIssueFeedbackController.class
 com\labelhub\backend\annotation\BatchSubmitResponse.class
+com\labelhub\backend\task\TaskDeadlineSettlementService$SchemaContext.class
 com\labelhub\backend\labeler\LabelerReturnedItemsService.class
 com\labelhub\backend\dataset\DatasetRepository.class
 com\labelhub\backend\schema\SchemaService$DatasetBinding.class

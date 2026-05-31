@@ -22,4 +22,8 @@ public record MarketTaskResponse(
     String aiReviewRule,
     String publishedAt,
     Integer maxClaimPerUser,
-    boolean claimedByMe) {}
+    boolean claimedByMe,
+    String state,
+    boolean expired,
+    boolean claimable,
+    String statusLabel) {}

@@ -24,5 +24,8 @@ public record LabelerReturnedItemResponse(
     Double aiTotalScore,
     List<String> aiRiskFlags,
     List<String> aiEvidence,
+    String resubmitDeadline,
+    boolean editable,
+    String expiredReason,
     boolean actionable,
     String actionText) {}

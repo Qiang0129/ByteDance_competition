@@ -503,6 +503,19 @@ public class AiReviewRepository {
           aj.annotation_id,
           t.id AS task_id,
           t.title AS task_title,
+          (
+            SELECT COUNT(*)
+            FROM assignments ranked
+            WHERE ranked.task_id = a.task_id
+              AND ranked.status <> 'voided'
+              AND ranked.id <= a.id
+          ) AS item_index,
+          (
+            SELECT COUNT(*)
+            FROM assignments total_assignments
+            WHERE total_assignments.task_id = a.task_id
+              AND total_assignments.status <> 'voided'
+          ) AS item_total,
           aj.rule_id,
           COALESCE(r.name, JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.name'))) AS rule_name,
           CAST(aj.rule_snapshot_json AS CHAR) AS rule_snapshot_json,
@@ -555,6 +568,8 @@ public class AiReviewRepository {
         rs.getLong("annotation_id"),
         rs.getLong("task_id"),
         rs.getString("task_title"),
+        toInteger(rs.getObject("item_index")),
+        toInteger(rs.getObject("item_total")),
         toLong(rs.getObject("rule_id")),
         rs.getString("rule_name"),
         rs.getString("rule_snapshot_json"),
@@ -627,6 +642,8 @@ public class AiReviewRepository {
       long annotationId,
       long taskId,
       String taskTitle,
+      Integer itemIndex,
+      Integer itemTotal,
       Long ruleId,
       String ruleName,
       String ruleSnapshotJson,

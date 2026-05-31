@@ -28,7 +28,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
@@ -87,6 +87,7 @@ function saveSplitPercent(percent: number) {
 export default function AnswerPage() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { message } = AntdApp.useApp();
 
   const [item, setItem] = useState<AssignmentItem | null>(null);
@@ -150,6 +151,12 @@ export default function AnswerPage() {
   const currentInvalidItem = item
     ? batchInvalidItems.find((invalidItem) => invalidItem.index === item.position.index)
     : undefined;
+  const routeState = location.state as { entry?: unknown; assignmentId?: unknown } | null;
+  const isReturnedAssignment = item?.status === 'returned' && !!item.resubmitDeadline;
+  const showReworkSubmit =
+    isReturnedAssignment &&
+    routeState?.entry === 'returned-rework' &&
+    routeState.assignmentId === item?.assignmentId;
   const rawAnswerFallback = useMemo(() => {
     const submittedAnswer = item?.latestAnnotation?.answerJson;
     if (!item || !submittedAnswer || typeof submittedAnswer !== 'object') {
@@ -251,6 +258,10 @@ export default function AnswerPage() {
     if (!item) return;
     if (!item.taskId) return;
     if (entryRedirectedTaskRef.current === item.taskId) return;
+    if (showReworkSubmit) {
+      entryRedirectedTaskRef.current = item.taskId;
+      return;
+    }
     // 只在该任务"第一题入口"做重定位,中途页面不再主动弹走用户
     if (item.position.prevAssignmentId) {
       entryRedirectedTaskRef.current = item.taskId;
@@ -343,7 +354,7 @@ export default function AnswerPage() {
     } catch (error) {
       if (error instanceof ApiError) {
         message.error(getApiErrorMessage(error, '保存草稿失败'));
-        setItem((prev) => (prev ? { ...prev, editable: false, status: 'voided' } : prev));
+        setItem((prev) => (prev ? { ...prev, editable: false, lockReason: error.code ?? prev.lockReason } : prev));
         setDirty(false);
         return false;
       }
@@ -441,6 +452,17 @@ export default function AnswerPage() {
     }
     setSubmitting(true);
     try {
+      if (showReworkSubmit) {
+        await labelerApi.submitAnnotation(item.assignmentId, {
+          schemaVersionId: item.schemaVersionId,
+          schemaDigest: activeSchemaDigest,
+          answerJson: filterVisibleAnswer(renderFields, answer),
+        });
+        setBatchInvalidItems([]);
+        message.success('返修已提交,等待 AI 预审与人工复审');
+        navigate('/labeler/returned');
+        return;
+      }
       const response = await labelerApi.submitTaskAssignments(item.taskId);
       setBatchInvalidItems([]);
       message.success(`已提交 ${response.submittedCount} 题,等待 AI 预审与人工审核`);
@@ -626,11 +648,13 @@ export default function AnswerPage() {
       : Math.round((item.position.index / item.position.total) * 100);
   const statusLabel = assignmentStatusText(item.status);
   const isLastQuestion = !item.position.nextAssignmentId;
-  const primaryActionText = showSubmittedSnapshot ? '重新修改' : '提交';
+  const primaryActionText = showSubmittedSnapshot
+    ? '重新修改'
+    : '提交';
   const handlePrimaryAction = showSubmittedSnapshot
     ? handleEditCurrentSchema
     : () => void handleSubmit();
-  const showPrimaryAction = showSubmittedSnapshot || isLastQuestion;
+  const showPrimaryAction = showSubmittedSnapshot || (isLastQuestion && !isReturnedAssignment);
 
   return (
     <Space direction="vertical" size="large" className="page-stack answer-page">
@@ -737,6 +761,21 @@ export default function AnswerPage() {
         />
       )}
 
+      {item.status === 'returned' && item.resubmitDeadline ? (
+        <Alert
+          type={canEdit ? 'info' : 'warning'}
+          showIcon
+          message={canEdit ? '人工复审打回返修中' : '返修已锁定'}
+          description={
+            canEdit
+              ? showReworkSubmit
+                ? `请在 ${item.resubmitDeadline} 前完成修改并重新提交。`
+                : `该题处于人工复审返修窗口内,请从“打回项”点击“立即修改”进入后提交返修。`
+              : lockReasonText(item.lockReason)
+          }
+        />
+      ) : null}
+
       <div className="answer-split" ref={splitRef}>
         {/* 左:原题数据 */}
         <div className="answer-split-pane" style={{ width: `${leftPercent}%` }}>
@@ -808,21 +847,38 @@ export default function AnswerPage() {
 
             {/* 页内导航条固定在填写卡底部,不随字段数量上下漂移。 */}
             <div className="answer-pager">
-              <Button
-                size="middle"
-                onClick={handlePrev}
-                disabled={!item.position.prevAssignmentId}
-              >
-                <ArrowLeftOutlined /> 上一题
-              </Button>
-              <Button
-                size="middle"
-                type="primary"
-                onClick={() => void handleSkip()}
-                disabled={!item.position.nextAssignmentId}
-              >
-                下一题 <ArrowRightOutlined />
-              </Button>
+              <div className="answer-pager-side answer-pager-side-left">
+                <Button
+                  size="middle"
+                  onClick={handlePrev}
+                  disabled={!item.position.prevAssignmentId}
+                >
+                  <ArrowLeftOutlined /> 上一题
+                </Button>
+              </div>
+              <div className="answer-pager-center">
+                {showReworkSubmit ? (
+                  <Button
+                    size="middle"
+                    type="primary"
+                    loading={submitting}
+                    disabled={!canEdit}
+                    onClick={() => void handleSubmit()}
+                  >
+                    重新提交
+                  </Button>
+                ) : null}
+              </div>
+              <div className="answer-pager-side answer-pager-side-right">
+                <Button
+                  size="middle"
+                  type="primary"
+                  onClick={() => void handleSkip()}
+                  disabled={!item.position.nextAssignmentId}
+                >
+                  下一题 <ArrowRightOutlined />
+                </Button>
+              </div>
             </div>
           </Card>
         </div>
@@ -1071,6 +1127,12 @@ function isBatchSubmitInvalidItem(value: unknown): value is BatchSubmitInvalidIt
 }
 
 function getSubmitErrorMessage(error: unknown) {
+  if (error instanceof ApiError && error.code === 'RETURN_REWORK_EXPIRED') {
+    return '返修期限已过，请联系 Owner 或 Reviewer 处理。';
+  }
+  if (error instanceof ApiError && error.code === 'TASK_EXPIRED') {
+    return '任务已截止，当前题目不能继续提交。';
+  }
   if (typeof error === 'object' && error !== null && 'payload' in error) {
     const payload = (error as { payload?: unknown }).payload;
     if (typeof payload === 'object' && payload !== null && 'message' in payload) {
@@ -1089,6 +1151,19 @@ function getSubmitErrorMessage(error: unknown) {
   }
 
   return '提交失败,请稍后重试。';
+}
+
+function lockReasonText(reason?: string) {
+  switch (reason) {
+    case 'RETURN_REWORK_EXPIRED':
+      return '返修期限已过，请联系 Owner 或 Reviewer 处理。';
+    case 'TASK_EXPIRED':
+      return '任务已截止，当前为查看模式。';
+    case 'TASK_NOT_PUBLISHED':
+      return '任务当前未发布，当前为查看模式。';
+    default:
+      return '当前题目已锁定，当前为查看模式。';
+  }
 }
 
 function isEditableStatus(status?: string) {

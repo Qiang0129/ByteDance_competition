@@ -16,6 +16,7 @@ import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.task.PageResponse;
+import com.labelhub.backend.task.TaskDeadlineSettlementService;
 import com.labelhub.backend.task.TaskService;
 import com.labelhub.backend.workflow.StateMachineService;
 import com.labelhub.backend.workflow.WorkflowEntityType;
@@ -25,9 +26,9 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -51,31 +52,38 @@ public class AnnotationService {
 
   private final AnnotationRepository annotationRepository;
   private final TaskService taskService;
+  private final TaskDeadlineSettlementService deadlineSettlementService;
   private final AiReviewService aiReviewService;
+  private final AnswerValidationService answerValidationService;
   private final StateMachineService stateMachineService;
   private final ObjectMapper objectMapper;
 
   public AnnotationService(
       AnnotationRepository annotationRepository,
       TaskService taskService,
+      TaskDeadlineSettlementService deadlineSettlementService,
       AiReviewService aiReviewService,
+      AnswerValidationService answerValidationService,
       StateMachineService stateMachineService,
       ObjectMapper objectMapper) {
     this.annotationRepository = annotationRepository;
     this.taskService = taskService;
+    this.deadlineSettlementService = deadlineSettlementService;
     this.aiReviewService = aiReviewService;
+    this.answerValidationService = answerValidationService;
     this.stateMachineService = stateMachineService;
     this.objectMapper = objectMapper;
   }
 
   public AssignmentItemResponse getAssignmentItem(Authentication authentication, long assignmentId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
     ensureAssignmentUsable(assignment);
     try {
       taskService.backfillAssignmentsForLabelerTask(labeler.id(), assignment.taskId());
     } catch (ApiException exception) {
-      if (!"SCHEMA_WITHDRAWN".equals(exception.getCode())) {
+      if (!Set.of("SCHEMA_WITHDRAWN", "TASK_EXPIRED", "TASK_NOT_PUBLISHED").contains(exception.getCode())) {
         throw exception;
       }
     }
@@ -90,14 +98,17 @@ public class AnnotationService {
     AnnotationResponse latestAnnotation = annotationRepository.findLatestAnnotation(assignment.assignmentId())
         .map(record -> toAnnotationResponse(record, returnReason))
         .orElse(null);
+    boolean reworkOpen = isReturnReworkOpen(assignment);
     return new AssignmentItemResponse(
         Long.toString(assignment.assignmentId()),
         Long.toString(assignment.taskId()),
         assignment.taskTitle(),
         Long.toString(assignment.itemId()),
         assignment.assignmentStatus(),
-        schema.runtimeUsable() && isEditableAssignment(assignment),
+        (schema.runtimeUsable() || reworkOpen) && isEditableAssignment(assignment),
         formatDateTime(assignment.taskDeadline()),
+        formatDateTime(assignment.resubmitDeadline()),
+        resolveLockReason(assignment),
         Long.toString(schema.id()),
         schema.digest(),
         buildRawPayload(assignment),
@@ -110,6 +121,7 @@ public class AnnotationService {
 
   public DraftResponse getDraft(Authentication authentication, long assignmentId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
     ensureAssignmentUsable(assignment);
     return annotationRepository.findDraft(assignmentId)
@@ -122,9 +134,10 @@ public class AnnotationService {
       long assignmentId,
       DraftRequest request) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
     ensureEditableAssignment(assignment);
-    SchemaContext schema = resolveSchema(assignment, true);
+    SchemaContext schema = resolveSchema(assignment, !isReturnReworkOpen(assignment));
     ensureSchemaDigestMatches(request == null ? null : request.schemaDigest(), schema);
     JsonNode answerJson = requireAnswerObject(request == null ? null : request.answerJson());
     JsonNode visibleAnswerJson = filterVisibleAnswer(answerJson, schema.fields());
@@ -139,6 +152,7 @@ public class AnnotationService {
       Integer page,
       Integer pageSize) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 50 : Math.min(pageSize, 100);
     long total = annotationRepository.countDraftsForLabeler(labeler.id());
@@ -152,6 +166,7 @@ public class AnnotationService {
 
   public void deleteDraft(Authentication authentication, long assignmentId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
     ensureAssignmentUsable(assignment);
     annotationRepository.deleteDraft(assignment.assignmentId());
@@ -163,6 +178,7 @@ public class AnnotationService {
       long assignmentId,
       ReportIssueRequest request) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
     ensureAssignmentUsable(assignment);
     String category = normalizeIssueCategory(request == null ? null : request.category());
@@ -203,6 +219,7 @@ public class AnnotationService {
       long assignmentId,
       SubmitAnnotationRequest request) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     AssignmentItemRecord assignment = annotationRepository
         .lockAssignmentForLabeler(assignmentId, labeler.id())
         .orElseThrow(() -> new ApiException(
@@ -210,8 +227,8 @@ public class AnnotationService {
             "ASSIGNMENT_NOT_FOUND",
             "assignment not found"));
     ensureEditableAssignment(assignment);
-    ensurePublishedTask(assignment);
-    SchemaContext schema = resolveSchema(assignment, true);
+    ensureTaskAllowsSubmission(assignment);
+    SchemaContext schema = resolveSchema(assignment, !isReturnReworkOpen(assignment));
     long requestedSchemaId = parseSchemaVersionId(request == null ? null : request.schemaVersionId());
     if (requestedSchemaId != schema.id()) {
       throw new ApiException(
@@ -262,6 +279,7 @@ public class AnnotationService {
   @Transactional
   public BatchSubmitResponse submitTaskAssignments(Authentication authentication, long taskId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     List<AssignmentItemRecord> assignments = annotationRepository.lockTaskAssignmentsForLabeler(
         taskId,
         labeler.id());
@@ -277,7 +295,7 @@ public class AnnotationService {
     for (int index = 0; index < assignments.size(); index += 1) {
       AssignmentItemRecord assignment = assignments.get(index);
       ensureEditableAssignment(assignment);
-      SchemaContext schema = resolveSchema(assignment, true);
+      SchemaContext schema = resolveSchema(assignment, !isReturnReworkOpen(assignment));
       DraftRecord draft = annotationRepository.findDraft(assignment.assignmentId()).orElse(null);
       if (draft == null) {
         invalidItems.add(toBatchInvalidItem(assignment, index + 1, "该题还没有保存草稿", Map.of()));
@@ -411,15 +429,6 @@ public class AnnotationService {
 
   private void ensureEditableAssignment(AssignmentItemRecord assignment) {
     ensureAssignmentUsable(assignment);
-    String taskStatus = assignment.taskStatus() == null
-        ? ""
-        : assignment.taskStatus().toLowerCase(Locale.ROOT);
-    if (!"published".equals(taskStatus)) {
-      throw new ApiException(
-          HttpStatus.CONFLICT,
-          "TASK_NOT_PUBLISHED",
-          "task is not published");
-    }
     if (isEditableAssignment(assignment)) {
       return;
     }
@@ -432,6 +441,19 @@ public class AnnotationService {
           "ASSIGNMENT_NOT_EDITABLE",
           "assignment is not editable");
     }
+    if ("returned".equals(status)) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "RETURN_REWORK_EXPIRED",
+          "returned assignment rework window has expired");
+    }
+    String taskStatus = normalize(assignment.taskStatus());
+    if (!"published".equals(taskStatus)) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "TASK_NOT_PUBLISHED",
+          "task is not published");
+    }
     throw new ApiException(HttpStatus.CONFLICT, "TASK_EXPIRED", "task deadline has passed");
   }
 
@@ -439,16 +461,13 @@ public class AnnotationService {
     if (assignment.taskDeletedAt() != null) {
       return false;
     }
-    String taskStatus = assignment.taskStatus() == null
-        ? ""
-        : assignment.taskStatus().toLowerCase(Locale.ROOT);
-    if (!"published".equals(taskStatus)) {
-      return false;
+    String status = normalize(assignment.assignmentStatus());
+    if ("returned".equals(status)) {
+      return isReturnReworkOpen(assignment);
     }
-    String status = assignment.assignmentStatus() == null
-        ? ""
-        : assignment.assignmentStatus().toLowerCase(Locale.ROOT);
-    return List.of("claimed", "returned", "submitted").contains(status)
+    String taskStatus = normalize(assignment.taskStatus());
+    return List.of("claimed", "submitted").contains(status)
+        && "published".equals(taskStatus)
         && !isDeadlineExpired(assignment.taskDeadline());
   }
 
@@ -456,16 +475,13 @@ public class AnnotationService {
     if (draft.taskDeletedAt() != null) {
       return false;
     }
-    String taskStatus = draft.taskStatus() == null
-        ? ""
-        : draft.taskStatus().toLowerCase(Locale.ROOT);
-    if (!"published".equals(taskStatus)) {
-      return false;
+    String status = normalize(draft.assignmentStatus());
+    if ("returned".equals(status)) {
+      return draft.resubmitDeadline() != null && draft.resubmitDeadline().isAfter(LocalDateTime.now());
     }
-    String status = draft.assignmentStatus() == null
-        ? ""
-        : draft.assignmentStatus().toLowerCase(Locale.ROOT);
-    return List.of("claimed", "returned", "submitted").contains(status)
+    String taskStatus = normalize(draft.taskStatus());
+    return List.of("claimed", "submitted").contains(status)
+        && "published".equals(taskStatus)
         && !isDeadlineExpired(draft.taskDeadline());
   }
 
@@ -473,8 +489,11 @@ public class AnnotationService {
     return deadline != null && deadline.isBefore(LocalDateTime.now());
   }
 
-  private void ensurePublishedTask(AssignmentItemRecord assignment) {
+  private void ensureTaskAllowsSubmission(AssignmentItemRecord assignment) {
     ensureAssignmentUsable(assignment);
+    if (isReturnReworkOpen(assignment)) {
+      return;
+    }
     String taskStatus = assignment.taskStatus() == null
         ? ""
         : assignment.taskStatus().toLowerCase(Locale.ROOT);
@@ -484,6 +503,33 @@ public class AnnotationService {
           "TASK_NOT_PUBLISHED",
           "task is not published");
     }
+  }
+
+  private boolean isReturnReworkOpen(AssignmentItemRecord assignment) {
+    return "returned".equals(normalize(assignment.assignmentStatus()))
+        && assignment.resubmitDeadline() != null
+        && assignment.resubmitDeadline().isAfter(LocalDateTime.now());
+  }
+
+  private String resolveLockReason(AssignmentItemRecord assignment) {
+    if (isEditableAssignment(assignment)) {
+      return "";
+    }
+    String status = normalize(assignment.assignmentStatus());
+    if ("returned".equals(status)) {
+      return "RETURN_REWORK_EXPIRED";
+    }
+    if (!"published".equals(normalize(assignment.taskStatus()))) {
+      return "TASK_NOT_PUBLISHED";
+    }
+    if (isDeadlineExpired(assignment.taskDeadline())) {
+      return "TASK_EXPIRED";
+    }
+    return "ASSIGNMENT_NOT_EDITABLE";
+  }
+
+  private String normalize(String value) {
+    return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
   }
 
   private SchemaContext resolveSchema(AssignmentItemRecord assignment, boolean requirePublished) {

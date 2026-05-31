@@ -6,6 +6,8 @@
  *   - 抽检比例 / 双审一致率 / 争议样本是 4.6 数据看板的核心指标
  */
 
+import type { SchemaField } from './schema';
+
 export type ReviewDecision = 'APPROVE' | 'RETURN' | 'REVISE' | 'ESCALATE';
 
 export type ReviewBatchStatus = 'pending' | 'in_review' | 'completed';
@@ -51,12 +53,16 @@ export interface AnnotationToReview {
   taskId?: string;
   taskTitle?: string;
   taskType?: string;
+  /** 该题在当前标注员任务作业中的序号(1-based),用于和 Labeler 答题页题序对齐 */
+  itemIndex?: number;
   /** 标注员实际填写的 answer */
   answerJson: Record<string, unknown>;
   /** 上一轮提交的答案(多轮复审对比用,首轮为空) */
   previousAnswerJson?: Record<string, unknown>;
   /** 原始题目展示数据 */
   rawPayload: Record<string, unknown>;
+  /** 提交时的 Schema 字段快照,用于 Reviewer 直接修订 */
+  schemaFields?: SchemaField[];
   /** AI 预审结果(可能为空,代表 AI 还在排队) */
   aiResult?: AiReviewResult;
   /** 人工审核状态:null = 还没审 */
@@ -64,7 +70,7 @@ export interface AnnotationToReview {
   revisionNo: number;
   /** 是否被标为争议样本 */
   isDispute?: boolean;
-  /** 审核阶段时间线:第一轮 AI 预审,第二轮人工复审 */
+  /** 审核阶段时间线:按 assignment 聚合的多轮 AI 预审与人工复审 */
   reviewTimeline?: ReviewTimelineStage[];
 }
 
@@ -128,6 +134,8 @@ export interface SubmitReviewRequest {
   note?: string;
   /** 是否升级到争议样本审议 */
   escalate?: boolean;
+  /** 直接修订时提交的修订后答案 */
+  answerJson?: Record<string, unknown>;
 }
 
 /** 争议样本 */

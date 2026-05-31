@@ -20,7 +20,6 @@ import org.springframework.stereotype.Service;
 public class LabelerReturnedItemsService {
 
   private static final String SOURCE_HUMAN_RETURN = "HUMAN_REVIEW_RETURN";
-  private static final String SOURCE_AI_PRE_REJECT = "AI_PRE_REJECT";
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
   private final LabelerReturnedItemsRepository repository;
@@ -53,6 +52,10 @@ public class LabelerReturnedItemsService {
 
   private LabelerReturnedItemResponse toResponse(ReturnedItemRecord record) {
     boolean humanReturn = SOURCE_HUMAN_RETURN.equals(record.source());
+    boolean reworkOpen = humanReturn
+        && record.resubmitDeadline() != null
+        && record.resubmitDeadline().isAfter(LocalDateTime.now());
+    String expiredReason = humanReturn && !reworkOpen ? "RETURN_REWORK_EXPIRED" : "";
     String taskTitle = blankToDefault(record.taskTitle(), "标注任务");
     String taskType = blankToDefault(record.taskType(), "Annotation Task");
     int itemIndex = Math.max(record.itemIndex(), 1);
@@ -78,8 +81,18 @@ public class LabelerReturnedItemsService {
         record.aiTotalScore(),
         readStringArray(record.aiRiskFlagsJson()),
         readStringArray(record.aiEvidenceJson()),
-        humanReturn,
-        humanReturn ? "修改并重提" : "等待人工复审");
+        formatDateTime(record.resubmitDeadline()),
+        reworkOpen,
+        expiredReason,
+        reworkOpen,
+        resolveActionText(humanReturn, reworkOpen));
+  }
+
+  private String resolveActionText(boolean humanReturn, boolean reworkOpen) {
+    if (!humanReturn) {
+      return "等待人工复审";
+    }
+    return reworkOpen ? "立即修改" : "返修已过期";
   }
 
   private String normalizeSource(String source) {

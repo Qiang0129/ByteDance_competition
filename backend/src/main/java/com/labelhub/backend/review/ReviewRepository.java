@@ -130,9 +130,18 @@ public class ReviewRepository {
           a.task_id,
           t.title AS task_title,
           JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
+          (
+            SELECT COUNT(*)
+            FROM assignments ranked
+            WHERE ranked.task_id = a.task_id
+              AND ranked.labeler_id = a.labeler_id
+              AND ranked.status <> 'voided'
+              AND ranked.id <= a.id
+          ) AS item_index,
           an.schema_version_id,
           u.name AS labeler_name,
           an.submitted_at,
+          CAST(an.schema_snapshot_json AS CHAR) AS schema_snapshot_json,
           CAST(an.answer_json AS CHAR) AS answer_json,
           (
             SELECT CAST(prev.answer_json AS CHAR)
@@ -314,9 +323,18 @@ public class ReviewRepository {
           a.task_id,
           t.title AS task_title,
           JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
+          (
+            SELECT COUNT(*)
+            FROM assignments ranked
+            WHERE ranked.task_id = a.task_id
+              AND ranked.labeler_id = a.labeler_id
+              AND ranked.status <> 'voided'
+              AND ranked.id <= a.id
+          ) AS item_index,
           an.schema_version_id,
           u.name AS labeler_name,
           an.submitted_at,
+          CAST(an.schema_snapshot_json AS CHAR) AS schema_snapshot_json,
           CAST(an.answer_json AS CHAR) AS answer_json,
           (
             SELECT CAST(prev.answer_json AS CHAR)
@@ -412,9 +430,18 @@ public class ReviewRepository {
           a.task_id,
           t.title AS task_title,
           JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
+          (
+            SELECT COUNT(*)
+            FROM assignments ranked
+            WHERE ranked.task_id = a.task_id
+              AND ranked.labeler_id = a.labeler_id
+              AND ranked.status <> 'voided'
+              AND ranked.id <= a.id
+          ) AS item_index,
           an.schema_version_id,
           u.name AS labeler_name,
           an.submitted_at,
+          CAST(an.schema_snapshot_json AS CHAR) AS schema_snapshot_json,
           CAST(an.answer_json AS CHAR) AS answer_json,
           (
             SELECT CAST(prev.answer_json AS CHAR)
@@ -492,6 +519,10 @@ public class ReviewRepository {
           an.assignment_id,
           an.status AS annotation_status,
           a.status AS assignment_status,
+          an.schema_version_id,
+          CAST(an.schema_snapshot_json AS CHAR) AS schema_snapshot_json,
+          CAST(an.answer_json AS CHAR) AS answer_json,
+          an.revision_no,
           a.item_id
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
@@ -500,17 +531,79 @@ public class ReviewRepository {
           AND an.status <> 'voided'
           AND a.status <> 'voided'
           AND t.deleted_at IS NULL
+          AND an.id = (
+            SELECT latest.id
+            FROM annotations latest
+            WHERE latest.assignment_id = an.assignment_id
+              AND latest.status <> 'voided'
+            ORDER BY latest.revision_no DESC, latest.id DESC
+            LIMIT 1
+          )
         FOR UPDATE
         """,
         (rs, rowNum) -> new AnnotationStateRecord(
             rs.getLong("annotation_id"),
             rs.getLong("assignment_id"),
             rs.getLong("item_id"),
+            rs.getLong("schema_version_id"),
+            rs.getString("schema_snapshot_json"),
+            rs.getString("answer_json"),
+            rs.getInt("revision_no"),
             rs.getString("annotation_status"),
             rs.getString("assignment_status")),
         annotationId)
         .stream()
         .findFirst();
+  }
+
+  public List<ReviewTimelineEventRecord> listAssignmentReviewTimeline(long assignmentId) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          an.id AS annotation_id,
+          an.revision_no,
+          aj.finished_at AS ai_finished_at,
+          air.decision AS ai_decision,
+          air.total_score AS ai_total_score,
+          air.comment AS ai_comment,
+          hr.decision AS human_decision,
+          hr.reason AS human_reason,
+          hr.created_at AS human_reviewed_at,
+          reviewer.name AS human_reviewer_name
+        FROM annotations an
+        LEFT JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          WHERE latest_job.annotation_id = an.id
+            AND latest_job.status = 'succeeded'
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
+        LEFT JOIN ai_review_results air ON air.job_id = aj.id
+        LEFT JOIN human_reviews hr ON hr.id = (
+          SELECT latest_hr.id
+          FROM human_reviews latest_hr
+          WHERE latest_hr.annotation_id = an.id
+          ORDER BY latest_hr.round_no DESC, latest_hr.id DESC
+          LIMIT 1
+        )
+        LEFT JOIN users reviewer ON reviewer.id = hr.reviewer_id
+        WHERE an.assignment_id = ?
+          AND an.status <> 'voided'
+        ORDER BY an.revision_no ASC, an.id ASC
+        """,
+        (rs, rowNum) -> new ReviewTimelineEventRecord(
+            rs.getLong("annotation_id"),
+            rs.getInt("revision_no"),
+            toLocalDateTime(rs.getTimestamp("ai_finished_at")),
+            rs.getString("ai_decision"),
+            toDouble(rs.getObject("ai_total_score")),
+            rs.getString("ai_comment"),
+            rs.getString("human_decision"),
+            rs.getString("human_reason"),
+            toLocalDateTime(rs.getTimestamp("human_reviewed_at")),
+            rs.getString("human_reviewer_name")),
+        assignmentId);
   }
 
   public void updateAnnotationStatus(long annotationId, String status) {
@@ -520,15 +613,70 @@ public class ReviewRepository {
         annotationId);
   }
 
+  public long createAnnotation(
+      long assignmentId,
+      long schemaVersionId,
+      String schemaSnapshotJson,
+      String answerJson,
+      int revisionNo,
+      String status) {
+    org.springframework.jdbc.support.GeneratedKeyHolder keyHolder =
+        new org.springframework.jdbc.support.GeneratedKeyHolder();
+    jdbcTemplate.update(connection -> {
+      var statement = connection.prepareStatement(
+          """
+          INSERT INTO annotations
+            (assignment_id, schema_version_id, schema_snapshot_json, answer_json, status, revision_no, submitted_at)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          """,
+          java.sql.Statement.RETURN_GENERATED_KEYS);
+      statement.setLong(1, assignmentId);
+      statement.setLong(2, schemaVersionId);
+      statement.setString(3, schemaSnapshotJson);
+      statement.setString(4, answerJson);
+      statement.setString(5, status);
+      statement.setInt(6, revisionNo);
+      return statement;
+    }, keyHolder);
+    Number key = keyHolder.getKey();
+    if (key == null) {
+      throw new IllegalStateException("failed to create annotation");
+    }
+    return key.longValue();
+  }
+
   public void updateAssignmentStatus(long assignmentId, String status) {
     jdbcTemplate.update(
         """
         UPDATE assignments
         SET status = ?,
+            submitted_at = CASE
+              WHEN ? IN ('submitted', 'accepted') AND submitted_at IS NULL THEN CURRENT_TIMESTAMP
+              ELSE submitted_at
+            END,
+            resubmit_deadline = CASE
+              WHEN ? IN ('submitted', 'accepted', 'voided') THEN NULL
+              ELSE resubmit_deadline
+            END,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
         status,
+        status,
+        status,
+        assignmentId);
+  }
+
+  public void returnAssignmentForRework(long assignmentId, LocalDateTime resubmitDeadline) {
+    jdbcTemplate.update(
+        """
+        UPDATE assignments
+        SET status = 'returned',
+            resubmit_deadline = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        Timestamp.valueOf(resubmitDeadline),
         assignmentId);
   }
 
@@ -705,9 +853,11 @@ public class ReviewRepository {
         rs.getLong("task_id"),
         rs.getString("task_title"),
         blankToDefault(rs.getString("task_type"), "Annotation Task"),
+        Math.max(rs.getInt("item_index"), 1),
         rs.getLong("schema_version_id"),
         rs.getString("labeler_name"),
         toLocalDateTime(rs.getTimestamp("submitted_at")),
+        rs.getString("schema_snapshot_json"),
         rs.getString("answer_json"),
         rs.getString("previous_answer_json"),
         rs.getString("raw_payload_json"),
@@ -822,9 +972,11 @@ public class ReviewRepository {
       long taskId,
       String taskTitle,
       String taskType,
+      int itemIndex,
       long schemaVersionId,
       String labelerName,
       LocalDateTime submittedAt,
+      String schemaSnapshotJson,
       String answerJson,
       String previousAnswerJson,
       String rawPayloadJson,
@@ -848,10 +1000,26 @@ public class ReviewRepository {
       LocalDateTime humanReviewedAt,
       String humanReviewerName) {}
 
+  public record ReviewTimelineEventRecord(
+      long annotationId,
+      int revisionNo,
+      LocalDateTime aiFinishedAt,
+      String aiDecision,
+      Double aiTotalScore,
+      String aiComment,
+      String humanDecision,
+      String humanReason,
+      LocalDateTime humanReviewedAt,
+      String humanReviewerName) {}
+
   public record AnnotationStateRecord(
       long annotationId,
       long assignmentId,
       long itemId,
+      long schemaVersionId,
+      String schemaSnapshotJson,
+      String answerJson,
+      int revisionNo,
       String annotationStatus,
       String assignmentStatus) {}
 

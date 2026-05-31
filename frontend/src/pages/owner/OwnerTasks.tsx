@@ -308,6 +308,11 @@ export default function OwnerTasks() {
               结束
             </Button>
           )}
+          {record.state === 'ended' && (
+            <Button type="link" icon={<SyncOutlined />} onClick={() => openDrawer(record)}>
+              续期发布
+            </Button>
+          )}
           <Button type="link" onClick={() => openDrawer(record)}>
             详情
           </Button>
@@ -451,7 +456,7 @@ export default function OwnerTasks() {
   }
 
   function primarySubmitState() {
-    if (!activeRow || activeRow.state === 'draft') {
+    if (!activeRow || activeRow.state === 'draft' || activeRow.state === 'ended') {
       return 'published' as TaskState;
     }
     return activeRow.state;
@@ -612,7 +617,11 @@ export default function OwnerTasks() {
                 form.submit();
               }}
             >
-              {!activeRow || activeRow.state === 'draft' ? '立即发布' : '保存并关闭'}
+              {!activeRow || activeRow.state === 'draft'
+                ? '立即发布'
+                : activeRow.state === 'ended'
+                  ? '续期发布'
+                  : '保存并关闭'}
             </Button>
           </Space>
         }
@@ -681,13 +690,23 @@ export default function OwnerTasks() {
               <Form.Item
                 label="截止时间"
                 name="deadline"
-                rules={[{ required: true, message: '请选择截止时间' }]}
+                rules={[
+                  { required: true, message: '请选择截止时间' },
+                  {
+                    validator: async (_rule, value) => {
+                      if (submitStateRef.current === 'published' && value && value.isBefore(dayjs())) {
+                        throw new Error('发布时间必须晚于当前时间');
+                      }
+                    },
+                  },
+                ]}
               >
                 <DatePicker
                   showTime={{ format: 'HH:mm' }}
                   format={DATE_TIME_FORMAT}
                   style={{ width: '100%' }}
                   placeholder="选择截止时间"
+                  disabledDate={(current) => !!current && current.endOf('day').isBefore(dayjs())}
                 />
               </Form.Item>
             </Col>

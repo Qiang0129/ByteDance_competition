@@ -40,6 +40,16 @@ public class AnnotationRepository {
         "ORDER BY a.id ASC FOR UPDATE");
   }
 
+  public List<AssignmentItemRecord> lockUnfinishedTaskAssignments(long taskId) {
+    return queryAssignment(
+        """
+        WHERE a.task_id = ?
+          AND a.status IN ('claimed', 'returned')
+        """,
+        List.of(taskId),
+        "ORDER BY a.id ASC FOR UPDATE");
+  }
+
   public Optional<SchemaSnapshotRecord> findSchema(long schemaVersionId) {
     return jdbcTemplate.query(
         """
@@ -99,6 +109,7 @@ public class AnnotationRepository {
           a.item_id,
           a.labeler_id,
           a.status AS assignment_status,
+          a.resubmit_deadline,
           t.title AS task_title,
           t.status AS task_status,
           t.deadline AS task_deadline,
@@ -141,6 +152,7 @@ public class AnnotationRepository {
             rs.getLong("item_id"),
             rs.getLong("labeler_id"),
             rs.getString("assignment_status"),
+            toLocalDateTime(rs.getTimestamp("resubmit_deadline")),
             rs.getString("task_title"),
             rs.getString("task_status"),
             toLocalDateTime(rs.getTimestamp("task_deadline")),
@@ -304,6 +316,7 @@ public class AnnotationRepository {
         UPDATE assignments
         SET status = 'submitted',
             submitted_at = CURRENT_TIMESTAMP,
+            resubmit_deadline = NULL,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
@@ -327,9 +340,14 @@ public class AnnotationRepository {
               WHEN ? = 'submitted' THEN CURRENT_TIMESTAMP
               ELSE submitted_at
             END,
+            resubmit_deadline = CASE
+              WHEN ? IN ('submitted', 'accepted', 'voided') THEN NULL
+              ELSE resubmit_deadline
+            END,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
+        status,
         status,
         status,
         assignmentId);
@@ -344,6 +362,26 @@ public class AnnotationRepository {
         WHERE id = ?
         """,
         status,
+        itemId);
+  }
+
+  public void releaseAssignment(long assignmentId, long itemId) {
+    jdbcTemplate.update(
+        """
+        UPDATE assignments
+        SET status = 'voided',
+            resubmit_deadline = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        assignmentId);
+    jdbcTemplate.update(
+        """
+        UPDATE items
+        SET item_status = 'pending',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
         itemId);
   }
 
@@ -457,6 +495,7 @@ public class AnnotationRepository {
           a.item_id,
           a.labeler_id,
           a.status AS assignment_status,
+          a.resubmit_deadline,
           t.title AS task_title,
           t.status AS task_status,
           t.deadline AS task_deadline,
@@ -495,6 +534,7 @@ public class AnnotationRepository {
             rs.getLong("item_id"),
             rs.getLong("labeler_id"),
             rs.getString("assignment_status"),
+            toLocalDateTime(rs.getTimestamp("resubmit_deadline")),
             rs.getString("task_title"),
             rs.getString("task_status"),
             toLocalDateTime(rs.getTimestamp("task_deadline")),
@@ -531,6 +571,7 @@ public class AnnotationRepository {
       long itemId,
       long labelerId,
       String assignmentStatus,
+      LocalDateTime resubmitDeadline,
       String taskTitle,
       String taskStatus,
       LocalDateTime taskDeadline,
@@ -565,6 +606,7 @@ public class AnnotationRepository {
       long itemId,
       long labelerId,
       String assignmentStatus,
+      LocalDateTime resubmitDeadline,
       String taskTitle,
       String taskStatus,
       LocalDateTime taskDeadline,

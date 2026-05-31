@@ -588,6 +588,8 @@ public class AiReviewService {
         normalizeFrontendJobStatus(record.status()),
         record.decision(),
         record.totalScore(),
+        record.itemIndex(),
+        record.itemTotal(),
         record.retryCount(),
         record.errorSummary(),
         formatDateTime(record.createdAt()),

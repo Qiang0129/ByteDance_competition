@@ -21,7 +21,7 @@ public class StateMachineService {
           "draft", Set.of("published", "ended"),
           "published", Set.of("paused", "ended"),
           "paused", Set.of("published", "ended"),
-          "ended", Set.of()),
+          "ended", Set.of("published")),
       WorkflowEntityType.ASSIGNMENT, Map.of(
           "claimed", Set.of("submitted", "voided"),
           "submitted", Set.of("returned", "accepted", "voided"),
@@ -31,8 +31,9 @@ public class StateMachineService {
       WorkflowEntityType.ANNOTATION, Map.of(
           "submitted", Set.of("ai_reviewing", "reviewing", "accepted", "voided"),
           "ai_reviewing", Set.of("reviewing", "accepted", "voided"),
-          "reviewing", Set.of("reviewing", "returned", "accepted", "submitted", "voided"),
+          "reviewing", Set.of("reviewing", "returned", "accepted", "revised", "submitted", "voided"),
           "returned", Set.of("submitted", "voided"),
+          "revised", Set.of("voided"),
           "accepted", Set.of("exported", "voided"),
           "exported", Set.of("voided"),
           "voided", Set.of()),
@@ -168,6 +169,9 @@ public class StateMachineService {
 
   private Set<String> allowedRoles(WorkflowEntityType entityType, String from, String to) {
     if (entityType == WorkflowEntityType.TASK || entityType == WorkflowEntityType.EXPORT_JOB) {
+      if (entityType == WorkflowEntityType.TASK && "ended".equals(to)) {
+        return Set.of("owner", "system_agent");
+      }
       return Set.of("owner");
     }
     if (entityType == WorkflowEntityType.AI_REVIEW_JOB) {
@@ -175,13 +179,13 @@ public class StateMachineService {
     }
     if (entityType == WorkflowEntityType.ASSIGNMENT) {
       if ("voided".equals(to)) {
-        return Set.of("owner");
+        return Set.of("owner", "system_agent");
       }
       if ("claimed".equals(from) && "submitted".equals(to)) {
-        return Set.of("labeler");
+        return Set.of("labeler", "system_agent");
       }
       if ("returned".equals(from) && "submitted".equals(to)) {
-        return Set.of("labeler");
+        return Set.of("labeler", "system_agent");
       }
       return Set.of("reviewer", "owner");
     }

@@ -5,23 +5,27 @@ import {
   ClockCircleOutlined,
 } from '@ant-design/icons';
 import {
+  Alert,
   App as AntdApp,
   Button,
   Checkbox,
+  Drawer,
   Empty,
   Input,
+  Modal,
   Spin,
   Tag,
 } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { getApiErrorMessage } from '../../api/client';
 import { reviewerApi } from '../../api/reviewer';
 import { AiAssistantIcon } from '../../components/icons';
+import { filterVisibleAnswer, LabelHubFormRenderer } from '../../modules/schema';
 import type {
   AiReviewResult,
   AnnotationToReview,
 } from '../../types/reviewer';
-import { groupTasksFromItems } from './ReviewerAi';
 
 /**
  * AI 预审三栏审核工作台。
@@ -55,27 +59,23 @@ export default function ReviewerAiWorkbench() {
   const [todayReturned, setTodayReturned] = useState(0);
   // 左栏多选(批量操作)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [committingId, setCommittingId] = useState<string | null>(null);
+  const [bulkCommitting, setBulkCommitting] = useState(false);
+  const [reviseTarget, setReviseTarget] = useState<AnnotationToReview | null>(null);
+  const [revisionAnswer, setRevisionAnswer] = useState<Record<string, unknown>>({});
+  const [revisionSubmitting, setRevisionSubmitting] = useState(false);
 
   const loadAnnotations = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const resp = await reviewerApi.listAiReviewAnnotations(taskId, { pageSize: 200 });
       setItems(resp.items ?? []);
-    } catch {
-      // 后端未就绪:从样本按任务过滤
-      try {
-        const res = await fetch('/sample-datasets/reviewer-annotations.json');
-        const data = await res.json();
-        const all = (data.items as AnnotationToReview[]) ?? [];
-        const filtered = all.filter(
-          (it) => (it.taskId ?? `schema-${it.schemaVersionId}`) === taskId,
-        );
-        setItems(filtered);
-        const summary = groupTasksFromItems(all).find((t) => t.taskId === taskId);
-        if (summary) setTaskTitle(summary.taskTitle);
-      } catch {
-        message.error('加载任务标注失败');
-      }
+    } catch (requestError) {
+      const text = getApiErrorMessage(requestError, '加载任务标注失败');
+      setError(text);
+      message.error(text);
     } finally {
       setLoading(false);
     }
@@ -124,19 +124,74 @@ export default function ReviewerAiWorkbench() {
     [items, activeId],
   );
 
-  async function commit(annotationId: string, decision: 'APPROVE' | 'RETURN' | 'REVISE') {
-    try {
-      await reviewerApi.submitReview(annotationId, { decision, note: opinion || undefined });
-    } catch {
-      // 演示模式继续
-    }
+  function removeReviewedItem(annotationId: string) {
     setItems((prev) => prev.filter((it) => it.annotationId !== annotationId));
-    setOpinion('');
-    if (decision === 'APPROVE') setTodayApproved((n) => n + 1);
-    if (decision === 'RETURN') setTodayReturned((n) => n + 1);
-    message.success(
-      decision === 'APPROVE' ? '已通过并入库' : decision === 'RETURN' ? '已打回' : '已记录修订意见',
-    );
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(annotationId);
+      return next;
+    });
+  }
+
+  async function commit(annotationId: string, decision: 'APPROVE' | 'RETURN') {
+    const reason = opinion.trim();
+    if (decision === 'RETURN' && !reason) {
+      message.warning('打回时必须填写具体原因');
+      return;
+    }
+    setCommittingId(annotationId);
+    try {
+      await reviewerApi.submitReview(annotationId, {
+        decision,
+        reason: reason || undefined,
+      });
+      removeReviewedItem(annotationId);
+      setOpinion('');
+      if (decision === 'APPROVE') setTodayApproved((n) => n + 1);
+      if (decision === 'RETURN') setTodayReturned((n) => n + 1);
+      message.success(decision === 'APPROVE' ? '已通过并入库' : '已打回');
+    } catch (requestError) {
+      message.error(getApiErrorMessage(requestError, '提交审核结论失败'));
+    } finally {
+      setCommittingId(null);
+    }
+  }
+
+  function openRevise(item: AnnotationToReview) {
+    if (!item.schemaFields?.length) {
+      message.warning('缺少 Schema 快照,无法就地修订');
+      return;
+    }
+    setReviseTarget(item);
+    setRevisionAnswer(item.answerJson ?? {});
+  }
+
+  async function submitRevision() {
+    if (!reviseTarget) return;
+    const schema = reviseTarget.schemaFields ?? [];
+    if (schema.length === 0) {
+      message.warning('缺少 Schema 快照,无法就地修订');
+      return;
+    }
+    setRevisionSubmitting(true);
+    try {
+      const answerJson = filterVisibleAnswer(schema, revisionAnswer);
+      await reviewerApi.submitReview(reviseTarget.annotationId, {
+        decision: 'REVISE',
+        reason: opinion.trim() || undefined,
+        answerJson,
+      });
+      removeReviewedItem(reviseTarget.annotationId);
+      setReviseTarget(null);
+      setRevisionAnswer({});
+      setOpinion('');
+      setTodayApproved((n) => n + 1);
+      message.success('已修订并入库');
+    } catch (requestError) {
+      message.error(getApiErrorMessage(requestError, '直接修订失败'));
+    } finally {
+      setRevisionSubmitting(false);
+    }
   }
 
   function toggleSelect(annotationId: string) {
@@ -162,20 +217,73 @@ export default function ReviewerAiWorkbench() {
       .map((it) => it.annotationId)
       .filter((id) => selectedIds.has(id));
     if (ids.length === 0) return;
-    // 后端落地后建议替换为 POST /reviewer/annotations/batch-decision
-    await Promise.all(
-      ids.map((id) =>
-        reviewerApi.submitReview(id, { decision }).catch(() => {
-          /* 演示模式忽略 */
-        }),
+    if (decision === 'RETURN') {
+      promptBatchReturn(ids);
+      return;
+    }
+    await runBatchCommit(ids, decision);
+  }
+
+  function promptBatchReturn(ids: string[]) {
+    let reason = '';
+    Modal.confirm({
+      title: `批量打回 ${ids.length} 条`,
+      content: (
+        <Input.TextArea
+          rows={4}
+          placeholder="请输入统一打回原因,将写入每条人工复审记录"
+          onChange={(event) => {
+            reason = event.target.value;
+          }}
+        />
       ),
-    );
-    const idSet = new Set(ids);
-    setItems((prev) => prev.filter((it) => !idSet.has(it.annotationId)));
-    setSelectedIds(new Set());
-    if (decision === 'APPROVE') setTodayApproved((n) => n + ids.length);
-    if (decision === 'RETURN') setTodayReturned((n) => n + ids.length);
-    message.success(`已批量${decision === 'APPROVE' ? '通过' : '打回'} ${ids.length} 条`);
+      okText: '确认打回',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        const trimmed = reason.trim();
+        if (!trimmed) {
+          message.warning('批量打回必须填写统一原因');
+          return Promise.reject();
+        }
+        await runBatchCommit(ids, 'RETURN', trimmed);
+      },
+    });
+  }
+
+  async function runBatchCommit(ids: string[], decision: 'APPROVE' | 'RETURN', reason?: string) {
+    setBulkCommitting(true);
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          reviewerApi.submitReview(id, {
+            decision,
+            reason,
+          }),
+        ),
+      );
+      const succeededIds = ids.filter((_, index) => results[index].status === 'fulfilled');
+      const failed = ids.length - succeededIds.length;
+      if (succeededIds.length > 0) {
+        const idSet = new Set(succeededIds);
+        setItems((prev) => prev.filter((it) => !idSet.has(it.annotationId)));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          succeededIds.forEach((id) => next.delete(id));
+          return next;
+        });
+        if (decision === 'APPROVE') setTodayApproved((n) => n + succeededIds.length);
+        if (decision === 'RETURN') setTodayReturned((n) => n + succeededIds.length);
+      }
+      if (failed > 0) {
+        message.warning(
+          `已${decision === 'APPROVE' ? '通过' : '打回'} ${succeededIds.length} 条,失败 ${failed} 条`,
+        );
+      } else {
+        message.success(`已批量${decision === 'APPROVE' ? '通过' : '打回'} ${succeededIds.length} 条`);
+      }
+    } finally {
+      setBulkCommitting(false);
+    }
   }
 
   const selectedCount = currentList.filter((it) => selectedIds.has(it.annotationId)).length;
@@ -200,6 +308,15 @@ export default function ReviewerAiWorkbench() {
       </div>
 
       <Spin spinning={loading}>
+        {error && (
+          <Alert
+            className="ai-wb-error"
+            type="error"
+            showIcon
+            message={error}
+            action={<Button size="small" onClick={() => void loadAnnotations()}>重试</Button>}
+          />
+        )}
         <div className="ai-wb-grid">
           {/* 左栏:列表 */}
           <div className="ai-wb-list-col">
@@ -235,6 +352,7 @@ export default function ReviewerAiWorkbench() {
                     size="small"
                     className="ai-wb-bulk-btn is-approve"
                     disabled={selectedCount === 0}
+                    loading={bulkCommitting}
                     onClick={() => void batchCommit('APPROVE')}
                   >
                     批量通过
@@ -243,6 +361,7 @@ export default function ReviewerAiWorkbench() {
                     size="small"
                     className="ai-wb-bulk-btn is-return"
                     disabled={selectedCount === 0}
+                    loading={bulkCommitting}
                     onClick={() => void batchCommit('RETURN')}
                   >
                     批量打回
@@ -280,8 +399,9 @@ export default function ReviewerAiWorkbench() {
                 opinion={opinion}
                 onOpinionChange={setOpinion}
                 onReturn={() => void commit(active.annotationId, 'RETURN')}
-                onRevise={() => void commit(active.annotationId, 'REVISE')}
+                onRevise={() => openRevise(active)}
                 onApprove={() => void commit(active.annotationId, 'APPROVE')}
+                committing={committingId === active.annotationId}
               />
             ) : (
               <div className="ai-wb-detail-empty">
@@ -313,7 +433,7 @@ export default function ReviewerAiWorkbench() {
 
             <div className="ai-wb-timeline-card">
               <div className="ai-wb-timeline-title">
-                审核时间线 {active ? `(${active.annotationId})` : ''}
+                审核时间线 {active ? `（第 ${displayItemIndex(active)} 题）` : ''}
               </div>
               {active ? (
                 <ReviewTimeline item={active} />
@@ -324,6 +444,46 @@ export default function ReviewerAiWorkbench() {
           </div>
         </div>
       </Spin>
+      <Drawer
+        title={reviseTarget ? `直接修订 · ${pickTitle(reviseTarget)}` : '直接修订'}
+        open={!!reviseTarget}
+        width={720}
+        onClose={() => {
+          if (!revisionSubmitting) {
+            setReviseTarget(null);
+            setRevisionAnswer({});
+          }
+        }}
+        destroyOnClose
+        extra={
+          <Button
+            type="primary"
+            loading={revisionSubmitting}
+            onClick={() => void submitRevision()}
+          >
+            修订并入库
+          </Button>
+        }
+      >
+        {reviseTarget && reviseTarget.schemaFields?.length ? (
+          <div className="ai-wb-revise-drawer">
+            <Alert
+              type="info"
+              showIcon
+              message="修订提交后会生成新的 accepted 版本,不会重新进入 AI 预审。"
+            />
+            <LabelHubFormRenderer
+              schema={reviseTarget.schemaFields}
+              rawPayload={reviseTarget.rawPayload}
+              value={revisionAnswer}
+              readonly={revisionSubmitting}
+              onChange={(next) => setRevisionAnswer(filterVisibleAnswer(reviseTarget.schemaFields ?? [], next))}
+            />
+          </div>
+        ) : (
+          <Empty description="缺少 Schema 快照,无法就地修订" />
+        )}
+      </Drawer>
     </div>
   );
 }
@@ -345,6 +505,7 @@ function AnnotationListItem({
   const ai = item.aiResult;
   const meta = ai ? decisionMeta[ai.decision] : null;
   const primaryTitle = pickTitle(item);
+  const roundTagColor = item.revisionNo > 1 ? 'orange' : 'default';
 
   return (
     <div className={`ai-wb-item${active ? ' is-active' : ''}${selected ? ' is-selected' : ''}`}>
@@ -356,14 +517,14 @@ function AnnotationListItem({
       />
       <button type="button" className="ai-wb-item-main" onClick={onClick}>
         <div className="ai-wb-item-head">
-          <span className="ai-wb-item-id">{item.annotationId}</span>
+          <span className="ai-wb-item-id">第 {displayItemIndex(item)} 题</span>
           <span className="ai-wb-item-time">{item.submittedAt}</span>
         </div>
         <div className="ai-wb-item-title">{primaryTitle}</div>
         <div className="ai-wb-item-tags">
           {ai && <Tag className="ai-wb-item-score">AI {ai.total_score}</Tag>}
+          <Tag color={roundTagColor} className="ai-wb-item-round">第 {item.revisionNo} 轮</Tag>
           {meta && <Tag color={meta.color} className="ai-wb-item-decision">{meta.label}</Tag>}
-          {item.revisionNo > 1 && <Tag>第 {item.revisionNo} 轮</Tag>}
         </div>
       </button>
     </div>
@@ -378,6 +539,7 @@ function AnnotationDetail({
   onReturn,
   onRevise,
   onApprove,
+  committing,
 }: {
   item: AnnotationToReview;
   opinion: string;
@@ -385,24 +547,26 @@ function AnnotationDetail({
   onReturn: () => void;
   onRevise: () => void;
   onApprove: () => void;
+  committing?: boolean;
 }) {
   const ai = item.aiResult;
   const answerEntries = Object.entries(item.answerJson ?? {});
   const prev = item.previousAnswerJson;
   const hasComparison = !!prev && Object.keys(prev).length > 0;
   const title = pickTitle(item);
+  const itemIndex = displayItemIndex(item);
 
   return (
     <>
       <div className="ai-wb-detail-head">
         <div className="ai-wb-detail-headmain">
           <div className="ai-wb-detail-title">
-            <span className="ai-wb-detail-id">{item.annotationId}</span>
+            <span className="ai-wb-detail-id">第 {itemIndex} 题</span>
             <span className="ai-wb-detail-dot">·</span>
             <span className="ai-wb-detail-name">{title}</span>
           </div>
           <div className="ai-wb-detail-sub">
-            题目 {item.itemId} · 模板 {item.schemaVersionId}
+            任务 {item.taskTitle || item.taskId || '-'} · Item {item.itemId} · 模板 {item.schemaVersionId}
             {item.revisionNo > 1 ? ` · 第 ${item.revisionNo} 轮审核(上一轮标注员修改后重审)` : ''}
           </div>
         </div>
@@ -515,15 +679,21 @@ function AnnotationDetail({
 
       {/* 裁决按钮 */}
       <div className="ai-wb-actions">
-        <button type="button" className="ai-wb-action is-return" onClick={onReturn}>
+        <button type="button" className="ai-wb-action is-return" onClick={onReturn} disabled={committing}>
           <span className="ai-wb-action-main">↩ 打回</span>
           <span className="ai-wb-action-sub">退回标注员修改</span>
         </button>
-        <button type="button" className="ai-wb-action is-revise" onClick={onRevise}>
+        <button
+          type="button"
+          className="ai-wb-action is-revise"
+          onClick={onRevise}
+          disabled={committing || !item.schemaFields?.length}
+          title={!item.schemaFields?.length ? '缺少 Schema 快照,无法就地修订' : undefined}
+        >
           <span className="ai-wb-action-main">✎ 直接修订</span>
           <span className="ai-wb-action-sub">审核员就地改写并入库</span>
         </button>
-        <button type="button" className="ai-wb-action is-approve" onClick={onApprove}>
+        <button type="button" className="ai-wb-action is-approve" onClick={onApprove} disabled={committing}>
           <span className="ai-wb-action-main">✓ 通过 · 入库</span>
           <span className="ai-wb-action-sub">本条进入终审 / 可导出</span>
         </button>
@@ -555,7 +725,7 @@ function ReviewTimeline({ item }: { item: AnnotationToReview }) {
                 ? `${stage.decision ?? '已复审'}${stage.reason ? ` · ${stage.reason}` : ''}`
                 : (stage.comment ?? '等待 Reviewer 人工复审');
           return (
-            <li key={`${stage.stage}-${stage.roundNo}`} className="ai-wb-timeline-item">
+            <li key={`${stage.stage}-${stage.roundNo}-${stage.occurredAt ?? stage.status}`} className="ai-wb-timeline-item">
               <span className="ai-wb-timeline-dot" style={{ background: color }} />
               <div className="ai-wb-timeline-body">
                 <div className="ai-wb-timeline-meta">
@@ -620,10 +790,11 @@ function ReviewTimeline({ item }: { item: AnnotationToReview }) {
 
 /* ============ 工具函数 ============ */
 function pickTitle(item: AnnotationToReview): string {
-  const a = item.answerJson ?? {};
-  const candidate =
-    a.cleaned_title ?? a.title ?? a.question ?? a.prompt ?? item.itemId;
-  return typeof candidate === 'string' ? candidate : String(candidate);
+  return item.taskTitle || item.taskId || '标注任务';
+}
+
+function displayItemIndex(item: AnnotationToReview): number | string {
+  return item.itemIndex && item.itemIndex > 0 ? item.itemIndex : item.itemId;
 }
 
 function formatAnswerValue(value: unknown): string {

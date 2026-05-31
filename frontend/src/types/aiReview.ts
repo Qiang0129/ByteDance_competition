@@ -76,6 +76,10 @@ export interface AiReviewJob {
   /** 终态时存在的判定结论 */
   decision?: AiDecision;
   totalScore?: number;
+  /** 该题在任务中的序号(1-based),后端从 assignments 表计算;缺失时前端回退到 annotationId */
+  itemIndex?: number;
+  /** 任务总题数,后端从 assignments 表计算;缺失时不显示 */
+  itemTotal?: number;
   /** 已尝试次数 */
   attempts?: number;
   retryCount?: number;
@@ -117,7 +121,7 @@ export interface ListAiReviewJobsQuery {
 }
 
 export interface AiModelConfig {
-  configId?: string;
+  configId: string;
   providerName: string;
   notes?: string;
   licenseUrl?: string;
@@ -127,9 +131,11 @@ export interface AiModelConfig {
   reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
   wireApi: 'responses';
   apiKeyMask?: string;
-  status?: 'active' | 'inactive';
+  /** active = 当前 Agent 使用的配置;inactive = 备用 */
+  status: 'active' | 'inactive';
   updatedAt?: string;
   updatedBy?: string;
+  createdAt?: string;
 }
 
 export interface AiModelConfigRequest {

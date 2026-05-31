@@ -64,6 +64,14 @@ export interface MarketTask {
   maxClaimPerUser?: number;
   /** 是否已被当前用户认领过(展示"继续作答" CTA) */
   claimedByMe?: boolean;
+  /** 后端任务状态,用于区分发布中与截止结算后的 ended */
+  state?: TaskStatus;
+  /** 是否已经过截止时间或已被截止结算 */
+  expired?: boolean;
+  /** 当前用户是否可领取 */
+  claimable?: boolean;
+  /** 后端计算后的状态文案,如可认领/已截止/配额已满 */
+  statusLabel?: string;
 }
 
 /** 用户已经认领的标注作业项 */
@@ -164,6 +172,9 @@ export interface LabelerReturnedItem {
   aiTotalScore?: number | null;
   aiRiskFlags: string[];
   aiEvidence: string[];
+  resubmitDeadline: string;
+  editable: boolean;
+  expiredReason: string;
   actionable: boolean;
   actionText: string;
 }
@@ -202,6 +213,8 @@ export interface AssignmentItem {
   editable?: boolean;
   /** 任务截止时间,用于页面提示 */
   deadline?: string;
+  resubmitDeadline?: string;
+  lockReason?: string;
   schemaVersionId: string;
   schemaDigest?: string;
   /** 原题数据(根据 media_type 渲染:text / image / video / markdown) */

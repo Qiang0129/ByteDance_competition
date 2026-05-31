@@ -321,6 +321,10 @@ function JobListItem({
 }) {
   const meta = statusMeta[job.status];
   const decision = job.decision ? decisionMeta[job.decision] : null;
+  // 题目标识:有 itemIndex 时显示「任务名 | 第 N 题」,否则回退到任务名
+  const titleText = job.itemIndex
+    ? `${job.taskTitle || job.taskId} | 第 ${job.itemIndex} 题`
+    : job.taskTitle || `任务 ${job.taskId}`;
 
   return (
     <div
@@ -332,16 +336,13 @@ function JobListItem({
     >
       <div className="ai-queue-item-top">
         <Text strong style={{ fontSize: 13 }}>
-          {job.taskTitle || `任务 ${job.taskId}`}
+          {titleText}
         </Text>
         <Tag color={meta.color} style={{ borderRadius: 999, fontSize: 11 }}>
           {meta.label}
         </Tag>
       </div>
       <div className="ai-queue-item-meta">
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {job.annotationId}
-        </Text>
         {decision && (
           <Badge
             color={decision.color}

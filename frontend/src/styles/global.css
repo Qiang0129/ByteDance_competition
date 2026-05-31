@@ -4313,10 +4313,36 @@ body {
   border-top: 1px solid #f0f2f7;
 }
 
+.answer-pager-side,
+.answer-pager-center {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.answer-pager-side-left {
+  justify-content: flex-start;
+}
+
+.answer-pager-center {
+  justify-content: center;
+}
+
+.answer-pager-side-right {
+  justify-content: flex-end;
+}
+
 @media (max-width: 720px) {
   .answer-pager {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .answer-pager-side,
+  .answer-pager-center {
+    width: 100%;
+    justify-content: stretch;
   }
 
   .answer-pager .ant-btn {
@@ -7716,6 +7742,10 @@ body {
   align-items: stretch;
 }
 
+.ai-wb-error {
+  margin-bottom: 12px;
+}
+
 @media (max-width: 1280px) {
   .ai-wb-grid {
     grid-template-columns: 240px minmax(0, 1fr);
@@ -8091,6 +8121,10 @@ body {
   border: none;
 }
 
+.ai-wb-item-round.ant-tag {
+  font-weight: 600;
+}
+
 /* 决策标签靠右下:AI 分数留在原位,本标签把右侧空间吃满推到右下角 */
 .ai-wb-item-tags .ai-wb-item-decision.ant-tag {
   margin-left: auto;
@@ -8400,6 +8434,17 @@ body {
   transform: translateY(-1px);
 }
 
+.ai-wb-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.ai-wb-action:disabled:hover {
+  box-shadow: none;
+  transform: none;
+}
+
 .ai-wb-action-main {
   font-size: 14px;
   font-weight: 700;
@@ -8430,6 +8475,11 @@ body {
 
 .ai-wb-action:hover {
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.ai-wb-revise-drawer {
+  display: grid;
+  gap: 16px;
 }
 
 /* 右栏 */
@@ -8476,6 +8526,9 @@ body {
   border-radius: 14px;
   padding: 16px;
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+  /* 填满右栏剩余高度,与中栏底部对齐 */
+  flex: 1 1 auto;
+  overflow-y: auto;
 }
 
 .ai-wb-timeline-title {
@@ -8966,6 +9019,8 @@ body {
 .ai-queue-empty-detail {
   flex: 1 1 auto;
   min-width: 0;
+  /* 未选中时保持合理高度,避免左栏跟着塌陷 */
+  min-height: 480px;
   background: #ffffff;
   border: 1px solid #e6e9ef;
   border-radius: 14px;
@@ -9088,4 +9143,100 @@ body {
 :root[data-color-mode='dark'] .ai-queue-prompt {
   background: rgba(255, 251, 235, 0.06);
   border-color: rgba(253, 230, 138, 0.2);
+}
+
+
+/* ========== 模型配置:多配置卡片列表 ========== */
+
+.model-config-card.ant-card {
+  border-radius: 14px !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.model-config-card.is-active.ant-card {
+  border-color: var(--lh-primary-bg-40) !important;
+  box-shadow: 0 4px 16px var(--lh-primary-bg-12) !important;
+}
+
+.model-config-card .ant-card-body {
+  padding: 16px 20px !important;
+}
+
+.model-config-card-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.model-config-card-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.model-config-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #f1f5f9;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.model-config-avatar.is-active {
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
+}
+
+.model-config-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.model-config-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.model-config-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-config-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.model-config-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 暗色模式 */
+:root[data-color-mode='dark'] .model-config-avatar {
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
+}
+
+:root[data-color-mode='dark'] .model-config-avatar.is-active {
+  background: var(--lh-primary-bg-10);
+  color: var(--lh-primary);
 }

@@ -3,6 +3,9 @@ package com.labelhub.backend.review;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.labelhub.backend.annotation.AnswerValidationService;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.workflow.StateMachineService;
@@ -22,18 +25,22 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReviewService {
 
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+  private static final int RETURN_REWORK_WINDOW_HOURS = 48;
 
   private final ReviewRepository reviewRepository;
   private final StateMachineService stateMachineService;
   private final ObjectMapper objectMapper;
+  private final AnswerValidationService answerValidationService;
 
   public ReviewService(
       ReviewRepository reviewRepository,
       StateMachineService stateMachineService,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      AnswerValidationService answerValidationService) {
     this.reviewRepository = reviewRepository;
     this.stateMachineService = stateMachineService;
     this.objectMapper = objectMapper;
+    this.answerValidationService = answerValidationService;
   }
 
   public ReviewerOverviewResponse getOverview(Authentication authentication, Integer days) {
@@ -165,21 +172,23 @@ public class ReviewService {
       ReviewDecisionRequest request) {
     AuthenticatedUser reviewer = requireReviewer(authentication);
     String decision = normalizeReviewDecision(request == null ? null : request.decision());
-    String reason = request == null ? null : request.reason();
+    String reason = effectiveReason(request);
     ReviewRepository.AnnotationStateRecord state = reviewRepository.lockAnnotationState(annotationId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ANNOTATION_NOT_FOUND", "annotation not found"));
     ensureReviewable(state.annotationStatus());
     int roundNo = reviewRepository.nextReviewRound(annotationId);
+    Long responseAnnotationId = null;
 
     switch (decision) {
       case "approve" -> approve(reviewer, state, reason, roundNo);
       case "return" -> returnToLabeler(reviewer, state, reason, roundNo);
       case "escalate" -> escalate(reviewer, state, reason, roundNo);
-      case "revise" -> revise(reviewer, state, reason, roundNo);
+      case "revise" -> responseAnnotationId = revise(reviewer, state, reason, request, roundNo);
       default -> throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REVIEW_DECISION", "unsupported review decision");
     }
 
-    return reviewRepository.findAnnotation(annotationId)
+    long lookupAnnotationId = responseAnnotationId == null ? annotationId : responseAnnotationId;
+    return reviewRepository.findAnnotation(lookupAnnotationId)
         .map(this::toAnnotationResponse)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ANNOTATION_NOT_FOUND", "annotation not found"));
   }
@@ -217,8 +226,8 @@ public class ReviewService {
         ? ""
         : request.resolution().trim().toLowerCase(Locale.ROOT);
     ReviewDecisionRequest decision = switch (resolution) {
-      case "approve" -> new ReviewDecisionRequest("APPROVE", request == null ? null : request.note(), null, false);
-      case "reject" -> new ReviewDecisionRequest("RETURN", request == null ? null : request.note(), null, false);
+      case "approve" -> new ReviewDecisionRequest("APPROVE", request == null ? null : request.note(), null, false, null);
+      case "reject" -> new ReviewDecisionRequest("RETURN", request == null ? null : request.note(), null, false, null);
       default -> throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DISPUTE_RESOLUTION", "unsupported dispute resolution");
     };
     submitDecisionForReviewer(reviewer, dispute.annotationId(), decision);
@@ -236,10 +245,11 @@ public class ReviewService {
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ANNOTATION_NOT_FOUND", "annotation not found"));
     ensureReviewable(state.annotationStatus());
     int roundNo = reviewRepository.nextReviewRound(annotationId);
+    String reason = effectiveReason(request);
     if ("approve".equals(decision)) {
-      approve(reviewer, state, request.reason(), roundNo);
+      approve(reviewer, state, reason, roundNo);
     } else if ("return".equals(decision)) {
-      returnToLabeler(reviewer, state, request.reason(), roundNo);
+      returnToLabeler(reviewer, state, reason, roundNo);
     }
   }
 
@@ -287,9 +297,10 @@ public class ReviewService {
     if (reason == null || reason.isBlank()) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "RETURN_REASON_REQUIRED", "return reason is required");
     }
+    LocalDateTime resubmitDeadline = LocalDateTime.now().plusHours(RETURN_REWORK_WINDOW_HOURS);
     transitionAnnotationToReviewingIfNeeded(reviewer, state);
     reviewRepository.updateAnnotationStatus(state.annotationId(), "returned");
-    reviewRepository.updateAssignmentStatus(state.assignmentId(), "returned");
+    reviewRepository.returnAssignmentForRework(state.assignmentId(), resubmitDeadline);
     reviewRepository.updateItemStatus(state.itemId(), "returned");
     reviewRepository.createHumanReview(state.annotationId(), reviewer.id(), roundNo, "return", reason, null);
     stateMachineService.audit(
@@ -303,7 +314,7 @@ public class ReviewService {
         reason,
         Map.of("annotationId", state.annotationId(), "status", effectiveReviewFromState(state.annotationStatus())),
         Map.of("annotationId", state.annotationId(), "status", "returned"),
-        null);
+        Map.of("resubmitDeadline", resubmitDeadline));
     stateMachineService.audit(
         WorkflowEntityType.ASSIGNMENT,
         state.assignmentId(),
@@ -314,8 +325,11 @@ public class ReviewService {
         "returned",
         reason,
         Map.of("assignmentId", state.assignmentId(), "status", state.assignmentStatus()),
-        Map.of("assignmentId", state.assignmentId(), "status", "returned"),
-        null);
+        Map.of(
+            "assignmentId", state.assignmentId(),
+            "status", "returned",
+            "resubmitDeadline", resubmitDeadline),
+        Map.of("resubmitDeadline", resubmitDeadline));
   }
 
   private void escalate(
@@ -345,25 +359,80 @@ public class ReviewService {
         null);
   }
 
-  private void revise(
+  private long revise(
       AuthenticatedUser reviewer,
       ReviewRepository.AnnotationStateRecord state,
       String reason,
+      ReviewDecisionRequest request,
       int roundNo) {
+    if (request == null || request.answerJson() == null || !request.answerJson().isObject()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "REVISION_ANSWER_REQUIRED", "revision answerJson is required");
+    }
+    RevisionSchema schema = revisionSchema(state);
+    JsonNode answerJson = answerValidationService.requireAnswerObject(request.answerJson());
+    JsonNode visibleAnswerJson = answerValidationService.filterVisibleAnswer(answerJson, schema.fields());
+    answerValidationService.validateAnswer(visibleAnswerJson, schema.fields());
+    JsonNode originalAnswerJson = readJson(state.answerJson());
+    if (jsonEquivalent(originalAnswerJson, visibleAnswerJson)) {
+      throw new ApiException(HttpStatus.CONFLICT, "NO_REVISION_CHANGE", "revision answer has no changes");
+    }
+    String fromState = effectiveReviewFromState(state.annotationStatus());
+    String diffJson = writeJson(buildRevisionDiff(originalAnswerJson, visibleAnswerJson));
     transitionAnnotationToReviewingIfNeeded(reviewer, state);
-    reviewRepository.createHumanReview(state.annotationId(), reviewer.id(), roundNo, "revise", reason, null);
+    reviewRepository.updateAnnotationStatus(state.annotationId(), "revised");
+    reviewRepository.createHumanReview(state.annotationId(), reviewer.id(), roundNo, "revise", reason, diffJson);
+    int nextRevisionNo = state.revisionNo() + 1;
+    long revisedAnnotationId = reviewRepository.createAnnotation(
+        state.assignmentId(),
+        state.schemaVersionId(),
+        schema.schemaSnapshotJson(),
+        writeJson(visibleAnswerJson),
+        nextRevisionNo,
+        "accepted");
+    reviewRepository.updateAssignmentStatus(state.assignmentId(), "accepted");
+    reviewRepository.updateItemStatus(state.itemId(), "accepted");
     stateMachineService.audit(
         WorkflowEntityType.ANNOTATION,
         state.annotationId(),
         reviewer,
         "reviewer",
         "human_review.revise",
-        effectiveReviewFromState(state.annotationStatus()),
-        "reviewing",
+        fromState,
+        "revised",
         reason,
-        Map.of("annotationId", state.annotationId(), "status", effectiveReviewFromState(state.annotationStatus())),
-        Map.of("annotationId", state.annotationId(), "status", "reviewing"),
-        null);
+        Map.of("annotationId", state.annotationId(), "status", fromState, "answerJson", originalAnswerJson),
+        Map.of("annotationId", state.annotationId(), "status", "revised"),
+        readJson(diffJson));
+    stateMachineService.audit(
+        WorkflowEntityType.ANNOTATION,
+        revisedAnnotationId,
+        reviewer,
+        "reviewer",
+        "human_review.revise.accept",
+        "submitted",
+        "accepted",
+        reason,
+        Map.of("annotationId", revisedAnnotationId, "status", "submitted", "revisionNo", nextRevisionNo),
+        Map.of("annotationId", revisedAnnotationId, "status", "accepted", "revisionNo", nextRevisionNo),
+        Map.of(
+            "sourceAnnotationId", state.annotationId(),
+            "annotationId", revisedAnnotationId,
+            "assignmentId", state.assignmentId(),
+            "revisionNo", nextRevisionNo,
+            "answerJson", visibleAnswerJson));
+    stateMachineService.audit(
+        WorkflowEntityType.ASSIGNMENT,
+        state.assignmentId(),
+        reviewer,
+        "reviewer",
+        "human_review.revise.accept",
+        state.assignmentStatus(),
+        "accepted",
+        reason,
+        Map.of("assignmentId", state.assignmentId(), "status", state.assignmentStatus()),
+        Map.of("assignmentId", state.assignmentId(), "status", "accepted"),
+        Map.of("sourceAnnotationId", state.annotationId(), "annotationId", revisedAnnotationId));
+    return revisedAnnotationId;
   }
 
   private void transitionAnnotationToReviewingIfNeeded(
@@ -448,14 +517,63 @@ public class ReviewService {
         Long.toString(record.taskId()),
         record.taskTitle(),
         record.taskType(),
+        record.itemIndex(),
         readJson(record.answerJson()),
         readJson(record.previousAnswerJson()),
         readJson(record.rawPayloadJson()),
+        schemaFields(record.schemaSnapshotJson()),
         toAiResult(record),
         record.humanDecision() == null ? null : record.humanDecision().toUpperCase(Locale.ROOT),
         record.revisionNo(),
         record.dispute(),
         buildReviewTimeline(record));
+  }
+
+  private String effectiveReason(ReviewDecisionRequest request) {
+    if (request == null) {
+      return null;
+    }
+    if (request.reason() != null && !request.reason().isBlank()) {
+      return request.reason().trim();
+    }
+    return request.note() == null || request.note().isBlank() ? null : request.note().trim();
+  }
+
+  private RevisionSchema revisionSchema(ReviewRepository.AnnotationStateRecord state) {
+    JsonNode root = readJson(state.schemaSnapshotJson());
+    JsonNode fieldsNode = root.path("fields");
+    if (!fieldsNode.isArray()) {
+      throw new ApiException(HttpStatus.CONFLICT, "REVISION_SCHEMA_MISSING", "annotation schema snapshot is missing");
+    }
+    return new RevisionSchema(writeJson(root), (ArrayNode) fieldsNode);
+  }
+
+  private JsonNode schemaFields(String schemaSnapshotJson) {
+    JsonNode fields = readJson(schemaSnapshotJson).path("fields");
+    return fields.isArray() ? fields : objectMapper.createArrayNode();
+  }
+
+  private boolean jsonEquivalent(JsonNode left, JsonNode right) {
+    return left == null ? right == null : left.equals(right);
+  }
+
+  private ObjectNode buildRevisionDiff(JsonNode before, JsonNode after) {
+    ObjectNode diff = objectMapper.createObjectNode();
+    diff.set("before", before);
+    diff.set("after", after);
+    ArrayNode changedFields = objectMapper.createArrayNode();
+    java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>();
+    before.fieldNames().forEachRemaining(keys::add);
+    after.fieldNames().forEachRemaining(keys::add);
+    for (String key : keys) {
+      JsonNode beforeValue = before.get(key);
+      JsonNode afterValue = after.get(key);
+      if (beforeValue == null || afterValue == null || !jsonEquivalent(beforeValue, afterValue)) {
+        changedFields.add(key);
+      }
+    }
+    diff.set("changedFields", changedFields);
+    return diff;
   }
 
   private DisputeItemResponse toDisputeResponse(ReviewRepository.DisputeRecord record) {
@@ -536,6 +654,14 @@ public class ReviewService {
     }
   }
 
+  private String writeJson(JsonNode node) {
+    try {
+      return objectMapper.writeValueAsString(node);
+    } catch (JsonProcessingException exception) {
+      throw new IllegalStateException("failed to serialize json", exception);
+    }
+  }
+
   private String normalizeBatchStatus(String status) {
     if (status == null || status.isBlank() || "all".equalsIgnoreCase(status)) {
       return null;
@@ -604,6 +730,44 @@ public class ReviewService {
 
   private List<ReviewTimelineStageResponse> buildReviewTimeline(
       ReviewRepository.AnnotationReviewRecord record) {
+    List<ReviewRepository.ReviewTimelineEventRecord> events =
+        reviewRepository.listAssignmentReviewTimeline(record.assignmentId());
+    if (!events.isEmpty()) {
+      java.util.ArrayList<ReviewTimelineStageResponse> timeline = new java.util.ArrayList<>();
+      for (ReviewRepository.ReviewTimelineEventRecord event : events) {
+        AiReviewResultResponse aiResult = toAiResult(event);
+        timeline.add(new ReviewTimelineStageResponse(
+            event.revisionNo(),
+            "ai_review",
+            "第 " + event.revisionNo() + " 轮 AI预审",
+            aiResult == null ? "pending" : "completed",
+            "AI Agent",
+            aiResult == null ? null : aiResult.decision(),
+            aiResult == null ? null : aiResult.total_score(),
+            aiResult == null ? "等待 AI 预审结果" : aiResult.comment(),
+            null,
+            formatDateTime(event.aiFinishedAt())));
+
+        String humanDecision = event.humanDecision() == null
+            ? null
+            : event.humanDecision().toUpperCase(Locale.ROOT);
+        timeline.add(new ReviewTimelineStageResponse(
+            event.revisionNo(),
+            "human_review",
+            "第 " + event.revisionNo() + " 轮人工复审",
+            humanDecision == null ? "pending" : "completed",
+            event.humanReviewerName() == null || event.humanReviewerName().isBlank()
+                ? "Reviewer"
+                : event.humanReviewerName(),
+            humanDecision,
+            null,
+            humanDecision == null ? "等待 Reviewer 人工复审" : null,
+            event.humanReason(),
+            formatDateTime(event.humanReviewedAt())));
+      }
+      return timeline;
+    }
+
     AiReviewResultResponse aiResult = toAiResult(record);
     ReviewTimelineStageResponse aiStage = new ReviewTimelineStageResponse(
         1,
@@ -636,6 +800,21 @@ public class ReviewService {
     return List.of(aiStage, humanStage);
   }
 
+  private AiReviewResultResponse toAiResult(ReviewRepository.ReviewTimelineEventRecord record) {
+    if (record.aiDecision() == null || record.aiDecision().isBlank()) {
+      return null;
+    }
+    return new AiReviewResultResponse(
+        Map.of(),
+        record.aiTotalScore() == null ? 0 : record.aiTotalScore(),
+        record.aiDecision(),
+        record.aiComment() == null ? "" : record.aiComment(),
+        List.of(),
+        List.of(),
+        null,
+        null);
+  }
+
   private String buildAiResultVersion(ReviewRepository.AnnotationReviewRecord record) {
     String ruleName = record.aiRuleName();
     String ruleVersion = record.aiRuleVersion();
@@ -660,4 +839,6 @@ public class ReviewService {
     }
     return principal;
   }
+
+  private record RevisionSchema(String schemaSnapshotJson, ArrayNode fields) {}
 }

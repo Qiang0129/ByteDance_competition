@@ -47,6 +47,7 @@ public class TaskService {
   private final TaskRepository taskRepository;
   private final SchemaRepository schemaRepository;
   private final AiReviewService aiReviewService;
+  private final TaskDeadlineSettlementService deadlineSettlementService;
   private final StateMachineService stateMachineService;
   private final ObjectMapper objectMapper;
 
@@ -56,6 +57,7 @@ public class TaskService {
       TaskRepository taskRepository,
       SchemaRepository schemaRepository,
       AiReviewService aiReviewService,
+      TaskDeadlineSettlementService deadlineSettlementService,
       StateMachineService stateMachineService,
       ObjectMapper objectMapper) {
     this.authRepository = authRepository;
@@ -63,6 +65,7 @@ public class TaskService {
     this.taskRepository = taskRepository;
     this.schemaRepository = schemaRepository;
     this.aiReviewService = aiReviewService;
+    this.deadlineSettlementService = deadlineSettlementService;
     this.stateMachineService = stateMachineService;
     this.objectMapper = objectMapper;
   }
@@ -100,6 +103,7 @@ public class TaskService {
       long taskId,
       CreateTaskRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     TaskRecord existing = taskRepository.findTask(taskId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
     if (existing.ownerId() != owner.id()) {
@@ -108,15 +112,19 @@ public class TaskService {
     ensureTaskNotDeleted(existing);
 
     String state = normalizeState(request.status(), existing.status(), TASK_STATES);
+    LocalDateTime deadline = parseDeadline(request.deadline());
+    validateRenewedPublish(existing.status(), state, deadline);
     stateMachineService.validate(WorkflowEntityType.TASK, existing.status(), state, "owner");
     DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
+    boolean renewingEndedTask = "ended".equals(existing.status()) && "published".equals(state);
     TaskMetadata metadata = buildTaskMetadata(
         owner.id(),
         request,
         dataset,
         state,
-        readMetadata(existing.rewardRuleJson()));
-    validatePublishedSchemaConfiguration(owner.id(), metadata, state, existing);
+        readMetadata(existing.rewardRuleJson()),
+        renewingEndedTask);
+    validatePublishedSchemaConfiguration(owner.id(), metadata, state, existing, existing.status());
     validateStrategyConfiguration(metadata, state);
 
     int updated = taskRepository.updateTask(
@@ -126,7 +134,7 @@ public class TaskService {
         resolveDescription(request.description()),
         state,
         request.quota(),
-        parseDeadline(request.deadline()),
+        deadline,
         metadata);
     if (updated == 0) {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
@@ -143,6 +151,7 @@ public class TaskService {
 
   public PageResponse<OwnerTaskResponse> listOwnerTasks(Authentication authentication) {
     AuthenticatedUser owner = requireOwner(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     List<OwnerTaskResponse> items = taskRepository.listOwnerTasks(owner.id()).stream()
         .map(this::toOwnerResponse)
         .toList();
@@ -192,6 +201,7 @@ public class TaskService {
       long taskId,
       UpdateTaskStateRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     String state = normalizeState(request.state(), null, TASK_STATES);
     TaskRecord existing = taskRepository.findTask(taskId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
@@ -199,7 +209,13 @@ public class TaskService {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
     }
     ensureTaskNotDeleted(existing);
-    validatePublishedSchemaConfiguration(owner.id(), readMetadata(existing.rewardRuleJson()), state, existing);
+    if ("published".equals(state) && "ended".equals(existing.status())) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "DEADLINE_REQUIRED",
+          "renew ended task through task edit with a future deadline");
+    }
+    validatePublishedSchemaConfiguration(owner.id(), readMetadata(existing.rewardRuleJson()), state, existing, existing.status());
     stateMachineService.validate(WorkflowEntityType.TASK, existing.status(), state, "owner");
     int updated = taskRepository.updateTaskState(owner.id(), taskId, state);
     if (updated == 0) {
@@ -223,6 +239,7 @@ public class TaskService {
       Integer page,
       Integer pageSize) {
     AuthenticatedUser principal = requirePrincipal(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
     String normalizedTaskType = normalizeTaskTypeFilter(taskType);
@@ -254,6 +271,7 @@ public class TaskService {
   @Transactional
   public AssignmentResponse claimTask(Authentication authentication, long taskId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
     if (!taskRepository.lockTask(taskId)) {
       throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
     }
@@ -319,7 +337,17 @@ public class TaskService {
       DatasetRecord dataset,
       String state,
       TaskMetadata fallbackMetadata) {
-    SchemaSelection selectedSchema = resolveSelectedSchema(ownerId, request.schemaVersionId());
+    return buildTaskMetadata(ownerId, request, dataset, state, fallbackMetadata, false);
+  }
+
+  private TaskMetadata buildTaskMetadata(
+      long ownerId,
+      CreateTaskRequest request,
+      DatasetRecord dataset,
+      String state,
+      TaskMetadata fallbackMetadata,
+      boolean allowEndedSchema) {
+    SchemaSelection selectedSchema = resolveSelectedSchema(ownerId, request.schemaVersionId(), allowEndedSchema);
     String schemaLabel = blankToNull(request.schema());
     Long schemaVersionId = null;
     Integer schemaVersion = null;
@@ -392,13 +420,19 @@ public class TaskService {
   }
 
   private SchemaSelection resolveSelectedSchema(long ownerId, String schemaVersionIdValue) {
+    return resolveSelectedSchema(ownerId, schemaVersionIdValue, false);
+  }
+
+  private SchemaSelection resolveSelectedSchema(long ownerId, String schemaVersionIdValue, boolean allowEndedSchema) {
     if (schemaVersionIdValue == null || schemaVersionIdValue.isBlank()) {
       return null;
     }
     long schemaVersionId = parseLongId(schemaVersionIdValue, "INVALID_SCHEMA_VERSION_ID");
     SchemaRecord schema = schemaRepository.findOwnerSchemaIncludingDeleted(ownerId, schemaVersionId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found"));
-    if (!"published".equals(schema.status()) && schema.deletedAt() == null) {
+    if (!"published".equals(schema.status())
+        && !("ended".equals(schema.status()) && allowEndedSchema)
+        && schema.deletedAt() == null) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_NOT_PUBLISHED",
@@ -432,6 +466,15 @@ public class TaskService {
       TaskMetadata metadata,
       String state,
       TaskRecord existing) {
+    validatePublishedSchemaConfiguration(ownerId, metadata, state, existing, null);
+  }
+
+  private void validatePublishedSchemaConfiguration(
+      long ownerId,
+      TaskMetadata metadata,
+      String state,
+      TaskRecord existing,
+      String fromState) {
     if (!"published".equals(state)) {
       return;
     }
@@ -446,11 +489,26 @@ public class TaskService {
     }
     SchemaRecord schema = schemaRepository.findOwnerSchema(ownerId, schemaVersionId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "SCHEMA_NOT_FOUND", "schema not found"));
+    if ("ended".equals(fromState) && "ended".equals(schema.status())) {
+      return;
+    }
     if (!"published".equals(schema.status())) {
       throw new ApiException(
           HttpStatus.CONFLICT,
           "SCHEMA_NOT_PUBLISHED",
           "published task requires a published schema");
+    }
+  }
+
+  private void validateRenewedPublish(String fromState, String toState, LocalDateTime deadline) {
+    if (!"ended".equals(fromState) || !"published".equals(toState)) {
+      return;
+    }
+    if (deadline == null || !deadline.isAfter(LocalDateTime.now())) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_DEADLINE",
+          "renewed published task requires a future deadline");
     }
   }
 
@@ -568,6 +626,8 @@ public class TaskService {
     TaskMetadata metadata = readMetadata(record.rewardRuleJson());
     int totalQuota = record.quota() == null ? 0 : record.quota();
     int remainingQuota = Math.max(totalQuota - record.quotaUsed(), 0);
+    boolean expired = isDeadlineExpired(record.deadline());
+    boolean claimable = "published".equals(record.status()) && !expired && remainingQuota > 0;
     String taskType = metadata.resolvedTaskType();
     List<String> mediaTypes = taskRepository.listTaskMediaTypes(record.id());
     Long schemaVersionId = resolveEffectiveSchemaVersionId(record, metadata);
@@ -591,7 +651,11 @@ public class TaskService {
         metadata.resolvedAiReviewEnabled() ? metadata.aiReviewRuleName() : null,
         formatDateTime(record.publishedAt() == null ? record.createdAt() : record.publishedAt()),
         metadata.resolvedMaxClaimPerUser(),
-        taskRepository.hasTaskAssignment(record.id(), currentUserId));
+        taskRepository.hasTaskAssignment(record.id(), currentUserId),
+        record.status(),
+        expired || "ended".equals(record.status()),
+        claimable,
+        resolveMarketStatusLabel(record.status(), expired, remainingQuota));
   }
 
   private AssignmentResponse createAssignmentForStrategy(TaskRecord task, AuthenticatedUser labeler) {
@@ -696,7 +760,24 @@ public class TaskService {
   private boolean canCreateMoreAssignments(TaskRecord task) {
     return task.deletedAt() == null
         && "published".equals(task.status())
-        && (task.deadline() == null || !task.deadline().isBefore(LocalDateTime.now()));
+        && !isDeadlineExpired(task.deadline());
+  }
+
+  private boolean isDeadlineExpired(LocalDateTime deadline) {
+    return deadline != null && !deadline.isAfter(LocalDateTime.now());
+  }
+
+  private String resolveMarketStatusLabel(String state, boolean expired, int remainingQuota) {
+    if (expired || "ended".equals(state)) {
+      return "已截止";
+    }
+    if ("paused".equals(state)) {
+      return "已暂停";
+    }
+    if (remainingQuota <= 0) {
+      return "配额已满";
+    }
+    return "可认领";
   }
 
   private long resolveAssignableRemaining(long taskId, Integer quota) {
@@ -732,7 +813,7 @@ public class TaskService {
     if (!"published".equals(task.status())) {
       throw new ApiException(HttpStatus.CONFLICT, "TASK_NOT_PUBLISHED", "task is not published");
     }
-    if (task.deadline() != null && task.deadline().isBefore(LocalDateTime.now())) {
+    if (isDeadlineExpired(task.deadline())) {
       throw new ApiException(HttpStatus.CONFLICT, "TASK_EXPIRED", "task deadline has passed");
     }
     Long schemaVersionId = resolveEffectiveSchemaVersionId(task, metadata);

@@ -138,7 +138,12 @@ export default function ReturnedItems() {
                       key="action"
                       type={item.actionable ? 'link' : 'default'}
                       disabled={!item.actionable}
-                      onClick={() => navigate(`/labeler/answer/${item.assignmentId}`)}
+                      onClick={() => navigate(`/labeler/answer/${item.assignmentId}`, {
+                        state: {
+                          entry: 'returned-rework',
+                          assignmentId: item.assignmentId,
+                        },
+                      })}
                     >
                       {item.actionText}
                     </Button>,
@@ -201,6 +206,12 @@ function HumanReturnDetail({ item }: { item: LabelerReturnedItem }) {
       <Typography.Text type="secondary">
         人工复审打回原因:{item.humanReason || '未填写原因'}
       </Typography.Text>
+      {item.resubmitDeadline ? (
+        <Typography.Text type={item.editable ? 'secondary' : 'danger'}>
+          返修截止:{item.resubmitDeadline}
+          {!item.editable && item.expiredReason === 'RETURN_REWORK_EXPIRED' ? '，已过期' : ''}
+        </Typography.Text>
+      ) : null}
       {item.aiDecision ? (
         <Typography.Text type="secondary">
           AI 预审结论:{item.aiDecision}
