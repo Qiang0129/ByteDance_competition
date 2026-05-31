@@ -14,7 +14,10 @@
 import { apiRequest } from './client';
 import type {
   DashboardOverview,
+  DashboardPageResult,
   DisputeStats,
+  IssueFeedback,
+  IssueFeedbackStatus,
   LabelerPerformance,
   RecentTaskActivity,
   ReviewDistribution,
@@ -57,5 +60,18 @@ export const dashboardApi = {
 
   getDisputes(days: 7 | 14 | 30 = 7): Promise<DisputeStats> {
     return apiRequest(`/dashboard/disputes?days=${days}`);
+  },
+
+  listIssueFeedback(params: {
+    page?: number;
+    pageSize?: number;
+    status?: IssueFeedbackStatus;
+  } = {}): Promise<DashboardPageResult<IssueFeedback>> {
+    const searchParams = new URLSearchParams();
+    if (params.page) searchParams.set('page', String(params.page));
+    if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
+    if (params.status) searchParams.set('status', params.status);
+    const query = searchParams.toString();
+    return apiRequest(`/dashboard/issue-feedback${query ? `?${query}` : ''}`);
   },
 };

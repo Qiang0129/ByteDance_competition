@@ -96,6 +96,7 @@ LABELHUB_REDIS_PASSWORD=
 LABELHUB_AUTH_TOKEN_TTL_SECONDS=7200
 LABELHUB_DEMO_USERS_ENABLED=true
 LABELHUB_DEMO_ALL_ROLES_PASSWORD=demo123
+LABELHUB_MODEL_CONFIG_SECRET=固定的本地模型配置加密密钥
 ```
 
 ## 数据库初始化
@@ -126,6 +127,19 @@ cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V3__allo
 cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V4__support_schema_designer_backend.sql"
 ```
 
+AI 预审 Agent、状态机审计、软删除、Schema 快照、Job runToken 和 Web 端模型配置依赖后续迁移。新库或旧库升级到当前版本时,继续按版本顺序执行:
+
+```powershell
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V5__soft_delete_schema_versions.sql"
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V6__extend_audit_logs_for_state_machine.sql"
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V7__soft_delete_tasks_and_void_annotations.sql"
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V8__scope_assignment_unique_key_by_task.sql"
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V9__annotation_schema_snapshot.sql"
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V10__ai_review_rules_agent_runtime.sql"
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V11__ai_review_job_run_token.sql"
+cmd /c "mysql -uroot -p123456 < backend\src\main\resources\db\migration\V12__ai_model_configs.sql"
+```
+
 把命令中的 `123456` 换成你的 MySQL root 密码。`V1__init_labelhub_schema.sql` 内部会创建并切换到 `labelhub` 数据库。
 
 后端启动时也会通过 `DemoUserInitializer` upsert 演示账号。新增或修改演示账号后,需要重启后端服务才会写入当前数据库。
@@ -138,7 +152,8 @@ PowerShell：
 
 ```powershell
 cd backend
-$env:LABELHUB_DB_PASSWORD='123456'
+$env:LABELHUB_DB_PASSWORD='数据库密码'
+$env:LABELHUB_MODEL_CONFIG_SECRET='输入一个添加LLMapikey的时候随机加密字符串'
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -147,8 +162,11 @@ cmd：
 ```cmd
 cd backend
 set LABELHUB_DB_PASSWORD=123456
+set LABELHUB_MODEL_CONFIG_SECRET=labelhub-local-dev-secret-2026
 mvnw.cmd spring-boot:run
 ```
+
+`LABELHUB_MODEL_CONFIG_SECRET` 用于加密和解密 Web 端“模型配置”里保存的 API Key。首次保存模型配置前必须设置该变量；保存后需要保持同一个值稳定使用,否则旧 API Key 会无法解密。该密钥只需要配置在后端,Agent 不需要配置。
 
 后端默认地址：
 
@@ -169,6 +187,12 @@ Started LabelHubBackendApplication
 
 AI Agent 是独立 Spring Boot Worker，代码在 `agent/` 目录。它不直连数据库，只登录后端 API，轮询 `pending` 的 AI 审核 Job，调用 Responses API 后把结果回写后端。
 
+Agent 处理模型配置的优先级：
+
+1. 优先读取 Web 端 `/owner/settings/model` 或 `/ai-reviewer/settings/model` 保存的 active 模型配置。
+2. 后端没有 active 模型配置时,才回退到 Agent 终端里的 `LABELHUB_LLM_*` 环境变量。
+3. 如果使用 Web 端模型配置,启动 Agent 时不需要重复填写 `LABELHUB_LLM_BASE_URL`、`LABELHUB_LLM_API_KEY`、`LABELHUB_LLM_MODEL`。
+
 启动顺序：
 
 1. 先启动 MySQL、Redis 和后端。
@@ -176,7 +200,20 @@ AI Agent 是独立 Spring Boot Worker，代码在 `agent/` 目录。它不直连
 3. 再启动 Agent。
 4. 最后启动前端。
 
-PowerShell 启动方式：
+PowerShell 启动方式 A：已经在 Web 端保存过模型配置时,只需要后端连接和登录变量:
+
+```powershell
+cd F:\研究生阶段\字节开发比赛\ByteDance_competition\agent
+
+$env:LABELHUB_BACKEND_BASE_URL="http://localhost:8080"
+$env:LABELHUB_AGENT_USERNAME="system_agent"
+$env:LABELHUB_AGENT_PASSWORD="agent123"
+$env:LABELHUB_AGENT_ROLE="system_agent"
+
+.\mvnw.cmd spring-boot:run
+```
+
+PowerShell 启动方式 B：没有 Web 端 active 模型配置时,额外提供兜底模型变量:
 
 ```powershell
 cd F:\研究生阶段\字节开发比赛\ByteDance_competition\agent
@@ -198,6 +235,7 @@ $env:LABELHUB_LLM_WIRE_API="responses"
 注意：
 
 - `LABELHUB_LLM_API_KEY` 只在本机终端设置，不要写入仓库文件。
+- Web 端保存模型配置失败并提示 `LABELHUB_MODEL_CONFIG_SECRET is required to store or read api keys` 时,说明后端启动时缺少 `LABELHUB_MODEL_CONFIG_SECRET`,需要设置后重启后端再保存。
 - 如果暂时没有待审核任务，Agent 会保持轮询，不会立刻输出消费日志。
 - Labeler 最后一题统一提交成功后，会创建 `pending` 的 AI review job；这时 Agent 才会领取并处理。
 - 启动成功后，日志通常会出现 `LabelHub Agent logged in as system_agent`。

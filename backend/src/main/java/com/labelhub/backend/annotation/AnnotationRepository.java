@@ -363,6 +363,60 @@ public class AnnotationRepository {
     return jdbcTemplate.update("DELETE FROM drafts WHERE assignment_id = ?", assignmentId);
   }
 
+  public IssueRecord createIssue(
+      long assignmentId,
+      long taskId,
+      long itemId,
+      long labelerId,
+      String category,
+      String description) {
+    KeyHolder keyHolder = new GeneratedKeyHolder();
+    jdbcTemplate.update(connection -> {
+      var statement = connection.prepareStatement(
+          """
+          INSERT INTO issues
+            (assignment_id, task_id, item_id, labeler_id, category, description, status)
+          VALUES (?, ?, ?, ?, ?, ?, 'open')
+          """,
+          Statement.RETURN_GENERATED_KEYS);
+      statement.setLong(1, assignmentId);
+      statement.setLong(2, taskId);
+      statement.setLong(3, itemId);
+      statement.setLong(4, labelerId);
+      statement.setString(5, category);
+      statement.setString(6, description);
+      return statement;
+    }, keyHolder);
+    Number key = keyHolder.getKey();
+    if (key == null) {
+      throw new IllegalStateException("failed to create issue");
+    }
+    return findIssue(key.longValue())
+        .orElseThrow(() -> new IllegalStateException("failed to load created issue"));
+  }
+
+  public Optional<IssueRecord> findIssue(long issueId) {
+    return jdbcTemplate.query(
+        """
+        SELECT id, assignment_id, task_id, item_id, labeler_id, category, description, status, created_at
+        FROM issues
+        WHERE id = ?
+        """,
+        (rs, rowNum) -> new IssueRecord(
+            rs.getLong("id"),
+            rs.getLong("assignment_id"),
+            rs.getLong("task_id"),
+            rs.getLong("item_id"),
+            rs.getLong("labeler_id"),
+            rs.getString("category"),
+            rs.getString("description"),
+            rs.getString("status"),
+            toLocalDateTime(rs.getTimestamp("created_at"))),
+        issueId)
+        .stream()
+        .findFirst();
+  }
+
   public long createAiReviewJob(
       long annotationId,
       long schemaVersionId,
@@ -526,6 +580,17 @@ public class AnnotationRepository {
       long assignmentId,
       String assignmentStatus,
       String answerJson) {}
+
+  public record IssueRecord(
+      long id,
+      long assignmentId,
+      long taskId,
+      long itemId,
+      long labelerId,
+      String category,
+      String description,
+      String status,
+      LocalDateTime createdAt) {}
 
   public record AnnotationRecord(
       long id,

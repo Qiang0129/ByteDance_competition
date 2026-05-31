@@ -93,3 +93,29 @@ export interface DisputeStats {
   resolved: number;
   pending: number;
 }
+
+/** 通用分页结果 */
+export interface DashboardPageResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export type IssueFeedbackStatus = 'open' | 'all';
+
+/** Owner 数据看板「题目反馈」条目 */
+export interface IssueFeedback {
+  issueId: string;
+  assignmentId: string;
+  taskId: string;
+  taskTitle: string;
+  itemId: string;
+  labelerId: string;
+  labelerName: string;
+  category: string;
+  categoryLabel: string;
+  description: string;
+  status: 'open' | string;
+  createdAt: string;
+}

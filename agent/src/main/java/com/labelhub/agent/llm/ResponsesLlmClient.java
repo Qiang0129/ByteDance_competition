@@ -153,12 +153,15 @@ public class ResponsesLlmClient {
         ObjectNode scoreSchema = scoreProperties.putObject(key);
         scoreSchema.put("type", "number");
         scoreSchema.put("minimum", 0);
-        scoreSchema.put("maximum", dimension.path("maxScore").asDouble(5.0));
+        scoreSchema.put("maximum", 100);
         scoreRequired.add(key);
       }
     }
     scores.put("additionalProperties", false);
-    propertiesNode.putObject("totalScore").put("type", "number");
+    ObjectNode totalScore = propertiesNode.putObject("totalScore");
+    totalScore.put("type", "number");
+    totalScore.put("minimum", 0);
+    totalScore.put("maximum", 100);
     ObjectNode decision = propertiesNode.putObject("decision");
     decision.put("type", "string");
     ArrayNode enums = decision.putArray("enum");
@@ -192,13 +195,15 @@ public class ResponsesLlmClient {
         .replace("{{answer}}", pretty(job.answerJson()))
         .replace("{{schema}}", pretty(job.schemaSnapshot()))
         .replace("{{rule}}", pretty(job.ruleSnapshot()))
-        + "\n\n请只输出符合 JSON Schema 的 JSON，不要输出 Markdown。";
+        + "\n\n评分口径:每个维度按 rule.dimensions[].maxScore 计分;当前默认每项满分 100 分。"
+        + "totalScore 必须是按 weight 加权后的 0~100 综合分。"
+        + "\n请只输出符合 JSON Schema 的 JSON，不要输出 Markdown。";
   }
 
   private String defaultPrompt() {
     return """
         你是 LabelHub 的 AI 预审员。请根据题目原始数据、标注答案、表单 schema 和评分规则，
-        给出每个维度的分数、总分、风险标签、证据和最终判定。
+        按 0~100 分给出每个维度的分数、总分、风险标签、证据和最终判定。
         """;
   }
 

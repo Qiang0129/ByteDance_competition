@@ -78,4 +78,12 @@ public class AnnotationController {
       @PathVariable long taskId) {
     return annotationService.submitTaskAssignments(authentication, taskId);
   }
+
+  @PostMapping("/assignments/{assignmentId}/issues")
+  public ReportIssueResponse reportIssue(
+      Authentication authentication,
+      @PathVariable long assignmentId,
+      @RequestBody(required = false) ReportIssueRequest request) {
+    return annotationService.reportIssue(authentication, assignmentId, request);
+  }
 }

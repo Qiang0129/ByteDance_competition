@@ -3135,7 +3135,7 @@ body {
   color: #ef4444;
 }
 
-/* 公告卡 */
+/* 题目反馈卡 */
 .dashboard-announce.ant-card {
   border-radius: 14px;
   background: linear-gradient(135deg, #fff7ed 0%, #fef3c7 100%);
@@ -3149,6 +3149,38 @@ body {
 
 .dashboard-announce-desc {
   margin: 6px 0 12px !important;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.dashboard-feedback-count {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  color: #b45309;
+}
+
+.dashboard-feedback-count span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.dashboard-feedback-list .ant-list-item {
+  padding: 14px 0;
+}
+
+.dashboard-feedback-desc.ant-typography {
+  margin-bottom: 0;
+  color: #1f2937;
+  white-space: pre-wrap;
+}
+
+.dashboard-feedback-meta {
   font-size: 12px;
   color: #64748b;
 }
@@ -4235,6 +4267,63 @@ body {
   gap: 6px;
 }
 
+/* 报告问题按钮:挂在草稿状态右侧,默认浅灰边、hover 变橙色,
+   暗示"异常上报"语义,与主流程蓝色按钮视觉错开。 */
+.answer-report-btn.ant-btn {
+  border-color: #e2e6ec;
+  color: #64748b;
+}
+
+.answer-report-btn.ant-btn:hover {
+  border-color: #f59e0b !important;
+  color: #d97706 !important;
+}
+
+.answer-report-btn.ant-btn .anticon {
+  color: inherit;
+}
+
+.answer-form-card.ant-card {
+  min-height: 332px;
+  display: flex;
+  flex-direction: column;
+}
+
+.answer-form-card.ant-card > .ant-card-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.answer-form-content {
+  flex: 0 0 auto;
+}
+
+/* 答题页内导航条:固定吸附在右侧填写卡底部,不跟随短表单内容上浮。
+   - margin-top:auto 把按钮推到卡片底部;
+   - padding-top 保留与字段区的呼吸距离;
+   - 左右用负 margin 抵消 Card body 的 22px 横向内边距,分隔线贴卡片边缘。 */
+.answer-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: auto -22px 0;
+  padding: 20px 22px 0;
+  border-top: 1px solid #f0f2f7;
+}
+
+@media (max-width: 720px) {
+  .answer-pager {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .answer-pager .ant-btn {
+    width: 100%;
+  }
+}
+
 .answer-progress {
   position: relative;
   flex: 0 1 auto;
@@ -4375,6 +4464,24 @@ body {
 .answer-split-pane {
   min-width: 0;
   display: flex;
+}
+
+/* 左侧原题卡:限高为视口剩余空间,内容超出时 body 内部滚动,
+   避免长题目把整个页面撑出去。
+   高度 = 视口 - (header 64 + 外壳 padding 16*2 + content padding 20*2 + topbar ~56 + gap ~32) ≈ 224px */
+.answer-split-pane:first-child {
+  max-height: calc(100vh - 224px);
+}
+
+.answer-split-pane:first-child > .ant-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.answer-split-pane:first-child > .ant-card > .ant-card-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
 }
 
 .answer-split-pane > .ant-card {
@@ -6332,7 +6439,8 @@ body {
 :root[data-color-mode='dark'] .timeline-task,
 :root[data-color-mode='dark'] .schedule-day,
 :root[data-color-mode='dark'] .dispute-card,
-:root[data-color-mode='dark'] .alert-row {
+:root[data-color-mode='dark'] .alert-row,
+:root[data-color-mode='dark'] .dashboard-feedback-item {
   background: #1a1d24;
   border-color: #262a33;
   color: #e5e7eb;
@@ -6747,6 +6855,21 @@ body {
 }
 
 :root[data-color-mode='dark'] .deadline-icon {
+  color: #cbd5e1;
+}
+
+:root[data-color-mode='dark'] .dashboard-announce.ant-card {
+  background: linear-gradient(135deg, #3a2a12 0%, #2f2716 100%);
+}
+
+:root[data-color-mode='dark'] .dashboard-announce-title,
+:root[data-color-mode='dark'] .dashboard-feedback-count,
+:root[data-color-mode='dark'] .dashboard-feedback-desc.ant-typography {
+  color: #f8fafc;
+}
+
+:root[data-color-mode='dark'] .dashboard-feedback-count span,
+:root[data-color-mode='dark'] .dashboard-feedback-meta {
   color: #cbd5e1;
 }
 
@@ -8740,4 +8863,229 @@ body {
 
 :root[data-color-mode='dark'] .owner-review-stage-bar-track {
   background: rgba(255, 255, 255, 0.08);
+}
+
+
+/* ========== AI 预审队列:三栏工作台 ========== */
+
+.ai-queue-layout {
+  display: flex;
+  gap: 16px;
+}
+
+.ai-queue-left {
+  width: 320px;
+  min-width: 280px;
+  flex-shrink: 0;
+  align-self: flex-start;
+  background: #ffffff;
+  border: 1px solid #e6e9ef;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  /* height 由 JS ResizeObserver 动态设置,跟随右栏高度 */
+  overflow: hidden;
+}
+
+.ai-queue-left-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0f2f7;
+  flex-shrink: 0;
+}
+
+.ai-queue-left-list {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+/* 列表项 */
+.ai-queue-item {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  margin-bottom: 6px;
+}
+
+.ai-queue-item:hover {
+  background: var(--lh-primary-bg-6);
+}
+
+.ai-queue-item.is-active {
+  background: var(--lh-primary-bg-10);
+  border-color: var(--lh-primary-bg-40);
+  box-shadow: 0 2px 8px var(--lh-primary-bg-12);
+}
+
+.ai-queue-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.ai-queue-item-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.ai-queue-item-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-queue-item-error {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: rgba(220, 38, 38, 0.06);
+  border-radius: 6px;
+  border-left: 3px solid #dc2626;
+}
+
+.ai-queue-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid #e6e9ef;
+  border-radius: 14px;
+  padding: 20px 24px;
+}
+
+.ai-queue-empty-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid #e6e9ef;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-queue-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0f2f7;
+}
+
+/* 内部卡片 */
+.ai-queue-card.ant-card {
+  border: 1px solid #eef0f5 !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.ai-queue-card.ant-card .ant-card-head {
+  min-height: 40px;
+  padding: 0 14px;
+  border-bottom: 1px solid #f0f2f7;
+}
+
+.ai-queue-card.ant-card .ant-card-body {
+  padding: 14px;
+}
+
+/* JSON 预览 */
+.ai-queue-json {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  background: #f8fafc;
+  border: 1px solid #eef0f5;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Prompt 预览 */
+.ai-queue-prompt {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* 评分行 */
+.ai-queue-score-row {
+  display: flex;
+  align-items: center;
+}
+
+/* AI 建议标签 */
+.ai-queue-verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #eef0f5;
+}
+
+/* 响应式:窄屏下三栏改为上下堆叠 */
+@media (max-width: 991px) {
+  .ai-queue-layout {
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+  }
+
+  .ai-queue-left {
+    width: 100%;
+    max-height: 280px;
+  }
+
+  .ai-queue-detail {
+    min-height: 400px;
+  }
+}
+
+/* 暗色模式 */
+:root[data-color-mode='dark'] .ai-queue-left,
+:root[data-color-mode='dark'] .ai-queue-detail,
+:root[data-color-mode='dark'] .ai-queue-empty-detail {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-color-mode='dark'] .ai-queue-item.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+:root[data-color-mode='dark'] .ai-queue-json {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-color-mode='dark'] .ai-queue-prompt {
+  background: rgba(255, 251, 235, 0.06);
+  border-color: rgba(253, 230, 138, 0.2);
 }

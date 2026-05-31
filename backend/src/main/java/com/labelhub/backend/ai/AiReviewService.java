@@ -31,6 +31,9 @@ public class AiReviewService {
       new TypeReference<>() {};
   private static final TypeReference<List<String>> STRING_LIST =
       new TypeReference<>() {};
+  private static final double DEFAULT_DIMENSION_MAX_SCORE = 100.0;
+  private static final double DEFAULT_PASS_THRESHOLD = 80.0;
+  private static final double DEFAULT_NEED_HUMAN_THRESHOLD = 70.0;
 
   private final AiReviewRepository aiReviewRepository;
   private final StateMachineService stateMachineService;
@@ -193,7 +196,7 @@ public class AiReviewService {
         buildRawPayload(payload),
         readJson(payload.answerJson()),
         readJson(payload.schemaSnapshotJson()),
-        readJson(payload.ruleSnapshotJson()));
+        normalizeRuleSnapshot(payload.ruleSnapshotJson()));
   }
 
   @Transactional
@@ -212,6 +215,7 @@ public class AiReviewService {
         ? calculateTotalScore(request == null ? null : request.scores(), job.ruleSnapshotJson())
         : request.totalScore();
     validateScores(request == null ? null : request.scores(), job.ruleSnapshotJson());
+    validateTotalScore(totalScore, job.ruleSnapshotJson());
     aiReviewRepository.createResult(
         job.id(),
         writeNullableJson(request == null ? null : request.scores()),
@@ -436,7 +440,7 @@ public class AiReviewService {
       node.put("scopeTaskTitle", rule.scopeTaskTitle());
     }
     node.put("promptTemplate", rule.promptTemplate());
-    node.set("dimensions", readJson(rule.dimensionsJson()));
+    node.set("dimensions", objectMapper.valueToTree(readDimensions(rule.dimensionsJson())));
     node.put("passThreshold", rule.passThreshold());
     node.put("needHumanThreshold", rule.needHumanThreshold());
     node.put("maxRetry", rule.maxRetry());
@@ -464,16 +468,24 @@ public class AiReviewService {
           || dimension.label() == null || dimension.label().isBlank()) {
         throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "dimension key and label are required");
       }
-      if (dimension.weight() <= 0 || dimension.maxScore() <= 0) {
-        throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "dimension weight and maxScore must be positive");
+      if (dimension.weight() <= 0
+          || Math.abs(dimension.maxScore() - DEFAULT_DIMENSION_MAX_SCORE) > 0.0001) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "dimension maxScore must be 100 and weight must be greater than 0");
       }
       weightSum += dimension.weight();
     }
     if (Math.abs(weightSum - 1.0) > 0.001) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "dimension weights must sum to 1");
     }
-    double passThreshold = request.passThreshold() <= 0 ? 4.0 : request.passThreshold();
-    double needHumanThreshold = request.needHumanThreshold() <= 0 ? 3.0 : request.needHumanThreshold();
+    double passThreshold = request.passThreshold() <= 0
+        ? DEFAULT_PASS_THRESHOLD
+        : request.passThreshold();
+    double needHumanThreshold = request.needHumanThreshold() <= 0
+        ? DEFAULT_NEED_HUMAN_THRESHOLD
+        : request.needHumanThreshold();
+    if (passThreshold > DEFAULT_DIMENSION_MAX_SCORE || needHumanThreshold > DEFAULT_DIMENSION_MAX_SCORE) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "thresholds must be between 0 and 100");
+    }
     if (passThreshold <= needHumanThreshold) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "passThreshold must be greater than needHumanThreshold");
     }
@@ -484,7 +496,7 @@ public class AiReviewService {
         name,
         scopeTaskId,
         promptTemplate,
-        writeDimensions(dimensions),
+        writeDimensions(normalizeDimensionsToHundredScale(dimensions)),
         passThreshold,
         needHumanThreshold,
         maxRetry,
@@ -517,18 +529,31 @@ public class AiReviewService {
     return Math.round(total * 10000.0) / 10000.0;
   }
 
+  private void validateTotalScore(double totalScore, String ruleSnapshotJson) {
+    double maxTotal = parseDimensionsFromSnapshot(ruleSnapshotJson).stream()
+        .mapToDouble(dimension -> dimension.maxScore() * dimension.weight())
+        .sum();
+    if (totalScore < 0 || totalScore > maxTotal + 0.0001) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_AI_REVIEW_RESULT",
+          "totalScore must be between 0 and " + Math.round(maxTotal * 100.0) / 100.0);
+    }
+  }
+
   private List<AiReviewDimension> parseDimensionsFromSnapshot(String ruleSnapshotJson) {
-    JsonNode snapshot = readJson(ruleSnapshotJson);
+    JsonNode snapshot = normalizeRuleSnapshot(ruleSnapshotJson);
     JsonNode dimensions = snapshot.path("dimensions");
     try {
-      return objectMapper.readValue(objectMapper.treeAsTokens(dimensions), DIMENSION_LIST);
+      return normalizeDimensionsToHundredScale(
+          objectMapper.readValue(objectMapper.treeAsTokens(dimensions), DIMENSION_LIST));
     } catch (Exception exception) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "rule dimensions are invalid");
     }
   }
 
   private RetryPolicy parseRetryPolicy(String ruleSnapshotJson) {
-    JsonNode snapshot = readJson(ruleSnapshotJson);
+    JsonNode snapshot = normalizeRuleSnapshot(ruleSnapshotJson);
     return new RetryPolicy(
         snapshot.path("maxRetry").asInt(2),
         snapshot.path("retryBackoffSec").asInt(30));
@@ -745,7 +770,7 @@ public class AiReviewService {
 
   private List<AiReviewDimension> readDimensions(String json) {
     try {
-      return objectMapper.readValue(json, DIMENSION_LIST);
+      return normalizeDimensionsToHundredScale(objectMapper.readValue(json, DIMENSION_LIST));
     } catch (JsonProcessingException exception) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "rule dimensions are invalid");
     }
@@ -753,10 +778,67 @@ public class AiReviewService {
 
   private String writeDimensions(List<AiReviewDimension> dimensions) {
     try {
-      return objectMapper.writeValueAsString(dimensions);
+      return objectMapper.writeValueAsString(normalizeDimensionsToHundredScale(dimensions));
     } catch (JsonProcessingException exception) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "rule dimensions cannot be serialized");
     }
+  }
+
+  private List<AiReviewDimension> normalizeDimensionsToHundredScale(List<AiReviewDimension> dimensions) {
+    if (dimensions == null || dimensions.isEmpty()) {
+      return List.of();
+    }
+    return dimensions.stream()
+        .map(dimension -> new AiReviewDimension(
+            dimension.key(),
+            dimension.label(),
+            dimension.weight(),
+            DEFAULT_DIMENSION_MAX_SCORE))
+        .toList();
+  }
+
+  private ObjectNode normalizeRuleSnapshot(String ruleSnapshotJson) {
+    JsonNode parsed = readJson(ruleSnapshotJson);
+    ObjectNode snapshot = parsed.isObject()
+        ? ((ObjectNode) parsed).deepCopy()
+        : objectMapper.createObjectNode();
+    String promptTemplate = snapshot.path("promptTemplate").asText("");
+    if (!promptTemplate.isBlank()) {
+      snapshot.put("promptTemplate", promptTemplate
+          .replace("每项 0~5", "每项 0~100")
+          .replace("每项 0-5", "每项 0-100")
+          .replace("0~5 分", "0~100 分")
+          .replace("0-5 分", "0-100 分"));
+    }
+    JsonNode dimensions = snapshot.path("dimensions");
+    if (dimensions.isArray()) {
+      try {
+        List<AiReviewDimension> normalized = normalizeDimensionsToHundredScale(
+            objectMapper.readValue(objectMapper.treeAsTokens(dimensions), DIMENSION_LIST));
+        snapshot.set("dimensions", objectMapper.valueToTree(normalized));
+      } catch (Exception exception) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "rule dimensions are invalid");
+      }
+    }
+    boolean defaultQualityRule = "默认质量预审规则".equals(snapshot.path("name").asText(""));
+    double passThreshold = snapshot.path("passThreshold").asDouble(0);
+    if (defaultQualityRule) {
+      snapshot.put("passThreshold", DEFAULT_PASS_THRESHOLD);
+    } else if (passThreshold > 0 && passThreshold <= 5) {
+      snapshot.put("passThreshold", passThreshold * 20);
+    } else if (passThreshold <= 0 || passThreshold > DEFAULT_DIMENSION_MAX_SCORE) {
+      snapshot.put("passThreshold", DEFAULT_PASS_THRESHOLD);
+    }
+
+    double needHumanThreshold = snapshot.path("needHumanThreshold").asDouble(0);
+    if (defaultQualityRule) {
+      snapshot.put("needHumanThreshold", DEFAULT_NEED_HUMAN_THRESHOLD);
+    } else if (needHumanThreshold > 0 && needHumanThreshold <= 5) {
+      snapshot.put("needHumanThreshold", needHumanThreshold * 20);
+    } else if (needHumanThreshold <= 0 || needHumanThreshold > DEFAULT_DIMENSION_MAX_SCORE) {
+      snapshot.put("needHumanThreshold", DEFAULT_NEED_HUMAN_THRESHOLD);
+    }
+    return snapshot;
   }
 
   private Map<String, Double> readMap(String json) {

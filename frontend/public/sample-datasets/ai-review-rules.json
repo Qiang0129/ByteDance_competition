@@ -5,15 +5,15 @@
       "name": "QA 质量评估默认规则",
       "scopeTaskId": "T-2041",
       "scopeTaskTitle": "QA 质量评估 · 批次 Q12",
-      "promptTemplate": "你是严格的标注质检员。请阅读 raw_payload 与 answer,从相关性、准确性、格式合规、安全性四个维度打分(每项 0~5),并给出综合判定。\n\n原始数据:{{rawPayload}}\n标注答案:{{answer}}\nSchema 字段:{{schema}}\n\n请按 JSON 输出:scores、total_score、decision、comment、risk_flags、evidence。",
+      "promptTemplate": "你是严格的标注质检员。请阅读 raw_payload 与 answer,从相关性、准确性、格式合规、安全性四个维度打分(每项 0~100),并给出综合判定。\n\n原始数据:{{rawPayload}}\n标注答案:{{answer}}\nSchema 字段:{{schema}}\n\n请按 JSON 输出:scores、totalScore、decision、comment、risk_flags、evidence。",
       "dimensions": [
-        { "key": "relevance", "label": "相关性", "weight": 0.3, "maxScore": 5 },
-        { "key": "accuracy", "label": "准确性", "weight": 0.4, "maxScore": 5 },
-        { "key": "format_compliance", "label": "格式合规", "weight": 0.2, "maxScore": 5 },
-        { "key": "safety", "label": "安全性", "weight": 0.1, "maxScore": 5 }
+        { "key": "relevance", "label": "相关性", "weight": 0.3, "maxScore": 100 },
+        { "key": "accuracy", "label": "准确性", "weight": 0.4, "maxScore": 100 },
+        { "key": "format_compliance", "label": "格式合规", "weight": 0.2, "maxScore": 100 },
+        { "key": "safety", "label": "安全性", "weight": 0.1, "maxScore": 100 }
       ],
-      "passThreshold": 4.0,
-      "needHumanThreshold": 3.0,
+      "passThreshold": 80,
+      "needHumanThreshold": 70,
       "maxRetry": 2,
       "retryBackoffSec": 30,
       "status": "enabled",
@@ -28,11 +28,11 @@
       "scopeTaskTitle": "偏好对比 · 批次 P07",
       "promptTemplate": "对比 model_a 与 model_b 的回答,基于偏好选择是否合理给出评分。\n\n原始 prompt:{{rawPayload.prompt}}\n选择:{{answer.preferred}}\n理由:{{answer.margin}}\n\n按 JSON 输出。",
       "dimensions": [
-        { "key": "consistency", "label": "选择一致性", "weight": 0.5, "maxScore": 5 },
-        { "key": "reasoning", "label": "理由充分性", "weight": 0.5, "maxScore": 5 }
+        { "key": "consistency", "label": "选择一致性", "weight": 0.5, "maxScore": 100 },
+        { "key": "reasoning", "label": "理由充分性", "weight": 0.5, "maxScore": 100 }
       ],
-      "passThreshold": 3.5,
-      "needHumanThreshold": 2.5,
+      "passThreshold": 80,
+      "needHumanThreshold": 70,
       "maxRetry": 1,
       "retryBackoffSec": 20,
       "status": "enabled",
@@ -45,10 +45,10 @@
       "name": "安全标签严苛规则(全局)",
       "promptTemplate": "对所有标注结果做安全合规检查,发现违规一票否决。\n\n答案:{{answer}}\n\n按 JSON 输出 risk_flags 与 decision(REJECT 优先)。",
       "dimensions": [
-        { "key": "safety", "label": "安全合规", "weight": 1.0, "maxScore": 5 }
+        { "key": "safety", "label": "安全合规", "weight": 1.0, "maxScore": 100 }
       ],
-      "passThreshold": 4.5,
-      "needHumanThreshold": 3.0,
+      "passThreshold": 80,
+      "needHumanThreshold": 70,
       "maxRetry": 1,
       "retryBackoffSec": 60,
       "status": "disabled",

@@ -9,7 +9,7 @@
       "ruleName": "QA 质量评估默认规则",
       "status": "success",
       "decision": "PASS",
-      "totalScore": 4.32,
+      "totalScore": 86.4,
       "attempts": 1,
       "createdAt": "2026-05-28 10:21:08",
       "finishedAt": "2026-05-28 10:21:14"
@@ -23,7 +23,7 @@
       "ruleName": "QA 质量评估默认规则",
       "status": "success",
       "decision": "NEED_HUMAN_REVIEW",
-      "totalScore": 3.45,
+      "totalScore": 74,
       "attempts": 1,
       "createdAt": "2026-05-28 10:22:33",
       "finishedAt": "2026-05-28 10:22:41"
@@ -37,7 +37,7 @@
       "ruleName": "偏好对比 A/B 规则",
       "status": "success",
       "decision": "REJECT",
-      "totalScore": 1.8,
+      "totalScore": 36,
       "attempts": 2,
       "createdAt": "2026-05-28 11:02:11",
       "finishedAt": "2026-05-28 11:02:35"

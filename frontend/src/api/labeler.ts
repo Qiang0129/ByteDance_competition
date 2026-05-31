@@ -16,9 +16,13 @@ import type {
   BatchSubmitResponse,
   Draft,
   LabelerDraft,
+  LabelerReturnedItem,
   MarketTask,
   MarketTasksQuery,
   PageResult,
+  ReportIssueRequest,
+  ReportIssueResponse,
+  ReturnedItemSource,
   SubmitAnnotationRequest,
 } from '../types/labeler';
 
@@ -40,6 +44,20 @@ function toQueryString(query?: MarketTasksQuery): string {
 function toPageQueryString(query?: { page?: number; pageSize?: number }): string {
   if (!query) return '';
   const search = new URLSearchParams();
+  if (query.page) search.set('page', String(query.page));
+  if (query.pageSize) search.set('pageSize', String(query.pageSize));
+  const qs = search.toString();
+  return qs ? `?${qs}` : '';
+}
+
+function toReturnedItemsQueryString(query?: {
+  source?: ReturnedItemSource;
+  page?: number;
+  pageSize?: number;
+}): string {
+  if (!query) return '';
+  const search = new URLSearchParams();
+  if (query.source) search.set('source', query.source);
   if (query.page) search.set('page', String(query.page));
   if (query.pageSize) search.set('pageSize', String(query.pageSize));
   const qs = search.toString();
@@ -99,6 +117,17 @@ export const labelerApi = {
     });
   },
 
+  /** 打回项:区分人工复审正式打回与 AI 预打回建议 */
+  listReturnedItems(query?: {
+    source?: ReturnedItemSource;
+    page?: number;
+    pageSize?: number;
+  }): Promise<PageResult<LabelerReturnedItem>> {
+    return apiRequest<PageResult<LabelerReturnedItem>>(
+      `/labeler/returned-items${toReturnedItemsQueryString(query)}`,
+    );
+  },
+
   /** 提交答卷,触发后端校验与 AI 预审入队 */
   submitAnnotation(
     assignmentId: string,
@@ -114,6 +143,20 @@ export const labelerApi = {
   submitTaskAssignments(taskId: string): Promise<BatchSubmitResponse> {
     return apiRequest<BatchSubmitResponse>(`/tasks/${taskId}/assignments/submit`, {
       method: 'POST',
+    });
+  },
+
+  /**
+   * 答题页「报告问题」:Labeler 在作答过程中发现题目数据 / 模板 / 多模态等问题时主动上报。
+   * 后端真实落库到 issues / audit_logs,由 Owner 数据看板「题目反馈」查看。
+   */
+  reportIssue(
+    assignmentId: string,
+    payload: ReportIssueRequest,
+  ): Promise<ReportIssueResponse> {
+    return apiRequest<ReportIssueResponse>(`/assignments/${assignmentId}/issues`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   },
 };

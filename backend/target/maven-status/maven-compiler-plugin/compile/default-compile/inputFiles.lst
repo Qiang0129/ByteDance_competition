@@ -34,6 +34,8 @@ F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\jav
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\annotation\DraftRequest.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\annotation\DraftResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\annotation\LabelerDraftResponse.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\annotation\ReportIssueRequest.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\annotation\ReportIssueResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\annotation\SubmitAnnotationRequest.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\auth\ApiErrorResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\auth\ApiException.java
@@ -56,6 +58,10 @@ F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\jav
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\auth\TokenAuthenticationFilter.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\auth\TokenService.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\auth\UserAccount.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dashboard\DashboardIssueFeedbackController.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dashboard\DashboardIssueFeedbackRepository.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dashboard\DashboardIssueFeedbackService.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dashboard\IssueFeedbackResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dataset\CreateDatasetRequest.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dataset\DatasetController.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\dataset\DatasetFileParser.java
@@ -74,6 +80,10 @@ F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\jav
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\labeler\LabelerOverviewRepository.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\labeler\LabelerOverviewResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\labeler\LabelerOverviewService.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\labeler\LabelerReturnedItemResponse.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\labeler\LabelerReturnedItemsController.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\labeler\LabelerReturnedItemsRepository.java
+F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\labeler\LabelerReturnedItemsService.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\LabelHubBackendApplication.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\review\AiReviewResultResponse.java
 F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\src\main\java\com\labelhub\backend\review\AiReviewTaskSummaryResponse.java

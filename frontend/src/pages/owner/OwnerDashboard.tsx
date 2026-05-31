@@ -1,13 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
-  BellOutlined,
   ClockCircleOutlined,
   DownloadOutlined,
   FlagOutlined,
   MoreOutlined,
-  PlusOutlined,
   ProjectOutlined,
   RiseOutlined,
   SearchOutlined,
@@ -15,15 +13,19 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import {
-  App as AntdApp,
+  Alert,
   Avatar,
   Button,
   Card,
   Col,
+  Drawer,
+  Empty,
   Input,
+  List,
   Row,
   Segmented,
   Select,
+  Skeleton,
   Space,
   Table,
   Tag,
@@ -31,10 +33,12 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
+import { getApiErrorMessage } from '../../api/client';
 import { dashboardApi } from '../../api/dashboard';
 import { AiAssistantIcon } from '../../components/icons';
 import type {
   DashboardOverview,
+  IssueFeedback,
   LabelerPerformance,
   RecentTaskActivity,
   ReviewDistribution,
@@ -149,6 +153,31 @@ export default function OwnerDashboard() {
   const [data, setData] = useState<FallbackDashboard>(sampleDashboard);
   const [usingFallback, setUsingFallback] = useState(true);
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [issueFeedback, setIssueFeedback] = useState<IssueFeedback[]>([]);
+  const [issueTotal, setIssueTotal] = useState(0);
+  const [issueLoading, setIssueLoading] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+
+  const loadIssueFeedback = useCallback(async () => {
+    setIssueLoading(true);
+    setIssueError(null);
+    try {
+      const result = await dashboardApi.listIssueFeedback({
+        page: 1,
+        pageSize: 5,
+        status: 'open',
+      });
+      setIssueFeedback(result.items ?? []);
+      setIssueTotal(result.total ?? 0);
+    } catch (error) {
+      setIssueFeedback([]);
+      setIssueTotal(0);
+      setIssueError(getApiErrorMessage(error, '题目反馈加载失败,请稍后重试'));
+    } finally {
+      setIssueLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,59 +213,86 @@ export default function OwnerDashboard() {
     };
   }, [range]);
 
+  useEffect(() => {
+    void loadIssueFeedback();
+  }, [loadIssueFeedback]);
+
+  const openIssueFeedback = () => {
+    setFeedbackOpen(true);
+    void loadIssueFeedback();
+  };
+
   return (
-    <Space direction="vertical" size="large" className="page-stack dashboard-page">
-      <DashboardHeader
-        overview={data.overview}
-        range={range}
-        onRangeChange={setRange}
-        usingFallback={usingFallback}
+    <>
+      <Space direction="vertical" size="large" className="page-stack dashboard-page">
+        <DashboardHeader
+          overview={data.overview}
+          range={range}
+          onRangeChange={setRange}
+          usingFallback={usingFallback}
+          issueTotal={issueTotal}
+          onOpenFeedback={openIssueFeedback}
+        />
+
+        <KpiRow
+          overview={data.overview}
+          issueTotal={issueTotal}
+          issueLoading={issueLoading}
+          onOpenFeedback={openIssueFeedback}
+        />
+
+        <Row gutter={[16, 16]}>
+          <Col xs={24} xl={15}>
+            <TaskProgressCard items={data.taskProgress} />
+          </Col>
+          <Col xs={24} xl={9}>
+            <ReviewDistributionCard distribution={data.review} />
+          </Col>
+        </Row>
+
+        <Row gutter={[16, 16]}>
+          <Col xs={24} xl={9}>
+            <RecentActivitiesCard items={data.activities} />
+          </Col>
+          <Col xs={24} xl={15}>
+            <LeaveTableCard performance={data.performance} />
+          </Col>
+        </Row>
+
+        <Row gutter={[16, 16]}>
+          <Col xs={24} md={12} xl={6}>
+            <RoleDonutCard roles={data.roles} />
+          </Col>
+          <Col xs={24} md={12} xl={6}>
+            <DisputeStatsCard />
+          </Col>
+          <Col xs={24} md={12} xl={6}>
+            <TaskTimelineCard items={data.taskProgress} />
+          </Col>
+          <Col xs={24} md={12} xl={6}>
+            <DeadlineAlertCard items={data.taskProgress} />
+          </Col>
+        </Row>
+
+        <Row gutter={[16, 16]}>
+          <Col xs={24} xl={10}>
+            <PerformanceCard performance={data.performance} />
+          </Col>
+          <Col xs={24} xl={14}>
+            <SubmissionTimelineCard items={data.timeline} />
+          </Col>
+        </Row>
+      </Space>
+      <IssueFeedbackDrawer
+        open={feedbackOpen}
+        items={issueFeedback}
+        total={issueTotal}
+        loading={issueLoading}
+        error={issueError}
+        onClose={() => setFeedbackOpen(false)}
+        onRetry={loadIssueFeedback}
       />
-
-      <KpiRow overview={data.overview} />
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={15}>
-          <TaskProgressCard items={data.taskProgress} />
-        </Col>
-        <Col xs={24} xl={9}>
-          <ReviewDistributionCard distribution={data.review} />
-        </Col>
-      </Row>
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={9}>
-          <RecentActivitiesCard items={data.activities} />
-        </Col>
-        <Col xs={24} xl={15}>
-          <LeaveTableCard performance={data.performance} />
-        </Col>
-      </Row>
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} md={12} xl={6}>
-          <RoleDonutCard roles={data.roles} />
-        </Col>
-        <Col xs={24} md={12} xl={6}>
-          <DisputeStatsCard />
-        </Col>
-        <Col xs={24} md={12} xl={6}>
-          <TaskTimelineCard items={data.taskProgress} />
-        </Col>
-        <Col xs={24} md={12} xl={6}>
-          <DeadlineAlertCard items={data.taskProgress} />
-        </Col>
-      </Row>
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={10}>
-          <PerformanceCard performance={data.performance} />
-        </Col>
-        <Col xs={24} xl={14}>
-          <SubmissionTimelineCard items={data.timeline} />
-        </Col>
-      </Row>
-    </Space>
+    </>
   );
 }
 
@@ -245,11 +301,15 @@ function DashboardHeader({
   range,
   onRangeChange,
   usingFallback,
+  issueTotal,
+  onOpenFeedback,
 }: {
   overview: DashboardOverview;
   range: '7d' | '30d' | '90d';
   onRangeChange: (v: '7d' | '30d' | '90d') => void;
   usingFallback: boolean;
+  issueTotal: number;
+  onOpenFeedback: () => void;
 }) {
   return (
     <div className="page-title-row">
@@ -270,8 +330,8 @@ function DashboardHeader({
           value={range}
           onChange={(v) => onRangeChange(v as '7d' | '30d' | '90d')}
         />
-        <Button type="primary" icon={<PlusOutlined />}>
-          发布公告
+        <Button type="primary" icon={<FlagOutlined />} onClick={onOpenFeedback}>
+          题目反馈{issueTotal > 0 ? `(${issueTotal})` : ''}
         </Button>
       </Space>
     </div>
@@ -279,7 +339,17 @@ function DashboardHeader({
 }
 
 /* ============ KPI 卡 ============ */
-function KpiRow({ overview }: { overview: DashboardOverview }) {
+function KpiRow({
+  overview,
+  issueTotal,
+  issueLoading,
+  onOpenFeedback,
+}: {
+  overview: DashboardOverview;
+  issueTotal: number;
+  issueLoading: boolean;
+  onOpenFeedback: () => void;
+}) {
   const { kpis } = overview;
   const cards = [
     {
@@ -347,13 +417,17 @@ function KpiRow({ overview }: { overview: DashboardOverview }) {
         <Card className="dashboard-announce">
           <div>
             <Typography.Text strong className="dashboard-announce-title">
-              发布公告
+              题目反馈
             </Typography.Text>
+            <div className="dashboard-feedback-count">
+              {issueLoading ? '--' : issueTotal}
+              <span>待查看</span>
+            </div>
             <Typography.Paragraph type="secondary" className="dashboard-announce-desc">
-              发送任务变更或质检规范提醒。
+              查看标注员在答题页提交的数据、模板或资源问题。
             </Typography.Paragraph>
-            <Button size="small" icon={<BellOutlined />}>
-              立即发布
+            <Button size="small" icon={<FlagOutlined />} onClick={onOpenFeedback}>
+              查看反馈
             </Button>
           </div>
         </Card>
@@ -370,6 +444,95 @@ function KpiDelta({ delta }: { delta?: number }) {
       {positive ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
       {Math.abs(delta).toFixed(1)}% Last Period
     </div>
+  );
+}
+
+function IssueFeedbackDrawer({
+  open,
+  items,
+  total,
+  loading,
+  error,
+  onClose,
+  onRetry,
+}: {
+  open: boolean;
+  items: IssueFeedback[];
+  total: number;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <Drawer
+      title="题目反馈"
+      open={open}
+      onClose={onClose}
+      width={560}
+      extra={
+        <Button size="small" onClick={() => void onRetry()} loading={loading}>
+          刷新
+        </Button>
+      }
+    >
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Typography.Text type="secondary">
+          当前共有 {total} 条待查看反馈,仅展示最近 5 条。
+        </Typography.Text>
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            message="题目反馈加载失败"
+            description={error}
+            action={
+              <Button size="small" danger onClick={() => void onRetry()}>
+                重试
+              </Button>
+            }
+          />
+        )}
+        {!error && loading && !items.length ? (
+          <Skeleton active paragraph={{ rows: 8 }} />
+        ) : null}
+        {!error && (!loading || items.length > 0) ? (
+          <List<IssueFeedback>
+            className="dashboard-feedback-list"
+            loading={loading && items.length > 0}
+            dataSource={items}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="暂无题目反馈"
+                />
+              ),
+            }}
+            renderItem={(item) => (
+              <List.Item className="dashboard-feedback-item">
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Space wrap size={8}>
+                    <Tag color="blue">{item.categoryLabel || item.category}</Tag>
+                    <Tag>{item.status === 'open' ? '待查看' : item.status}</Tag>
+                    <Typography.Text type="secondary">{item.createdAt}</Typography.Text>
+                  </Space>
+                  <Typography.Text strong>{item.taskTitle}</Typography.Text>
+                  <Typography.Paragraph className="dashboard-feedback-desc">
+                    {item.description}
+                  </Typography.Paragraph>
+                  <Space wrap size={[12, 4]} className="dashboard-feedback-meta">
+                    <span>任务:{item.taskId}</span>
+                    <span>题目:{item.itemId}</span>
+                    <span>Labeler:{item.labelerName}</span>
+                  </Space>
+                </Space>
+              </List.Item>
+            )}
+          />
+        ) : null}
+      </Space>
+    </Drawer>
   );
 }
 

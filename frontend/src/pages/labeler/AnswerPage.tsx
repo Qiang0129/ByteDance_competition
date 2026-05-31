@@ -6,6 +6,7 @@ import {
   CloseOutlined,
   CloudSyncOutlined,
   ExclamationCircleFilled,
+  FlagOutlined,
   PictureOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
@@ -16,10 +17,13 @@ import {
   Button,
   Card,
   Checkbox,
+  Drawer,
   Empty,
+  Form,
   Input,
   Modal,
   Radio,
+  Select,
   Space,
   Tag,
   Typography,
@@ -29,7 +33,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
 import { filterVisibleAnswer, LabelHubFormRenderer, resolveRuntimeRules, resolveSemanticType } from '../../modules/schema';
-import type { AssignmentItem, BatchSubmitInvalidItem } from '../../types/labeler';
+import type {
+  AssignmentItem,
+  BatchSubmitInvalidItem,
+  ReportIssueCategory,
+  ReportIssueRequest,
+} from '../../types/labeler';
 
 /**
  * Labeler 答题页(Renderer)。
@@ -42,7 +51,9 @@ import type { AssignmentItem, BatchSubmitInvalidItem } from '../../types/labeler
  *   - 打回项进入时显示上一轮 returnReason
  */
 
-const DRAFT_DEBOUNCE_MS = 1500;
+/** 草稿保存节流(连续输入字段:文本 / 富文本 / JSON);
+ *  离散选择(单选 / 多选 / tags / file)走另一路立即保存 */
+const DRAFT_TYPING_DEBOUNCE_MS = 400;
 
 /** 分栏左侧宽度持久化:键名与默认值 */
 const SPLIT_STORAGE_KEY = 'labelhub:answer:split-left-percent';
@@ -93,12 +104,36 @@ export default function AnswerPage() {
   const [leftPercent, setLeftPercent] = useState(loadSplitPercent);
   const splitRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * 最近一次值变更是否来自「离散字段」(单选 / 多选 / tags / file / select)。
+   * 离散字段 onChange 即代表一次明确的"提交动作",可立即保存草稿;
+   * 连续字段(文本/富文本/JSON)需要节流防抖,避免边输入边发请求。
+   * 默认为 true(初次只有离散字段的题,首次变更也按 fast 路径处理)。
+   */
+  const lastChangeIsDiscreteRef = useRef<boolean>(true);
+
+  /**
+   * 报告问题抽屉状态:
+   *   - reportOpen 控制 Drawer 显隐;
+   *   - reportSubmitting 锁住提交按钮,避免重复发请求;
+   *   - reportForm 用 antd Form 实例承载分类与描述字段,便于校验和重置。
+   */
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportForm] = Form.useForm<ReportIssueRequest>();
+
   // 用 ref 把答案与 assignmentId 同步给 setTimeout 回调,避免闭包问题
   const answerRef = useRef(answer);
   const itemRef = useRef<AssignmentItem | null>(null);
   const assignmentIdRef = useRef(assignmentId);
   const editableRef = useRef(false);
   const dirtyRef = useRef(false);
+  /**
+   * 记录已经完成"自动定位到第一道未完成题"的任务 ID。
+   * 同一任务只在首次进入时自动跳转,避免用户随后手动点上一题 / 进度点 / 已完成题
+   * 又被反复弹回到未完成题,影响主动浏览。
+   */
+  const entryRedirectedTaskRef = useRef<string | null>(null);
   const canEdit = item ? item.editable ?? isEditableStatus(item.status) : false;
   const submittedSnapshotFields = item?.latestAnnotation?.schemaSnapshot?.fields;
   const showSubmittedSnapshot =
@@ -199,16 +234,78 @@ export default function AnswerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignmentId]);
 
-  /** 草稿自动保存:答案变化后节流 1.5s */
+  /**
+   * 自动定位到第一道未完成题:
+   *   - 仅在用户进入某任务的"第一道题"(无 prevAssignmentId)且当前题已完成时触发;
+   *   - 在该任务的 `position.assignmentIds` 顺序中找到第一个 `empty / incomplete` 的题,
+   *     用 `navigate(replace=true)` 静默跳过去,history 不会留痕,后退按钮行为不变;
+   *   - 同一任务只跳一次:用 `entryRedirectedTaskRef` 记忆,避免用户主动点回首题或进度点又被弹走。
+   *
+   * 不重定位的场景:
+   *   - 用户从「下一题/上一题/进度点」跳转到的题(必然有 prev 或 next),保持主动浏览意图;
+   *   - 当前题尚未完成(empty / incomplete),用户就是要做这道题;
+   *   - 该任务全部题都已完成,留在第一题作为"已完成回顾"入口;
+   *   - 拉题失败 / 任务无 statuses 数据时静默跳过。
+   */
+  useEffect(() => {
+    if (!item) return;
+    if (!item.taskId) return;
+    if (entryRedirectedTaskRef.current === item.taskId) return;
+    // 只在该任务"第一题入口"做重定位,中途页面不再主动弹走用户
+    if (item.position.prevAssignmentId) {
+      entryRedirectedTaskRef.current = item.taskId;
+      return;
+    }
+    const statuses = item.position.statuses;
+    const ids = item.position.assignmentIds;
+    if (!statuses || !ids || statuses.length !== ids.length) {
+      entryRedirectedTaskRef.current = item.taskId;
+      return;
+    }
+    const currentIdx = item.position.index - 1;
+    const currentStatus = statuses[currentIdx];
+    // 当前题未完成(empty / incomplete)说明用户就是要做这道,直接放行
+    if (currentStatus !== 'completed') {
+      entryRedirectedTaskRef.current = item.taskId;
+      return;
+    }
+    // 在整批 statuses 顺序里找第一个未完成题,优先 empty(从未答),其次 incomplete(草稿不完整)
+    const firstEmpty = statuses.indexOf('empty');
+    const firstIncomplete = statuses.indexOf('incomplete');
+    let target = -1;
+    if (firstEmpty >= 0 && firstIncomplete >= 0) {
+      target = Math.min(firstEmpty, firstIncomplete);
+    } else if (firstEmpty >= 0) {
+      target = firstEmpty;
+    } else if (firstIncomplete >= 0) {
+      target = firstIncomplete;
+    }
+    // 全部已完成 / 找不到目标 / 目标恰好就是当前题,无需跳转
+    if (target < 0 || ids[target] === item.assignmentId) {
+      entryRedirectedTaskRef.current = item.taskId;
+      return;
+    }
+    entryRedirectedTaskRef.current = item.taskId;
+    navigate(`/labeler/answer/${ids[target]}`, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.taskId, item?.assignmentId, item?.position.statuses]);
+
+  /**
+   * 草稿自动保存:
+   *   - 离散字段(单选 / 多选 / tags / file)变更:立即保存,无防抖,体感"点完即落库";
+   *   - 连续字段(文本 / 富文本 / JSON)变更:400ms 节流,避免高频请求。
+   * 用 lastChangeIsDiscreteRef 区分这两条路径,默认按"输入中"节流时间走以保证安全。
+   */
   useEffect(() => {
     if (!assignmentId) return;
     if (!item) return;
     if (!canEdit) return;
     if (!dirty) return;
     if (Object.keys(answer).length === 0) return;
+    const delay = lastChangeIsDiscreteRef.current ? 0 : DRAFT_TYPING_DEBOUNCE_MS;
     const timer = window.setTimeout(() => {
       void persistDraft();
-    }, DRAFT_DEBOUNCE_MS);
+    }, delay);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answer, canEdit, dirty]);
@@ -443,6 +540,42 @@ export default function AnswerPage() {
     });
   }
 
+  /** 打开「报告问题」Drawer:重置表单并展示当前 assignment 信息 */
+  function openReportDialog() {
+    if (!item) return;
+    reportForm.resetFields();
+    reportForm.setFieldsValue({ category: 'data_error', description: '' });
+    setReportOpen(true);
+  }
+
+  /**
+   * 提交「报告问题」:
+   *   - 校验通过后 POST /assignments/{id}/issues,后端落库 issues + audit_logs;
+   *   - 接口失败时保留抽屉,展示真实错误,不再做演示成功兜底。
+   */
+  async function submitReport() {
+    if (!item) return;
+    let values: ReportIssueRequest;
+    try {
+      values = await reportForm.validateFields();
+    } catch {
+      return;
+    }
+    setReportSubmitting(true);
+    try {
+      await labelerApi.reportIssue(item.assignmentId, {
+        category: values.category,
+        description: values.description.trim(),
+      });
+      message.success('问题已上报,Owner 将尽快处理');
+      setReportOpen(false);
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '上报失败,请稍后重试'));
+    } finally {
+      setReportSubmitting(false);
+    }
+  }
+
   /** 拖拽中间分隔条调节左右卡片宽度,限制在 25%~70% 之间 */
   function handleSplitDrag(startEvent: React.MouseEvent) {
     startEvent.preventDefault();
@@ -559,15 +692,18 @@ export default function AnswerPage() {
               </>
             )}
           </span>
-          <Button onClick={handlePrev} disabled={!item.position.prevAssignmentId}>
-            <ArrowLeftOutlined /> 上一题
-          </Button>
-          <Button
-            onClick={() => void handleSkip()}
-            disabled={!item.position.nextAssignmentId}
-          >
-            下一题 <ArrowRightOutlined />
-          </Button>
+          {/* 报告问题:在草稿状态右侧,题目数据 / 模板异常时主动上报给 Owner。
+              查看模式下隐藏,避免对已锁定题做无效报告。 */}
+          {canEdit && (
+            <Button
+              size="middle"
+              icon={<FlagOutlined />}
+              onClick={openReportDialog}
+              className="answer-report-btn"
+            >
+              报告问题
+            </Button>
+          )}
           {showPrimaryAction && (
             <Button
               type="primary"
@@ -631,37 +767,133 @@ export default function AnswerPage() {
                 <Tag>Schema {item.schemaVersionId}</Tag>
               </Space>
             }
-            className="answer-section"
+            className="answer-section answer-form-card"
           >
-            <Space direction="vertical" size={20} style={{ width: '100%' }}>
-              <LabelHubFormRenderer
-                schema={renderFields}
-                rawPayload={item.rawPayload}
-                value={answer}
-                readonly={renderReadonly}
-                onChange={(next) => {
-                  const nextAnswer = filterVisibleAnswer(renderFields, next);
-                  setAnswer(nextAnswer);
-                  setDirty(true);
-                  setErrors({});
-                }}
-              />
-              {rawAnswerFallback ? (
-                <Alert
-                  type="warning"
-                  showIcon
-                  message="当前模板字段与已提交答案不完全匹配"
-                  description={
-                    <pre className="answer-json">
-                      {JSON.stringify(rawAnswerFallback, null, 2)}
-                    </pre>
-                  }
+            <div className="answer-form-content">
+              <Space direction="vertical" size={20} style={{ width: '100%' }}>
+                <LabelHubFormRenderer
+                  schema={renderFields}
+                  rawPayload={item.rawPayload}
+                  value={answer}
+                  readonly={renderReadonly}
+                  onChange={(next) => {
+                    const nextAnswer = filterVisibleAnswer(renderFields, next);
+                    // diff 出本次变更的字段名,根据 semanticType 决定走"立即保存"还是"节流保存"。
+                    // 离散字段(单选 / 多选 / tags / file)→ 立即保存(0ms);
+                    // 连续字段(text / json / display)→ 400ms 节流保存。
+                    lastChangeIsDiscreteRef.current = isDiscreteFieldChange(
+                      renderFields,
+                      answer,
+                      nextAnswer,
+                    );
+                    setAnswer(nextAnswer);
+                    setDirty(true);
+                    setErrors({});
+                  }}
                 />
-              ) : null}
-            </Space>
+                {rawAnswerFallback ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="当前模板字段与已提交答案不完全匹配"
+                    description={
+                      <pre className="answer-json">
+                        {JSON.stringify(rawAnswerFallback, null, 2)}
+                      </pre>
+                    }
+                  />
+                ) : null}
+              </Space>
+            </div>
+
+            {/* 页内导航条固定在填写卡底部,不随字段数量上下漂移。 */}
+            <div className="answer-pager">
+              <Button
+                size="middle"
+                onClick={handlePrev}
+                disabled={!item.position.prevAssignmentId}
+              >
+                <ArrowLeftOutlined /> 上一题
+              </Button>
+              <Button
+                size="middle"
+                type="primary"
+                onClick={() => void handleSkip()}
+                disabled={!item.position.nextAssignmentId}
+              >
+                下一题 <ArrowRightOutlined />
+              </Button>
+            </div>
           </Card>
         </div>
       </div>
+
+      {/* 报告问题 Drawer:从右侧滑出,与系统其他抽屉(任务发布 / 审核详情)风格一致。
+          antd Form 收集分类 + 描述,提交后调用 reportIssue API。 */}
+      <Drawer
+        title="报告题目问题"
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        width={420}
+        destroyOnClose
+        maskClosable={!reportSubmitting}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <Button onClick={() => setReportOpen(false)}>取消</Button>
+            <Button
+              type="primary"
+              loading={reportSubmitting}
+              onClick={() => void submitReport()}
+            >
+              提交报告
+            </Button>
+          </div>
+        }
+      >
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
+          当前作业 <Typography.Text code>{item.assignmentId}</Typography.Text>
+          {' · '}
+          题目 <Typography.Text code>{item.itemId}</Typography.Text>
+        </Typography.Paragraph>
+        <Form<ReportIssueRequest>
+          form={reportForm}
+          layout="vertical"
+          initialValues={{ category: 'data_error', description: '' }}
+        >
+          <Form.Item
+            name="category"
+            label="问题分类"
+            rules={[{ required: true, message: '请选择问题分类' }]}
+          >
+            <Select<ReportIssueCategory>
+              options={[
+                { label: '数据错误(原题字段缺失 / 内容乱码)', value: 'data_error' },
+                { label: '模板与题目不匹配', value: 'schema_mismatch' },
+                { label: '多模态资源加载失败', value: 'media_broken' },
+                { label: '题目重复', value: 'duplicate' },
+                { label: '敏感 / 不当内容', value: 'sensitive' },
+                { label: '其它(请在描述中说明)', value: 'other' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            name="description"
+            label="问题描述"
+            rules={[
+              { required: true, message: '请描述具体问题,便于 Owner 处理' },
+              { min: 5, message: '描述至少 5 个字符' },
+              { max: 500, message: '描述不超过 500 字符' },
+            ]}
+          >
+            <Input.TextArea
+              rows={5}
+              maxLength={500}
+              showCount
+              placeholder="例:原题 prompt 字段缺失,无法判断质量;或图片地址 404 加载失败"
+            />
+          </Form.Item>
+        </Form>
+      </Drawer>
     </Space>
   );
 }
@@ -861,6 +1093,51 @@ function getSubmitErrorMessage(error: unknown) {
 
 function isEditableStatus(status?: string) {
   return status === 'claimed' || status === 'returned' || status === 'submitted';
+}
+
+/**
+ * 判断本次 onChange 的变更字段是不是「离散字段」(单选 / 多选 / tags / file 等点选式)。
+ *
+ * 实现思路:
+ *   - 把 prev / next 两个 answer 对象按字段名做浅 diff,挑出第一个变化的字段;
+ *   - 通过 `resolveSemanticType` 取该字段的语义类型;
+ *   - `single_choice / multi_choice / tags / file` 视为离散字段,体感"点完即落库 + 短延迟跳题";
+ *   - 其余(`text / json` 等)视为连续输入,走节流保存 + 较长延迟跳题以留缓冲;
+ *   - 找不到变化字段(理论上不应发生)时保守按"连续输入"处理。
+ *
+ * 这里只 diff 浅层值,够用:多选 / tags 数组也是整体替换,数组身份变化即可识别。
+ */
+const DISCRETE_SEMANTIC_TYPES = new Set([
+  'single_choice',
+  'multi_choice',
+  'tags',
+  'file',
+]);
+
+function isDiscreteFieldChange(
+  fields: AssignmentItem['fields'],
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>,
+): boolean {
+  // 收集所有变更字段名:next 中与 prev 不一致的 key,以及 prev 独有的 key
+  const changedKeys = new Set<string>();
+  Object.keys(next).forEach((key) => {
+    if (next[key] !== prev[key]) changedKeys.add(key);
+  });
+  Object.keys(prev).forEach((key) => {
+    if (!(key in next)) changedKeys.add(key);
+  });
+  if (changedKeys.size === 0) return false;
+
+  // 任一变更字段命中离散语义类型即按 fast 路径处理;
+  // 避免单题里同时存在文本和单选时被误判到节流路径。
+  for (const key of changedKeys) {
+    const field = fields.find((f) => f.fieldName === key);
+    if (!field) continue;
+    const semantic = resolveSemanticType(field);
+    if (DISCRETE_SEMANTIC_TYPES.has(semantic)) return true;
+  }
+  return false;
 }
 
 function assignmentStatusText(status?: string) {

@@ -10,6 +10,7 @@ import com.labelhub.backend.ai.AiReviewService;
 import com.labelhub.backend.annotation.AnnotationRepository.AssignmentItemRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.AnnotationRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.DraftRecord;
+import com.labelhub.backend.annotation.AnnotationRepository.IssueRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.LabelerDraftRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord;
 import com.labelhub.backend.auth.ApiException;
@@ -40,6 +41,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnnotationService {
 
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+  private static final Set<String> ISSUE_CATEGORIES = Set.of(
+      "data_error",
+      "schema_mismatch",
+      "media_broken",
+      "duplicate",
+      "sensitive",
+      "other");
 
   private final AnnotationRepository annotationRepository;
   private final TaskService taskService;
@@ -147,6 +155,46 @@ public class AnnotationService {
     AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
     ensureAssignmentUsable(assignment);
     annotationRepository.deleteDraft(assignment.assignmentId());
+  }
+
+  @Transactional
+  public ReportIssueResponse reportIssue(
+      Authentication authentication,
+      long assignmentId,
+      ReportIssueRequest request) {
+    AuthenticatedUser labeler = requireLabeler(authentication);
+    AssignmentItemRecord assignment = loadAssignment(labeler.id(), assignmentId);
+    ensureAssignmentUsable(assignment);
+    String category = normalizeIssueCategory(request == null ? null : request.category());
+    String description = normalizeIssueDescription(request == null ? null : request.description());
+    IssueRecord issue = annotationRepository.createIssue(
+        assignment.assignmentId(),
+        assignment.taskId(),
+        assignment.itemId(),
+        labeler.id(),
+        category,
+        description);
+    stateMachineService.audit(
+        WorkflowEntityType.ASSIGNMENT,
+        assignment.assignmentId(),
+        labeler,
+        "labeler",
+        "assignment.issue_reported",
+        null,
+        null,
+        description,
+        null,
+        Map.of(
+            "issueId", issue.id(),
+            "assignmentId", assignment.assignmentId(),
+            "taskId", assignment.taskId(),
+            "itemId", assignment.itemId(),
+            "category", category),
+        Map.of(
+            "issueId", issue.id(),
+            "category", category,
+            "taskTitle", blankToDefault(assignment.taskTitle(), "标注任务")));
+    return toReportIssueResponse(issue);
   }
 
   @Transactional
@@ -1230,6 +1278,40 @@ public class AnnotationService {
       return "qa_quality";
     }
     return normalized;
+  }
+
+  private String normalizeIssueCategory(String category) {
+    String normalized = category == null ? "" : category.trim().toLowerCase(Locale.ROOT);
+    if (!ISSUE_CATEGORIES.contains(normalized)) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_ISSUE_CATEGORY",
+          "invalid issue category");
+    }
+    return normalized;
+  }
+
+  private String normalizeIssueDescription(String description) {
+    String normalized = description == null ? "" : description.trim();
+    if (normalized.length() < 5 || normalized.length() > 500) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_ISSUE_DESCRIPTION",
+          "issue description length must be between 5 and 500");
+    }
+    return normalized;
+  }
+
+  private ReportIssueResponse toReportIssueResponse(IssueRecord record) {
+    return new ReportIssueResponse(
+        Long.toString(record.id()),
+        Long.toString(record.assignmentId()),
+        Long.toString(record.taskId()),
+        Long.toString(record.itemId()),
+        record.category(),
+        record.description(),
+        record.status(),
+        formatDateTime(record.createdAt()));
   }
 
   private void putIfPresent(ObjectNode node, String field, String value) {

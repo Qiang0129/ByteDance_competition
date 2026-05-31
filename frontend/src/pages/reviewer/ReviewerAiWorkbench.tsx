@@ -649,16 +649,15 @@ function scoreLabel(key: string): string {
 }
 
 /**
- * 将分数归一化为 0~1 比例并映射到色调档位:
- *   - >= 0.8 高分绿(is-good)
- *   - 0.5~0.8 中分黄(is-mid)
- *   - < 0.5 低分红(is-low)
- * 兼容 5 分制(<=5)与 100 分制(>5)。空值/非数字返回中性档(is-na)。
+ * 100 分制色调:
+ *   - >= 80 高分绿(is-good)
+ *   - 70~80 中分黄(is-mid)
+ *   - < 70 低分红(is-low)
+ * 空值/非数字返回中性档(is-na)。
  */
 function scoreTone(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return 'is-na';
-  const ratio = value <= 5 ? value / 5 : value / 100;
-  if (ratio >= 0.8) return 'is-good';
-  if (ratio >= 0.5) return 'is-mid';
+  if (value >= 80) return 'is-good';
+  if (value >= 70) return 'is-mid';
   return 'is-low';
 }

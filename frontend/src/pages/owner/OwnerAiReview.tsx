@@ -58,6 +58,9 @@ import type {
 
 const { Title, Paragraph, Text } = Typography;
 const RUNNING_STUCK_MINUTES = 10;
+const DEFAULT_DIMENSION_MAX_SCORE = 100;
+const DEFAULT_PASS_THRESHOLD = 80;
+const DEFAULT_NEED_HUMAN_THRESHOLD = 70;
 
 const decisionMeta: Record<AiDecision, { label: string; color: string }> = {
   PASS: { label: 'PASS', color: 'success' },
@@ -159,13 +162,13 @@ export function RulesPanel() {
       name: '',
       promptTemplate: '',
       dimensions: [
-        { key: 'relevance', label: '相关性', weight: 0.3, maxScore: 5 },
-        { key: 'accuracy', label: '准确性', weight: 0.4, maxScore: 5 },
-        { key: 'format_compliance', label: '格式合规', weight: 0.2, maxScore: 5 },
-        { key: 'safety', label: '安全性', weight: 0.1, maxScore: 5 },
+        { key: 'relevance', label: '相关性', weight: 0.3, maxScore: DEFAULT_DIMENSION_MAX_SCORE },
+        { key: 'accuracy', label: '准确性', weight: 0.4, maxScore: DEFAULT_DIMENSION_MAX_SCORE },
+        { key: 'format_compliance', label: '格式合规', weight: 0.2, maxScore: DEFAULT_DIMENSION_MAX_SCORE },
+        { key: 'safety', label: '安全性', weight: 0.1, maxScore: DEFAULT_DIMENSION_MAX_SCORE },
       ],
-      passThreshold: 4.0,
-      needHumanThreshold: 3.0,
+      passThreshold: DEFAULT_PASS_THRESHOLD,
+      needHumanThreshold: DEFAULT_NEED_HUMAN_THRESHOLD,
       maxRetry: 2,
       retryBackoffSec: 30,
       enabled: true,
@@ -179,7 +182,10 @@ export function RulesPanel() {
       name: rule.name,
       scopeTaskId: rule.scopeTaskId,
       promptTemplate: rule.promptTemplate,
-      dimensions: rule.dimensions,
+      dimensions: rule.dimensions.map((dimension) => ({
+        ...dimension,
+        maxScore: DEFAULT_DIMENSION_MAX_SCORE,
+      })),
       passThreshold: rule.passThreshold,
       needHumanThreshold: rule.needHumanThreshold,
       maxRetry: rule.maxRetry,
@@ -206,7 +212,10 @@ export function RulesPanel() {
       name: values.name,
       scopeTaskId: values.scopeTaskId,
       promptTemplate: values.promptTemplate,
-      dimensions: values.dimensions,
+      dimensions: values.dimensions.map((dimension) => ({
+        ...dimension,
+        maxScore: DEFAULT_DIMENSION_MAX_SCORE,
+      })),
       passThreshold: values.passThreshold,
       needHumanThreshold: values.needHumanThreshold,
       maxRetry: values.maxRetry,
@@ -584,7 +593,8 @@ function RuleEditDrawer({
                       >
                         <InputNumber
                           step={1}
-                          min={1}
+                          min={DEFAULT_DIMENSION_MAX_SCORE}
+                          max={DEFAULT_DIMENSION_MAX_SCORE}
                           placeholder="满分"
                           style={{ width: '100%' }}
                         />
@@ -605,7 +615,7 @@ function RuleEditDrawer({
                   block
                   icon={<PlusOutlined />}
                   onClick={() =>
-                    add({ key: '', label: '', weight: 0, maxScore: 5 })
+                    add({ key: '', label: '', weight: 0, maxScore: DEFAULT_DIMENSION_MAX_SCORE })
                   }
                 >
                   添加维度
@@ -622,7 +632,7 @@ function RuleEditDrawer({
               label="PASS 阈值"
               rules={[{ required: true }]}
             >
-              <InputNumber step={0.1} min={0} max={5} style={{ width: '100%' }} />
+              <InputNumber step={1} min={0} max={100} style={{ width: '100%' }} />
             </Form.Item>
           </Col>
           <Col span={12}>
@@ -631,7 +641,7 @@ function RuleEditDrawer({
               label="NEED_HUMAN 阈值"
               rules={[{ required: true }]}
             >
-              <InputNumber step={0.1} min={0} max={5} style={{ width: '100%' }} />
+              <InputNumber step={1} min={0} max={100} style={{ width: '100%' }} />
             </Form.Item>
           </Col>
         </Row>
@@ -774,12 +784,12 @@ export function JobsPanel() {
       // 失败时构造演示 result(基于 job 已有数据)
       const fallback: AiReviewResult = {
         scores: {
-          relevance: 4,
-          accuracy: 4,
-          format_compliance: 5,
-          safety: 5,
+          relevance: 86,
+          accuracy: 82,
+          format_compliance: 92,
+          safety: 95,
         },
-        total_score: job.totalScore ?? 0,
+        total_score: job.totalScore ?? 88,
         decision: job.decision ?? 'NEED_HUMAN_REVIEW',
         comment: '后端未就绪,以下为演示评估理由。整体表达清晰,但部分字段格式略有偏差。',
         risk_flags: ['demo'],
@@ -1181,8 +1191,7 @@ function JobResultDrawer({
 }
 
 function ScoreRow({ label, value }: { label: string; value: number }) {
-  // 假设满分 5,按比例渲染条
-  const ratio = Math.min(1, value / 5);
+  const ratio = Math.min(1, Math.max(0, value) / DEFAULT_DIMENSION_MAX_SCORE);
   return (
     <div className="ai-review-score-row">
       <Text style={{ minWidth: 120 }}>{label}</Text>

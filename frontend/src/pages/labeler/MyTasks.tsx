@@ -212,7 +212,7 @@ export default function MyTasks() {
         <Space direction="vertical" size={2}>
           <span>{record.title}</span>
           <Typography.Text type="secondary">
-            Task {record.taskId} · Owner {record.ownerName} · 已领取 {record.assignedCount} 题 · 待答 {record.pendingCount} 题
+            Task {record.taskId} · Owner {record.ownerName} · 已保存 {record.submittedCount}/{record.assignedCount} 题
           </Typography.Text>
         </Space>
       ),

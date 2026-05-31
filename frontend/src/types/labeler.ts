@@ -137,6 +137,37 @@ export interface LabelerDraft {
   editable: boolean;
 }
 
+export type ReturnedItemSource = 'all' | 'human_return' | 'ai_pre_reject';
+
+export type ReturnedItemSourceCode = 'HUMAN_REVIEW_RETURN' | 'AI_PRE_REJECT';
+
+/** Labeler 打回项/AI 预打回列表项 */
+export interface LabelerReturnedItem {
+  source: ReturnedItemSourceCode;
+  sourceLabel: string;
+  assignmentId: string;
+  annotationId: string;
+  taskId: string;
+  itemId: string;
+  title: string;
+  taskTitle: string;
+  taskType: string;
+  taskTypeKey: string;
+  schemaVersionId: string;
+  revisionNo: number;
+  updatedAt: string;
+  reviewerName: string;
+  reviewRoundNo?: number | null;
+  humanReason: string;
+  aiDecision: string;
+  aiComment: string;
+  aiTotalScore?: number | null;
+  aiRiskFlags: string[];
+  aiEvidence: string[];
+  actionable: boolean;
+  actionText: string;
+}
+
 /** 提交答卷请求体 */
 export interface SubmitAnnotationRequest {
   schemaVersionId: string;
@@ -224,4 +255,38 @@ export interface PageResult<T> {
   page: number;
   pageSize: number;
   total: number;
+}
+
+
+/**
+ * 答题页「报告问题」类型,对齐计划书 4.3 / 4.5 流程闭环:
+ *   - Labeler 在答题时如果遇到题目数据错误、模板字段冲突、原题缺失等异常,
+ *     可以提交一条问题报告;后端记入 audit_logs 并通知 Owner 处理。
+ *   - category 与 Owner 端审核的 reason 标签语义对齐,便于后续聚合统计。
+ */
+export type ReportIssueCategory =
+  | 'data_error' // 数据错误(原题字段缺失 / 内容乱码)
+  | 'schema_mismatch' // 模板与题目不匹配 / 字段无法回答
+  | 'media_broken' // 多模态资源加载失败
+  | 'duplicate' // 题目重复
+  | 'sensitive' // 敏感 / 不当内容
+  | 'other'; // 其它,需在 description 描述
+
+export interface ReportIssueRequest {
+  /** 选中的问题分类 */
+  category: ReportIssueCategory;
+  /** 用户描述的问题详情 */
+  description: string;
+}
+
+export interface ReportIssueResponse {
+  /** 后端生成的问题反馈 ID,用于 Owner 看板追踪 */
+  issueId: string;
+  assignmentId: string;
+  taskId: string;
+  itemId: string;
+  category: ReportIssueCategory;
+  description: string;
+  status: 'open' | string;
+  createdAt: string;
 }
