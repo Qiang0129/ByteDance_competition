@@ -208,13 +208,17 @@ public class AiReviewRepository {
           AND t.deleted_at IS NULL
         """,
         List.of(),
-        "ORDER BY aj.available_at ASC, aj.id ASC LIMIT 1 FOR UPDATE")
+        "ORDER BY aj.available_at ASC, aj.id ASC LIMIT 1 FOR UPDATE SKIP LOCKED")
         .stream()
         .findFirst();
   }
 
   public Optional<AiReviewJobRecord> lockJob(long jobId) {
     return queryJobs("WHERE aj.id = ?", List.of(jobId), "FOR UPDATE").stream().findFirst();
+  }
+
+  public Optional<AiReviewJobRecord> findJob(long jobId) {
+    return queryJobs("WHERE aj.id = ?", List.of(jobId), "").stream().findFirst();
   }
 
   public int deleteJob(long jobId) {
@@ -418,6 +422,51 @@ public class AiReviewRepository {
         .findFirst();
   }
 
+  public List<AiReviewJobTimelineRecord> listAssignmentAiJobTimeline(long jobId) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          an.id AS annotation_id,
+          an.revision_no,
+          aj.id AS job_id,
+          aj.status AS job_status,
+          aj.retry_count,
+          aj.error_summary,
+          aj.cancel_reason,
+          aj.created_at,
+          aj.available_at,
+          aj.started_at,
+          aj.finished_at,
+          air.decision,
+          air.total_score,
+          air.comment
+        FROM ai_review_jobs current_job
+        JOIN annotations current_annotation ON current_annotation.id = current_job.annotation_id
+        JOIN annotations an ON an.assignment_id = current_annotation.assignment_id
+        JOIN ai_review_jobs aj ON aj.annotation_id = an.id
+        LEFT JOIN ai_review_results air ON air.job_id = aj.id
+        WHERE current_job.id = ?
+          AND an.status <> 'voided'
+        ORDER BY an.revision_no ASC, an.id ASC, aj.created_at ASC, aj.id ASC
+        """,
+        (rs, rowNum) -> new AiReviewJobTimelineRecord(
+            rs.getLong("annotation_id"),
+            rs.getInt("revision_no"),
+            rs.getLong("job_id"),
+            rs.getString("job_status"),
+            rs.getInt("retry_count"),
+            rs.getString("error_summary"),
+            rs.getString("cancel_reason"),
+            toLocalDateTime(rs.getTimestamp("created_at")),
+            toLocalDateTime(rs.getTimestamp("available_at")),
+            toLocalDateTime(rs.getTimestamp("started_at")),
+            toLocalDateTime(rs.getTimestamp("finished_at")),
+            rs.getString("decision"),
+            toDouble(rs.getObject("total_score")),
+            rs.getString("comment")),
+        jobId);
+  }
+
   public List<AiReviewJobRecord> listJobs(
       String status,
       Long ruleId,
@@ -501,6 +550,7 @@ public class AiReviewRepository {
         SELECT
           aj.id,
           aj.annotation_id,
+          an.revision_no,
           t.id AS task_id,
           t.title AS task_title,
           (
@@ -566,6 +616,7 @@ public class AiReviewRepository {
     return new AiReviewJobRecord(
         rs.getLong("id"),
         rs.getLong("annotation_id"),
+        rs.getInt("revision_no"),
         rs.getLong("task_id"),
         rs.getString("task_title"),
         toInteger(rs.getObject("item_index")),
@@ -640,6 +691,7 @@ public class AiReviewRepository {
   public record AiReviewJobRecord(
       long id,
       long annotationId,
+      int revisionNo,
       long taskId,
       String taskTitle,
       Integer itemIndex,
@@ -686,4 +738,20 @@ public class AiReviewRepository {
       String responseJson,
       String modelName,
       Integer latencyMs) {}
+
+  public record AiReviewJobTimelineRecord(
+      long annotationId,
+      int revisionNo,
+      long jobId,
+      String jobStatus,
+      int retryCount,
+      String errorSummary,
+      String cancelReason,
+      LocalDateTime createdAt,
+      LocalDateTime availableAt,
+      LocalDateTime startedAt,
+      LocalDateTime finishedAt,
+      String decision,
+      Double totalScore,
+      String comment) {}
 }

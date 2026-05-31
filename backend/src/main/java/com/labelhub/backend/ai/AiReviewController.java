@@ -2,6 +2,7 @@ package com.labelhub.backend.ai;
 
 import com.labelhub.backend.task.PageResponse;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -116,6 +117,13 @@ public class AiReviewController {
       Authentication authentication,
       @RequestBody AiReviewBatchDeleteRequest request) {
     return aiReviewService.batchDeleteJobs(authentication, request);
+  }
+
+  @GetMapping("/jobs/{jobId}/timeline")
+  public List<AiReviewJobTimelineItem> getJobTimeline(
+      Authentication authentication,
+      @PathVariable long jobId) {
+    return aiReviewService.getJobTimeline(authentication, jobId);
   }
 
   @GetMapping("/results/{annotationId}")

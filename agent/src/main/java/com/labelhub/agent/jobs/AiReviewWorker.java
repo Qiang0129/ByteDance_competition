@@ -6,21 +6,33 @@ import com.labelhub.agent.llm.ResponsesLlmClient;
 import com.labelhub.agent.model.AiReviewCompleteRequest;
 import com.labelhub.agent.model.AiReviewJobClaimResponse;
 import com.labelhub.agent.model.AiReviewLlmResult;
+import com.labelhub.agent.model.AiModelRuntimeConfig;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientResponseException;
 
 @Component
-public class AiReviewWorker {
+public class AiReviewWorker implements ApplicationRunner, DisposableBean {
 
   private static final Logger log = LoggerFactory.getLogger(AiReviewWorker.class);
 
   private final BackendClient backendClient;
   private final ResponsesLlmClient llmClient;
   private final AgentProperties properties;
+  private final AtomicInteger threadSequence = new AtomicInteger(1);
+  private volatile boolean running;
+  private ExecutorService executorService;
 
   public AiReviewWorker(
       BackendClient backendClient,
@@ -31,16 +43,63 @@ public class AiReviewWorker {
     this.properties = properties;
   }
 
-  @Scheduled(fixedDelayString = "${labelhub.worker.poll-interval-ms:5000}")
-  public void pollOnce() {
+  @Override
+  public void run(ApplicationArguments args) {
     if (!properties.getWorker().isEnabled()) {
+      log.info("AI review worker is disabled");
       return;
     }
+    int concurrency = resolveWorkerConcurrency();
+    running = true;
+    executorService = Executors.newFixedThreadPool(concurrency, runnable -> {
+      Thread thread = new Thread(runnable, "labelhub-ai-worker-" + threadSequence.getAndIncrement());
+      thread.setDaemon(false);
+      return thread;
+    });
+    List<Integer> workerIds = new ArrayList<>();
+    for (int workerId = 1; workerId <= concurrency; workerId += 1) {
+      int currentWorkerId = workerId;
+      workerIds.add(currentWorkerId);
+      executorService.submit(() -> workerLoop(currentWorkerId));
+    }
+    log.info("AI review worker pool started with concurrency={} workers={}", concurrency, workerIds);
+  }
+
+  @Override
+  public void destroy() throws Exception {
+    running = false;
+    if (executorService == null) {
+      return;
+    }
+    executorService.shutdownNow();
+    if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+      log.warn("AI review worker pool did not stop within timeout");
+    }
+  }
+
+  private void workerLoop(int workerId) {
+    while (running && !Thread.currentThread().isInterrupted()) {
+      try {
+        pollOnce(workerId);
+      } catch (Exception exception) {
+        log.error("AI review worker {} loop failed: {}", workerId, describe(exception), exception);
+        sleepQuietly(properties.getWorker().getPollIntervalMs());
+      }
+    }
+    log.info("AI review worker {} stopped", workerId);
+  }
+
+  private void pollOnce(int workerId) {
     AiReviewJobClaimResponse claimed;
     try {
       claimed = backendClient.claimNext();
     } catch (HttpClientErrorException exception) {
-      log.warn("AI review claim failed: status={} body={}", exception.getStatusCode(), exception.getResponseBodyAsString());
+      log.warn(
+          "AI review worker {} claim failed: status={} body={}",
+          workerId,
+          exception.getStatusCode(),
+          exception.getResponseBodyAsString());
+      sleepQuietly(properties.getWorker().getPollIntervalMs());
       return;
     }
     if (claimed == null || claimed.job() == null) {
@@ -50,14 +109,14 @@ public class AiReviewWorker {
 
     String jobId = claimed.job().jobId();
     String runToken = claimed.runToken();
-    log.info("AI review job {} claimed for annotation {}", jobId, claimed.annotationId());
+    log.info("AI review worker {} claimed job {} for annotation {}", workerId, jobId, claimed.annotationId());
     AiReviewLlmResult result;
     try {
       result = llmClient.review(claimed);
     } catch (Exception exception) {
       String summary = "LLM_CALL_FAILED: " + describe(exception);
-      log.warn("AI review job {} LLM call failed", jobId, exception);
-      reportFailure(jobId, runToken, summary);
+      log.warn("AI review worker {} job {} LLM call failed", workerId, jobId, exception);
+      reportFailure(workerId, jobId, runToken, summary);
       return;
     }
 
@@ -74,28 +133,55 @@ public class AiReviewWorker {
           result.rawResponse(),
           result.modelName(),
           result.latencyMs()));
-      log.info("AI review job {} completed with decision {}", jobId, result.decision());
+      log.info("AI review worker {} completed job {} with decision {}", workerId, jobId, result.decision());
     } catch (Exception exception) {
       String summary = "BACKEND_COMPLETE_FAILED: " + describe(exception);
       if (isStaleRun(exception)) {
-        log.warn("AI review job {} complete writeback ignored because run token is stale", jobId);
+        log.warn("AI review worker {} job {} complete writeback ignored because run token is stale", workerId, jobId);
         return;
       }
-      log.warn("AI review job {} backend complete writeback failed", jobId, exception);
-      reportFailure(jobId, runToken, summary);
+      log.warn("AI review worker {} job {} backend complete writeback failed", workerId, jobId, exception);
+      reportFailure(workerId, jobId, runToken, summary);
     }
   }
 
-  private void reportFailure(String jobId, String runToken, String summary) {
+  private int resolveWorkerConcurrency() {
+    try {
+      AiModelRuntimeConfig runtimeConfig = backendClient.getModelRuntimeConfig();
+      Integer configured = runtimeConfig == null ? null : runtimeConfig.workerConcurrency();
+      if (configured != null) {
+        return clampConcurrency(configured);
+      }
+    } catch (RestClientResponseException exception) {
+      if (exception.getStatusCode().value() != 404) {
+        log.warn(
+            "Backend model runtime config unavailable for worker concurrency: status={} body={}",
+            exception.getStatusCode(),
+            exception.getResponseBodyAsString());
+      }
+    } catch (Exception exception) {
+      log.warn("Backend model runtime config unavailable for worker concurrency: {}", describe(exception));
+    }
+    int fallback = clampConcurrency(properties.getWorker().getConcurrency());
+    log.info("Using local AI worker concurrency fallback: {}", fallback);
+    return fallback;
+  }
+
+  private int clampConcurrency(int value) {
+    return Math.max(1, Math.min(10, value));
+  }
+
+  private void reportFailure(int workerId, String jobId, String runToken, String summary) {
     try {
       backendClient.fail(jobId, runToken, truncate(summary, 1000));
     } catch (Exception exception) {
       if (isStaleRun(exception)) {
-        log.warn("AI review job {} fail writeback ignored because run token is stale", jobId);
+        log.warn("AI review worker {} job {} fail writeback ignored because run token is stale", workerId, jobId);
         return;
       }
       log.error(
-          "AI review job {} failed and backend fail writeback also failed: {}",
+          "AI review worker {} job {} failed and backend fail writeback also failed: {}",
+          workerId,
           jobId,
           describe(exception),
           exception);

@@ -76,6 +76,8 @@ export interface AiReviewJob {
   /** 终态时存在的判定结论 */
   decision?: AiDecision;
   totalScore?: number;
+  /** 当前 AI 预审对应的 annotation revision 轮次,1-based */
+  roundNo?: number;
   /** 该题在任务中的序号(1-based),后端从 assignments 表计算;缺失时前端回退到 annotationId */
   itemIndex?: number;
   /** 任务总题数,后端从 assignments 表计算;缺失时不显示 */
@@ -90,6 +92,17 @@ export interface AiReviewJob {
   availableAt?: string;
   startedAt?: string;
   finishedAt?: string;
+}
+
+export interface AiReviewJobTimelineItem {
+  roundNo: number;
+  stage: 'queue' | 'llm' | 'verdict' | 'error';
+  title: string;
+  status: string;
+  decision?: AiDecision;
+  score?: number;
+  message?: string;
+  occurredAt?: string;
 }
 
 /** 通用分页结果 */
@@ -130,6 +143,7 @@ export interface AiModelConfig {
   modelName: string;
   reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
   wireApi: 'responses';
+  workerConcurrency?: number;
   apiKeyMask?: string;
   /** active = 当前 Agent 使用的配置;inactive = 备用 */
   status: 'active' | 'inactive';
@@ -147,6 +161,7 @@ export interface AiModelConfigRequest {
   modelName: string;
   reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
   wireApi: 'responses';
+  workerConcurrency?: number;
   apiKey?: string;
 }
 

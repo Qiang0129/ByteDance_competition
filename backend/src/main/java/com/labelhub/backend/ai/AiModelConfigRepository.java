@@ -32,6 +32,7 @@ public class AiModelConfigRepository {
           c.model_name,
           c.reasoning_effort,
           c.wire_api,
+          c.worker_concurrency,
           c.encrypted_api_key,
           c.api_key_mask,
           c.status,
@@ -60,6 +61,7 @@ public class AiModelConfigRepository {
       String modelName,
       String reasoningEffort,
       String wireApi,
+      int workerConcurrency,
       String encryptedApiKey,
       String apiKeyMask,
       long operatorId) {
@@ -70,8 +72,8 @@ public class AiModelConfigRepository {
           """
           INSERT INTO ai_model_configs
             (provider_name, notes, license_url, api_base_url, use_full_url, model_name,
-             reasoning_effort, wire_api, encrypted_api_key, api_key_mask, status, created_by, updated_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+             reasoning_effort, wire_api, worker_concurrency, encrypted_api_key, api_key_mask, status, created_by, updated_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
           """,
           Statement.RETURN_GENERATED_KEYS);
       statement.setString(1, providerName);
@@ -82,10 +84,11 @@ public class AiModelConfigRepository {
       statement.setString(6, modelName);
       statement.setString(7, reasoningEffort);
       statement.setString(8, wireApi);
-      statement.setString(9, encryptedApiKey);
-      statement.setString(10, apiKeyMask);
-      statement.setLong(11, operatorId);
+      statement.setInt(9, workerConcurrency);
+      statement.setString(10, encryptedApiKey);
+      statement.setString(11, apiKeyMask);
       statement.setLong(12, operatorId);
+      statement.setLong(13, operatorId);
       return statement;
     }, keyHolder);
     Number key = keyHolder.getKey();
@@ -105,6 +108,7 @@ public class AiModelConfigRepository {
       String modelName,
       String reasoningEffort,
       String wireApi,
+      int workerConcurrency,
       String encryptedApiKey,
       String apiKeyMask,
       long operatorId) {
@@ -119,6 +123,7 @@ public class AiModelConfigRepository {
             model_name = ?,
             reasoning_effort = ?,
             wire_api = ?,
+            worker_concurrency = ?,
             encrypted_api_key = ?,
             api_key_mask = ?,
             updated_by = ?,
@@ -133,6 +138,7 @@ public class AiModelConfigRepository {
         modelName,
         reasoningEffort,
         wireApi,
+        workerConcurrency,
         encryptedApiKey,
         apiKeyMask,
         operatorId,
@@ -161,6 +167,7 @@ public class AiModelConfigRepository {
         rs.getString("model_name"),
         rs.getString("reasoning_effort"),
         rs.getString("wire_api"),
+        rs.getInt("worker_concurrency"),
         rs.getString("encrypted_api_key"),
         rs.getString("api_key_mask"),
         rs.getString("status"),
@@ -189,6 +196,7 @@ public class AiModelConfigRepository {
       String modelName,
       String reasoningEffort,
       String wireApi,
+      int workerConcurrency,
       String encryptedApiKey,
       String apiKeyMask,
       String status,

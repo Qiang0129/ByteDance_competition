@@ -64,6 +64,7 @@ com\labelhub\backend\review\ReviewRepository$AnnotationStateRecord.class
 com\labelhub\backend\review\ReviewService$RevisionSchema.class
 com\labelhub\backend\dataset\DatasetController.class
 com\labelhub\backend\annotation\SubmitAnnotationRequest.class
+com\labelhub\backend\ai\AiReviewRepository$AiReviewJobTimelineRecord.class
 com\labelhub\backend\schema\SchemaService$SchemaSnapshot.class
 com\labelhub\backend\task\TaskService.class
 com\labelhub\backend\labeler\LabelerReturnedItemResponse.class
@@ -160,6 +161,7 @@ com\labelhub\backend\dataset\DatasetRepository.class
 com\labelhub\backend\schema\SchemaService$DatasetBinding.class
 com\labelhub\backend\task\TaskRepository$TaskAssignmentStateRecord.class
 com\labelhub\backend\ai\AiReviewService$RetryPolicy.class
+com\labelhub\backend\ai\AiReviewJobTimelineItem.class
 com\labelhub\backend\review\ReviewRepository.class
 com\labelhub\backend\schema\SchemaValidationResponse.class
 com\labelhub\backend\review\ReviewerPageResponse.class

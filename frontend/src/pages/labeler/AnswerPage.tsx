@@ -465,7 +465,11 @@ export default function AnswerPage() {
       }
       const response = await labelerApi.submitTaskAssignments(item.taskId);
       setBatchInvalidItems([]);
-      message.success(`已提交 ${response.submittedCount} 题,等待 AI 预审与人工审核`);
+      if (response.submittedCount === 0) {
+        message.success('没有新的题目需要提交，已提交的题目正在审核中');
+      } else {
+        message.success(`已提交 ${response.submittedCount} 题,等待 AI 预审与人工审核`);
+      }
       navigate('/labeler/my-tasks');
     } catch (error) {
       const invalidItems = getBatchInvalidItems(error);

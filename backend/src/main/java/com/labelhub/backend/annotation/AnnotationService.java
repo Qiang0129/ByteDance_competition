@@ -294,6 +294,10 @@ public class AnnotationService {
     List<PreparedBatchSubmission> preparedSubmissions = new ArrayList<>();
     for (int index = 0; index < assignments.size(); index += 1) {
       AssignmentItemRecord assignment = assignments.get(index);
+      String assignmentStatus = normalize(assignment.assignmentStatus());
+      if (isBatchSubmitSkippableStatus(assignmentStatus)) {
+        continue;
+      }
       ensureEditableAssignment(assignment);
       SchemaContext schema = resolveSchema(assignment, !isReturnReworkOpen(assignment));
       DraftRecord draft = annotationRepository.findDraft(assignment.assignmentId()).orElse(null);
@@ -392,6 +396,15 @@ public class AnnotationService {
         "ANSWER_VALIDATION_FAILED",
         "INVALID_ANSWER_JSON",
         "INVALID_JSON").contains(exception.getCode());
+  }
+
+  private boolean isBatchSubmitSkippableStatus(String assignmentStatus) {
+    return Set.of(
+        "submitted",
+        "ai_reviewing",
+        "reviewing",
+        "accepted",
+        "exported").contains(assignmentStatus);
   }
 
   private Long enqueueAiReviewIfEnabled(

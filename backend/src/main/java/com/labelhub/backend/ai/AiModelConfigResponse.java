@@ -10,6 +10,7 @@ public record AiModelConfigResponse(
     String modelName,
     String reasoningEffort,
     String wireApi,
+    int workerConcurrency,
     String apiKeyMask,
     String status,
     String updatedAt,

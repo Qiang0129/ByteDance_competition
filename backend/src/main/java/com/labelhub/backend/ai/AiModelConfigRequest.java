@@ -9,4 +9,5 @@ public record AiModelConfigRequest(
     String modelName,
     String reasoningEffort,
     String wireApi,
+    Integer workerConcurrency,
     String apiKey) {}

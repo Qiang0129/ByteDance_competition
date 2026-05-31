@@ -209,6 +209,7 @@ $env:LABELHUB_BACKEND_BASE_URL="http://localhost:8080"
 $env:LABELHUB_AGENT_USERNAME="system_agent"
 $env:LABELHUB_AGENT_PASSWORD="agent123"
 $env:LABELHUB_AGENT_ROLE="system_agent"
+$env:LABELHUB_AGENT_CONCURRENCY="3"
 
 .\mvnw.cmd spring-boot:run
 ```
@@ -222,6 +223,7 @@ $env:LABELHUB_BACKEND_BASE_URL="http://localhost:8080"
 $env:LABELHUB_AGENT_USERNAME="system_agent"
 $env:LABELHUB_AGENT_PASSWORD="agent123"
 $env:LABELHUB_AGENT_ROLE="system_agent"
+$env:LABELHUB_AGENT_CONCURRENCY="3"
 
 $env:LABELHUB_LLM_BASE_URL="https://www.pqapi.store/v1"
 $env:LABELHUB_LLM_API_KEY="你的 API Key"
@@ -236,6 +238,8 @@ $env:LABELHUB_LLM_WIRE_API="responses"
 
 - `LABELHUB_LLM_API_KEY` 只在本机终端设置，不要写入仓库文件。
 - Web 端保存模型配置失败并提示 `LABELHUB_MODEL_CONFIG_SECRET is required to store or read api keys` 时,说明后端启动时缺少 `LABELHUB_MODEL_CONFIG_SECRET`,需要设置后重启后端再保存。
+- Agent 并发数优先读取 Web 端模型配置里的“Agent 并发数”；没有 active 模型配置时才使用 `LABELHUB_AGENT_CONCURRENCY`，默认 3。
+- 修改 Web 端并发数后需要重启 Agent 才会生效。
 - 如果暂时没有待审核任务，Agent 会保持轮询，不会立刻输出消费日志。
 - Labeler 最后一题统一提交成功后，会创建 `pending` 的 AI review job；这时 Agent 才会领取并处理。
 - 启动成功后，日志通常会出现 `LabelHub Agent logged in as system_agent`。

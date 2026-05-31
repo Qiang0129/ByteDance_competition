@@ -6,4 +6,5 @@ public record AiModelRuntimeConfig(
     String modelName,
     String reasoningEffort,
     String wireApi,
+    Integer workerConcurrency,
     String apiKey) {}

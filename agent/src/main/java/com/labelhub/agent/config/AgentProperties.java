@@ -62,6 +62,7 @@ public class AgentProperties {
 
   public static class Worker {
     private boolean enabled = true;
+    private int concurrency = 3;
     private long pollIntervalMs = 5000;
     private long idleDelayMs = 1500;
 
@@ -71,6 +72,14 @@ public class AgentProperties {
 
     public void setEnabled(boolean enabled) {
       this.enabled = enabled;
+    }
+
+    public int getConcurrency() {
+      return concurrency;
+    }
+
+    public void setConcurrency(int concurrency) {
+      this.concurrency = concurrency;
     }
 
     public long getPollIntervalMs() {

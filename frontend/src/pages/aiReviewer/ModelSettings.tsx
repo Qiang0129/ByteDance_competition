@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiOutlined,
   CheckCircleFilled,
+  CopyOutlined,
   DeleteOutlined,
   EditOutlined,
   InfoCircleOutlined,
@@ -21,6 +22,7 @@ import {
   Drawer,
   Empty,
   Input,
+  InputNumber,
   Popconfirm,
   Row,
   Select,
@@ -65,6 +67,7 @@ interface ConfigFormValues {
   useFullUrl: boolean;
   modelName: string;
   reasoningEffort: AiModelConfigRequest['reasoningEffort'];
+  workerConcurrency: number;
   apiKeyMask?: string;
 }
 
@@ -77,6 +80,7 @@ const DEFAULT_FORM: ConfigFormValues = {
   useFullUrl: false,
   modelName: '',
   reasoningEffort: 'high',
+  workerConcurrency: 3,
 };
 
 function configToForm(config: AiModelConfig): ConfigFormValues {
@@ -89,6 +93,7 @@ function configToForm(config: AiModelConfig): ConfigFormValues {
     useFullUrl: config.useFullUrl ?? false,
     modelName: config.modelName ?? '',
     reasoningEffort: config.reasoningEffort ?? 'high',
+    workerConcurrency: config.workerConcurrency ?? 3,
     apiKeyMask: config.apiKeyMask,
   };
 }
@@ -159,6 +164,19 @@ export default function ModelSettings() {
     setDrawerOpen(true);
   }
 
+  /** 复制配置:以现有配置为模板打开新建 Drawer,名称加「(副本)」后缀 */
+  function openDuplicate(config: AiModelConfig) {
+    setEditing(null); // null 表示新建模式
+    setForm({
+      ...configToForm(config),
+      providerName: `${config.providerName} (副本)`,
+      apiKey: '', // API Key 不复制,需要重新填写
+      apiKeyMask: undefined,
+    });
+    setModelIds([]);
+    setDrawerOpen(true);
+  }
+
   /** 保存(新建或更新) */
   async function handleSave() {
     const payload: AiModelConfigRequest = {
@@ -170,6 +188,7 @@ export default function ModelSettings() {
       modelName: form.modelName.trim(),
       reasoningEffort: form.reasoningEffort,
       wireApi: 'responses',
+      workerConcurrency: form.workerConcurrency || 3,
       apiKey: form.apiKey.trim() || undefined,
     };
 
@@ -328,6 +347,7 @@ export default function ModelSettings() {
               config={config}
               isActive={config.status === 'active'}
               onActivate={() => void handleActivate(config)}
+              onDuplicate={() => openDuplicate(config)}
               onEdit={() => openEdit(config)}
               onDelete={() => void handleDelete(config)}
             />
@@ -484,6 +504,22 @@ export default function ModelSettings() {
               </div>
             </Col>
           </Row>
+
+          <div className="model-field">
+            <label className="model-field-label">Agent 并发数</label>
+            <InputNumber
+              min={1}
+              max={10}
+              precision={0}
+              value={form.workerConcurrency}
+              onChange={(value) => update({ workerConcurrency: value ?? 3 })}
+              style={{ width: '100%' }}
+              addonAfter="个 worker"
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Agent 启动时读取该值并创建固定数量 worker；修改后需要重启 Agent 生效。
+            </Text>
+          </div>
         </Space>
       </Drawer>
     </Space>
@@ -496,12 +532,14 @@ function ModelConfigCard({
   config,
   isActive,
   onActivate,
+  onDuplicate,
   onEdit,
   onDelete,
 }: {
   config: AiModelConfig;
   isActive: boolean;
   onActivate: () => void;
+  onDuplicate: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -541,6 +579,9 @@ function ModelConfigCard({
             <div className="model-config-tags">
               <Tag color="blue" style={{ borderRadius: 999 }}>{config.modelName}</Tag>
               <Tag style={{ borderRadius: 999 }}>{config.reasoningEffort}</Tag>
+              <Tag color="geekblue" style={{ borderRadius: 999 }}>
+                并发 {config.workerConcurrency ?? 3}
+              </Tag>
               {config.updatedAt && (
                 <Text type="secondary" style={{ fontSize: 11 }}>
                   更新于 {config.updatedAt}
@@ -563,6 +604,9 @@ function ModelConfigCard({
               </Button>
             </Tooltip>
           )}
+          <Tooltip title="复制配置">
+            <Button type="text" icon={<CopyOutlined />} onClick={onDuplicate} />
+          </Tooltip>
           <Tooltip title="编辑">
             <Button type="text" icon={<EditOutlined />} onClick={onEdit} />
           </Tooltip>

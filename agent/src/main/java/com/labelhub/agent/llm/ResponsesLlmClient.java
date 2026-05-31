@@ -195,15 +195,23 @@ public class ResponsesLlmClient {
         .replace("{{answer}}", pretty(job.answerJson()))
         .replace("{{schema}}", pretty(job.schemaSnapshot()))
         .replace("{{rule}}", pretty(job.ruleSnapshot()))
-        + "\n\n评分口径:每个维度按 rule.dimensions[].maxScore 计分;当前默认每项满分 100 分。"
+        + "\n\n评分口径:评分对象必须是标注员提交的标注答案质量,不是原始数据或模型回答本身质量。"
+        + "每个维度按 rule.dimensions[].maxScore 计分;当前默认每项满分 100 分。"
         + "totalScore 必须是按 weight 加权后的 0~100 综合分。"
+        + "decision 必须与阈值一致:totalScore >= rule.passThreshold 时输出 PASS;"
+        + "rule.needHumanThreshold <= totalScore < rule.passThreshold 时输出 NEED_HUMAN_REVIEW;"
+        + "totalScore < rule.needHumanThreshold 时输出 REJECT。"
+        + "如果标注员误判、漏标、错选或理由不足,应降低相关维度分数,禁止出现高分但 REJECT 或低分但 PASS 的矛盾输出。"
         + "\n请只输出符合 JSON Schema 的 JSON，不要输出 Markdown。";
   }
 
   private String defaultPrompt() {
     return """
-        你是 LabelHub 的 AI 预审员。请根据题目原始数据、标注答案、表单 schema 和评分规则，
-        按 0~100 分给出每个维度的分数、总分、风险标签、证据和最终判定。
+        你是 LabelHub 的 AI 预审员。你的任务是审核“标注员提交的标注答案”是否正确、完整、合规，
+        而不是单独评价题目原始数据或模型回答本身的质量。
+
+        请根据题目原始数据、标注答案、表单 schema 和评分规则,按 0~100 分给出每个维度的分数、
+        总分、风险标签、证据和最终判定。comment 需要解释标注答案的主要问题或通过原因。
         """;
   }
 

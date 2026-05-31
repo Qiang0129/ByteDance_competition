@@ -6,6 +6,7 @@ import type {
   AiModelModelsResponse,
   AiReviewBatchDeleteResponse,
   AiReviewJob,
+  AiReviewJobTimelineItem,
   AiReviewPageResult,
   AiReviewResult,
   AiReviewRule,
@@ -104,6 +105,10 @@ export const aiReviewApi = {
 
   getJobResult(annotationId: string): Promise<AiReviewResult> {
     return apiRequest<AiReviewResult>(`/ai-review/results/${annotationId}`);
+  },
+
+  getJobTimeline(jobId: string): Promise<AiReviewJobTimelineItem[]> {
+    return apiRequest<AiReviewJobTimelineItem[]>(`/ai-review/jobs/${jobId}/timeline`);
   },
 
   /** 兼容旧接口:获取当前激活的单个配置(Agent 运行时使用) */

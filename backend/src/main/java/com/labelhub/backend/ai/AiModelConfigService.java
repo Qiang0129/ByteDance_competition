@@ -73,6 +73,7 @@ public class AiModelConfigService {
           input.modelName(),
           input.reasoningEffort(),
           input.wireApi(),
+          input.workerConcurrency(),
           encryptedApiKey,
           apiKeyMask,
           operator.id());
@@ -87,6 +88,7 @@ public class AiModelConfigService {
           input.modelName(),
           input.reasoningEffort(),
           input.wireApi(),
+          input.workerConcurrency(),
           encryptedApiKey,
           apiKeyMask,
           operator.id());
@@ -139,6 +141,7 @@ public class AiModelConfigService {
         config.modelName(),
         config.reasoningEffort(),
         config.wireApi(),
+        config.workerConcurrency(),
         crypto.decrypt(config.encryptedApiKey()));
   }
 
@@ -206,6 +209,7 @@ public class AiModelConfigService {
     String modelName = trimToNull(request.modelName());
     String reasoningEffort = normalizeReasoningEffort(request.reasoningEffort());
     String wireApi = normalizeWireApi(request.wireApi());
+    int workerConcurrency = normalizeWorkerConcurrency(request.workerConcurrency());
     if (providerName == null || apiBaseUrl == null || modelName == null) {
       throw new ApiException(
           HttpStatus.BAD_REQUEST,
@@ -221,6 +225,7 @@ public class AiModelConfigService {
         truncate(modelName, 128),
         reasoningEffort,
         wireApi,
+        workerConcurrency,
         trimToNull(request.apiKey()));
   }
 
@@ -250,6 +255,17 @@ public class AiModelConfigService {
     String normalized = value == null || value.isBlank() ? "responses" : value.trim().toLowerCase(Locale.ROOT);
     if (!"responses".equals(normalized)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_MODEL_WIRE_API", "only responses wire api is supported");
+    }
+    return normalized;
+  }
+
+  private int normalizeWorkerConcurrency(Integer value) {
+    int normalized = value == null ? 3 : value;
+    if (normalized < 1 || normalized > 10) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_AI_MODEL_WORKER_CONCURRENCY",
+          "worker concurrency must be between 1 and 10");
     }
     return normalized;
   }
@@ -291,6 +307,7 @@ public class AiModelConfigService {
         record.modelName(),
         record.reasoningEffort(),
         record.wireApi(),
+        record.workerConcurrency(),
         record.apiKeyMask(),
         record.status(),
         formatDateTime(record.updatedAt()),
@@ -347,6 +364,7 @@ public class AiModelConfigService {
       String modelName,
       String reasoningEffort,
       String wireApi,
+      int workerConcurrency,
       String apiKey) {}
 
   private record ModelConnection(String apiBaseUrl, boolean useFullUrl, String apiKey) {}

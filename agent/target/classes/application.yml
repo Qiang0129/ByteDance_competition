@@ -15,6 +15,7 @@ labelhub:
     role: ${LABELHUB_AGENT_ROLE:system_agent}
   worker:
     enabled: ${LABELHUB_AGENT_WORKER_ENABLED:true}
+    concurrency: ${LABELHUB_AGENT_CONCURRENCY:3}
     poll-interval-ms: ${LABELHUB_AGENT_POLL_INTERVAL_MS:5000}
     idle-delay-ms: ${LABELHUB_AGENT_IDLE_DELAY_MS:1500}
   llm:

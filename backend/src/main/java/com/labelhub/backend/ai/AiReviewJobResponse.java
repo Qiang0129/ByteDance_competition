@@ -10,6 +10,7 @@ public record AiReviewJobResponse(
     String status,
     String decision,
     Double totalScore,
+    Integer roundNo,
     Integer itemIndex,
     Integer itemTotal,
     int retryCount,

@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import {
   App as AntdApp,
+  Alert,
   Badge,
   Button,
   Card,
@@ -26,11 +27,12 @@ import {
 } from 'antd';
 
 import { aiReviewApi } from '../../api/aiReview';
-import { AiAssistantIcon } from '../../components/icons';
+import { getApiErrorMessage } from '../../api/client';
 import type {
   AiDecision,
   AiReviewJob,
   AiReviewJobStatus,
+  AiReviewJobTimelineItem,
   AiReviewResult,
 } from '../../types/aiReview';
 
@@ -45,8 +47,7 @@ import type {
  * 数据来源:
  *   - GET /ai-review/jobs (列表)
  *   - GET /ai-review/results/{annotationId} (单条 AI 预审结果)
- *
- * 后端已实现,前端直接调用;不可达时回落到样例 JSON。
+ *   - GET /ai-review/jobs/{jobId}/timeline (同一 assignment 多轮 AI 预审日志)
  */
 
 const { Text, Title, Paragraph } = Typography;
@@ -70,12 +71,15 @@ export default function AiPreReviewQueue() {
   const { message } = AntdApp.useApp();
   const [jobs, setJobs] = useState<AiReviewJob[]>([]);
   const [loading, setLoading] = useState(true);
-  const [usingFallback, setUsingFallback] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [selectedJob, setSelectedJob] = useState<AiReviewJob | null>(null);
   const [result, setResult] = useState<AiReviewResult | null>(null);
   const [resultLoading, setResultLoading] = useState(false);
+  const [timelineItems, setTimelineItems] = useState<AiReviewJobTimelineItem[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
 
   // 左栏高度动态跟随右栏:用 ResizeObserver 监听右栏高度变化,实时设置左栏 height
   const leftPanelRef = useRef<HTMLDivElement>(null);
@@ -108,17 +112,12 @@ export default function AiPreReviewQueue() {
         pageSize: 200,
       });
       setJobs(res.items ?? []);
-      setUsingFallback(false);
-    } catch {
-      try {
-        const res = await fetch('/sample-datasets/ai-review-jobs.json');
-        const data = await res.json();
-        setJobs((data?.items ?? []) as AiReviewJob[]);
-        setUsingFallback(true);
-      } catch {
-        message.error('AI 预审队列加载失败');
-        setJobs([]);
-      }
+      setListError(null);
+    } catch (error) {
+      const errorMessage = getApiErrorMessage(error, 'AI 预审队列加载失败');
+      setListError(errorMessage);
+      message.error(errorMessage);
+      setJobs([]);
     } finally {
       setLoading(false);
     }
@@ -132,28 +131,39 @@ export default function AiPreReviewQueue() {
   useEffect(() => {
     if (!selectedJob) {
       setResult(null);
+      setResultLoading(false);
+      setTimelineItems([]);
+      setTimelineError(null);
+      setTimelineLoading(false);
       return;
     }
     let cancelled = false;
     setResultLoading(true);
+    setTimelineLoading(true);
+    setTimelineError(null);
     (async () => {
       try {
-        const res = await aiReviewApi.getJobResult(selectedJob.annotationId);
-        if (!cancelled) setResult(res);
-      } catch {
-        // 回落:用 job 自身数据构造最小 result
-        if (!cancelled) {
-          setResult({
-            scores: { relevance: 0, accuracy: 0, format_compliance: 0, safety: 0 },
-            total_score: selectedJob.totalScore ?? 0,
-            decision: selectedJob.decision ?? 'NEED_HUMAN_REVIEW',
-            comment: '后端未返回详细结果,以下为 Job 摘要数据。',
-            risk_flags: [],
-            evidence: [],
-          });
+        const [resultRes, timelineRes] = await Promise.allSettled([
+          aiReviewApi.getJobResult(selectedJob.annotationId),
+          aiReviewApi.getJobTimeline(selectedJob.jobId),
+        ]);
+        if (cancelled) return;
+        if (resultRes.status === 'fulfilled') {
+          setResult(resultRes.value);
+        } else {
+          setResult(null);
+        }
+        if (timelineRes.status === 'fulfilled') {
+          setTimelineItems(timelineRes.value ?? []);
+        } else {
+          setTimelineItems([]);
+          setTimelineError(getApiErrorMessage(timelineRes.reason, '处理日志加载失败'));
         }
       } finally {
-        if (!cancelled) setResultLoading(false);
+        if (!cancelled) {
+          setResultLoading(false);
+          setTimelineLoading(false);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -192,7 +202,6 @@ export default function AiPreReviewQueue() {
           </Paragraph>
         </Space>
         <Space size={8}>
-          {usingFallback && <Tag color="gold">演示模式</Tag>}
           <Tag color="green">服务在线</Tag>
         </Space>
       </div>
@@ -263,6 +272,16 @@ export default function AiPreReviewQueue() {
         </Space>
       </Card>
 
+      {listError && (
+        <Alert
+          type="error"
+          showIcon
+          message="AI 预审队列加载失败"
+          description={listError}
+          action={<Button size="small" onClick={() => void loadJobs()}>重试</Button>}
+        />
+      )}
+
       {/* 三栏主体 */}
       <div className="ai-queue-layout">
         {/* 左栏:Job 列表,高度动态跟随右栏 */}
@@ -297,7 +316,15 @@ export default function AiPreReviewQueue() {
 
         {/* 中栏 + 右栏:选中 Job 的详情 */}
         {selectedJob ? (
-          <JobDetailPanel job={selectedJob} result={result} loading={resultLoading} rightRef={rightPanelRef} />
+          <JobDetailPanel
+            job={selectedJob}
+            result={result}
+            loading={resultLoading}
+            timelineItems={timelineItems}
+            timelineLoading={timelineLoading}
+            timelineError={timelineError}
+            rightRef={rightPanelRef}
+          />
         ) : (
           <div className="ai-queue-empty-detail" ref={rightPanelRef}>
             <Empty description="点击左侧列表选择一条作业查看详情" />
@@ -321,6 +348,7 @@ function JobListItem({
 }) {
   const meta = statusMeta[job.status];
   const decision = job.decision ? decisionMeta[job.decision] : null;
+  const roundTag = renderRoundTag(job.roundNo);
   // 题目标识:有 itemIndex 时显示「任务名 | 第 N 题」,否则回退到任务名
   const titleText = job.itemIndex
     ? `${job.taskTitle || job.taskId} | 第 ${job.itemIndex} 题`
@@ -349,6 +377,7 @@ function JobListItem({
             text={<Text style={{ fontSize: 11, color: decision.color }}>{decision.label}</Text>}
           />
         )}
+        {roundTag}
       </div>
       <div className="ai-queue-item-bottom">
         <Text type="secondary" style={{ fontSize: 11 }}>
@@ -375,14 +404,21 @@ function JobDetailPanel({
   job,
   result,
   loading,
+  timelineItems,
+  timelineLoading,
+  timelineError,
   rightRef,
 }: {
   job: AiReviewJob;
   result: AiReviewResult | null;
   loading: boolean;
+  timelineItems: AiReviewJobTimelineItem[];
+  timelineLoading: boolean;
+  timelineError: string | null;
   rightRef?: React.Ref<HTMLDivElement>;
 }) {
   const decision = job.decision ? decisionMeta[job.decision] : null;
+  const roundTag = renderRoundTag(job.roundNo, 'detail');
 
   return (
     <div className="ai-queue-detail" ref={rightRef}>
@@ -398,19 +434,22 @@ function JobDetailPanel({
               {job.finishedAt && ` · 完成于 ${job.finishedAt}`}
             </Text>
           </div>
-          {decision && (
-            <Tag
-              color={decision.color}
-              icon={
-                job.decision === 'PASS' ? <CheckCircleFilled /> :
-                job.decision === 'REJECT' ? <CloseCircleFilled /> :
-                <ExclamationCircleFilled />
-              }
-              style={{ fontSize: 14, padding: '4px 12px', borderRadius: 999 }}
-            >
-              AI 建议: {decision.label} ({job.totalScore?.toFixed(2) ?? '-'})
-            </Tag>
-          )}
+          <Space size={8} wrap>
+            {roundTag}
+            {decision && (
+              <Tag
+                color={decision.color}
+                icon={
+                  job.decision === 'PASS' ? <CheckCircleFilled /> :
+                  job.decision === 'REJECT' ? <CloseCircleFilled /> :
+                  <ExclamationCircleFilled />
+                }
+                style={{ fontSize: 14, padding: '4px 12px', borderRadius: 999 }}
+              >
+                AI 建议: {decision.label} ({job.totalScore?.toFixed(2) ?? '-'})
+              </Tag>
+            )}
+          </Space>
         </div>
 
         <Row gutter={16} style={{ marginTop: 16 }}>
@@ -520,9 +559,24 @@ function JobDetailPanel({
               className="ai-queue-card"
               style={{ marginTop: 12 }}
             >
-              <Timeline
-                items={buildTimeline(job)}
-              />
+              {timelineError && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="多轮日志加载失败"
+                  description={timelineError}
+                  style={{ marginBottom: 10 }}
+                />
+              )}
+              <Spin spinning={timelineLoading}>
+                <div className="ai-queue-timeline-scroll">
+                  <Timeline
+                    items={timelineItems.length > 0
+                      ? buildTimelineFromRecords(timelineItems)
+                      : buildTimeline(job)}
+                  />
+                </div>
+              </Spin>
             </Card>
           </Col>
         </Row>
@@ -541,6 +595,24 @@ function scoreColor(score: number): string {
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function renderRoundTag(roundNo?: number, variant: 'list' | 'detail' = 'list') {
+  if (!roundNo || roundNo < 1) return null;
+  const isReworkRound = roundNo > 1;
+  return (
+    <Tag
+      color={isReworkRound ? 'orange' : 'default'}
+      style={{
+        borderRadius: 999,
+        fontSize: variant === 'detail' ? 13 : 11,
+        marginInlineEnd: 0,
+        padding: variant === 'detail' ? '3px 10px' : '0 8px',
+      }}
+    >
+      第 {roundNo} 轮
+    </Tag>
+  );
 }
 
 function buildTimeline(job: AiReviewJob) {
@@ -597,4 +669,29 @@ function buildTimeline(job: AiReviewJob) {
   }
 
   return items;
+}
+
+function buildTimelineFromRecords(records: AiReviewJobTimelineItem[]) {
+  return records.map((item, index) => ({
+    color: timelineColor(item),
+    children: (
+      <span style={{ fontSize: 12 }}>
+        <Text strong>{item.title || item.stage}</Text>
+        {item.message && <> {item.message}</>}
+        <br />
+        <Text type="secondary">{item.occurredAt || '等待记录时间'}</Text>
+      </span>
+    ),
+    key: `${item.roundNo}-${item.stage}-${item.occurredAt ?? index}`,
+  }));
+}
+
+function timelineColor(item: AiReviewJobTimelineItem): string {
+  if (item.stage === 'error') return 'red';
+  if (item.stage === 'verdict') {
+    if (item.decision === 'PASS') return 'green';
+    if (item.decision === 'REJECT') return 'red';
+    return 'orange';
+  }
+  return 'blue';
 }

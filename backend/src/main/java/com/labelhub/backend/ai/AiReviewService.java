@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AiReviewService {
 
+  private static final Logger log = LoggerFactory.getLogger(AiReviewService.class);
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
   private static final TypeReference<List<AiReviewDimension>> DIMENSION_LIST =
       new TypeReference<>() {};
@@ -216,6 +219,7 @@ public class AiReviewService {
         : request.totalScore();
     validateScores(request == null ? null : request.scores(), job.ruleSnapshotJson());
     validateTotalScore(totalScore, job.ruleSnapshotJson());
+    warnIfDecisionInconsistent(job, totalScore, decision);
     aiReviewRepository.createResult(
         job.id(),
         writeNullableJson(request == null ? null : request.scores()),
@@ -416,6 +420,16 @@ public class AiReviewService {
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI_REVIEW_RESULT_NOT_FOUND", "ai review result not found"));
   }
 
+  public List<AiReviewJobTimelineItem> getJobTimeline(Authentication authentication, long jobId) {
+    requireAiManager(authentication);
+    aiReviewRepository.findJob(jobId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI_REVIEW_JOB_NOT_FOUND", "ai review job not found"));
+    return aiReviewRepository.listAssignmentAiJobTimeline(jobId)
+        .stream()
+        .flatMap(record -> buildTimelineItems(record).stream())
+        .toList();
+  }
+
   public AiReviewRepository.AiReviewRuleRecord resolveEnabledRule(Long explicitRuleId, Long taskId) {
     if (explicitRuleId != null) {
       return aiReviewRepository.findEnabledRule(explicitRuleId)
@@ -541,6 +555,34 @@ public class AiReviewService {
     }
   }
 
+  private void warnIfDecisionInconsistent(
+      AiReviewRepository.AiReviewJobRecord job,
+      double totalScore,
+      String decision) {
+    ObjectNode snapshot = normalizeRuleSnapshot(job.ruleSnapshotJson());
+    double passThreshold = snapshot.path("passThreshold").asDouble(DEFAULT_PASS_THRESHOLD);
+    double needHumanThreshold = snapshot.path("needHumanThreshold").asDouble(DEFAULT_NEED_HUMAN_THRESHOLD);
+    String expectedDecision;
+    if (totalScore >= passThreshold) {
+      expectedDecision = "PASS";
+    } else if (totalScore >= needHumanThreshold) {
+      expectedDecision = "NEED_HUMAN_REVIEW";
+    } else {
+      expectedDecision = "REJECT";
+    }
+    if (!expectedDecision.equals(decision)) {
+      log.warn(
+          "AI review decision inconsistent with thresholds: jobId={}, annotationId={}, totalScore={}, decision={}, expectedDecision={}, passThreshold={}, needHumanThreshold={}",
+          job.id(),
+          job.annotationId(),
+          totalScore,
+          decision,
+          expectedDecision,
+          passThreshold,
+          needHumanThreshold);
+    }
+  }
+
   private List<AiReviewDimension> parseDimensionsFromSnapshot(String ruleSnapshotJson) {
     JsonNode snapshot = normalizeRuleSnapshot(ruleSnapshotJson);
     JsonNode dimensions = snapshot.path("dimensions");
@@ -588,6 +630,7 @@ public class AiReviewService {
         normalizeFrontendJobStatus(record.status()),
         record.decision(),
         record.totalScore(),
+        record.revisionNo(),
         record.itemIndex(),
         record.itemTotal(),
         record.retryCount(),
@@ -610,6 +653,74 @@ public class AiReviewService {
         readJson(record.responseJson()),
         record.modelName(),
         record.latencyMs());
+  }
+
+  private List<AiReviewJobTimelineItem> buildTimelineItems(
+      AiReviewRepository.AiReviewJobTimelineRecord record) {
+    java.util.ArrayList<AiReviewJobTimelineItem> items = new java.util.ArrayList<>();
+    items.add(new AiReviewJobTimelineItem(
+        record.revisionNo(),
+        "queue",
+        "第 " + record.revisionNo() + " 轮进入队列",
+        normalizeFrontendJobStatus(record.jobStatus()),
+        null,
+        null,
+        buildQueueMessage(record),
+        formatDateTime(record.createdAt())));
+
+    if (record.startedAt() != null) {
+      items.add(new AiReviewJobTimelineItem(
+          record.revisionNo(),
+          "llm",
+          "第 " + record.revisionNo() + " 轮调用模型",
+          normalizeFrontendJobStatus(record.jobStatus()),
+          null,
+          null,
+          "开始调用模型生成结构化预审结果",
+          formatDateTime(record.startedAt())));
+    }
+
+    if ("succeeded".equals(record.jobStatus()) && record.decision() != null && !record.decision().isBlank()) {
+      items.add(new AiReviewJobTimelineItem(
+          record.revisionNo(),
+          "verdict",
+          "第 " + record.revisionNo() + " 轮 AI 结论",
+          "success",
+          record.decision(),
+          record.totalScore(),
+          buildVerdictMessage(record),
+          formatDateTime(record.finishedAt())));
+    }
+
+    if ("failed".equals(record.jobStatus())) {
+      items.add(new AiReviewJobTimelineItem(
+          record.revisionNo(),
+          "error",
+          "第 " + record.revisionNo() + " 轮预审失败",
+          "failed",
+          null,
+          null,
+          record.errorSummary() == null || record.errorSummary().isBlank()
+              ? "AI 预审失败，未返回详细错误"
+              : record.errorSummary(),
+          formatDateTime(record.finishedAt())));
+    }
+    return items;
+  }
+
+  private String buildQueueMessage(AiReviewRepository.AiReviewJobTimelineRecord record) {
+    String retryText = record.retryCount() > 0 ? " · 第 " + record.retryCount() + " 次重试" : "";
+    String availableText = record.availableAt() == null ? "" : " · 可执行时间 " + formatDateTime(record.availableAt());
+    String cancelText = record.cancelReason() == null || record.cancelReason().isBlank()
+        ? ""
+        : " · 上次取消原因: " + record.cancelReason();
+    return "进入 AI 预审队列" + retryText + availableText + cancelText;
+  }
+
+  private String buildVerdictMessage(AiReviewRepository.AiReviewJobTimelineRecord record) {
+    String score = record.totalScore() == null ? "-" : String.format(Locale.ROOT, "%.2f", record.totalScore());
+    String comment = record.comment() == null || record.comment().isBlank() ? "" : " · " + record.comment();
+    return "结论: " + record.decision() + " · 分数 " + score + comment;
   }
 
   private ObjectNode buildRawPayload(AiReviewRepository.AiReviewJobPayloadRecord payload) {
