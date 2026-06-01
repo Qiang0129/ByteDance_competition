@@ -298,12 +298,18 @@ public class DatasetService {
 
   private String normalizeKindToken(String kind) {
     String normalized = kind.trim().toLowerCase(Locale.ROOT)
+        .replace('/', '_')
+        .replace('／', '_')
         .replace('-', '_')
         .replaceAll("\\s+", "_");
     if (normalized.equals("preference")
         || normalized.equals("preference_compare")
         || normalized.equals("preference_ab")
-        || normalized.equals("preference_a_b")) {
+        || normalized.equals("preference_a_b")
+        || normalized.equals("pairwise_preference")
+        || normalized.equals("pairwise_preference_rlhf")
+        || normalized.equals("rlhf")
+        || normalized.contains("偏好对比")) {
       return "preference_compare";
     }
     if (normalized.equals("qa")

@@ -104,19 +104,49 @@ const fieldGuide = {
 
 const datasetKindOptions = [
   { label: 'qa_quality · 问答质量评估', value: 'qa_quality' },
-  { label: 'preference_compare · 偏好对比 A/B', value: 'preference_compare' },
+  { label: 'preference_compare · 偏好对比标注（Pairwise Preference / RLHF）', value: 'preference_compare' },
 ];
 
+function normalizeDatasetKind(kind?: string): DatasetKind {
+  const normalized = (kind ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[-/／]+/g, '_')
+    .replace(/\s+/g, '_');
+  if (
+    normalized === 'qa'
+    || normalized === 'qa_quality'
+    || normalized === 'question_answer_quality'
+    || normalized.includes('问答质量')
+  ) {
+    return 'qa_quality';
+  }
+  if (
+    normalized === 'preference'
+    || normalized === 'preference_compare'
+    || normalized === 'preference_ab'
+    || normalized === 'preference_a_b'
+    || normalized === 'pairwise_preference'
+    || normalized === 'pairwise_preference_rlhf'
+    || normalized === 'rlhf'
+    || normalized.includes('偏好对比')
+  ) {
+    return 'preference_compare';
+  }
+  return (kind?.trim() || 'qa_quality') as DatasetKind;
+}
+
 function getDatasetKindMeta(kind?: string) {
-  if (kind === 'qa_quality') {
+  const normalizedKind = normalizeDatasetKind(kind);
+  if (normalizedKind === 'qa_quality') {
     return { color: 'blue', label: 'QA Quality', guide: fieldGuide.qa_quality };
   }
-  if (kind === 'preference_compare') {
-    return { color: 'purple', label: 'Preference', guide: fieldGuide.preference_compare };
+  if (normalizedKind === 'preference_compare') {
+    return { color: 'purple', label: 'Pairwise Preference', guide: fieldGuide.preference_compare };
   }
   return {
     color: 'default',
-    label: kind || 'Custom',
+    label: normalizedKind || 'Custom',
     guide: [
       { key: 'id', desc: '建议保留稳定主键,便于追踪和后续绑定任务', required: false },
       { key: 'raw_payload', desc: '自定义类型会按原始 JSON 字段通用展示', required: false },
@@ -133,7 +163,7 @@ function normalizeDatasetFormValues(values: DatasetFormValues): DatasetFormValue
   return {
     ...values,
     taskId: values.taskId?.trim() || undefined,
-    kind: values.kind.trim(),
+    kind: normalizeDatasetKind(values.kind),
   };
 }
 
@@ -220,6 +250,7 @@ export default function OwnerDatasets() {
   const [submitting, setSubmitting] = useState(false);
   const [importFileList, setImportFileList] = useState<UploadFile[]>([]);
   const [appendFileList, setAppendFileList] = useState<UploadFile[]>([]);
+  const [kindDropdownOpen, setKindDropdownOpen] = useState(false);
   const [itemsReloadKey, setItemsReloadKey] = useState(0);
 
   const activeDataset = datasets.find((d) => d.id === activeId);
@@ -316,16 +347,17 @@ export default function OwnerDatasets() {
 
   const filteredItems = useMemo(() => {
     if (!activeDataset) return [];
+    const activeKind = normalizeDatasetKind(activeDataset.kind);
     const lowerKeyword = keyword.toLowerCase();
     return items.filter((item) => {
-      if (activeDataset.kind === 'qa_quality') {
+      if (activeKind === 'qa_quality') {
         const it = item as QaQualityItem;
         if (mediaFilter !== 'all' && it.media_type !== mediaFilter) return false;
         if (keyword) {
           const hay = `${it.id} ${it.prompt} ${it.model_answer} ${it.category}`.toLowerCase();
           if (!hay.includes(lowerKeyword)) return false;
         }
-      } else if (activeDataset.kind === 'preference_compare') {
+      } else if (activeKind === 'preference_compare') {
         const it = item as PreferenceCompareItem;
         if (keyword) {
           const hay = `${it.id} ${it.prompt} ${it.response_a} ${it.response_b}`.toLowerCase();
@@ -470,9 +502,7 @@ export default function OwnerDatasets() {
 
   const openImportModal = () => {
     importForm.resetFields();
-    importForm.setFieldsValue({
-      kind: 'qa_quality',
-    });
+    setKindDropdownOpen(false);
     setImportFileList([]);
     setImportOpen(true);
   };
@@ -809,7 +839,7 @@ export default function OwnerDatasets() {
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
             />
-            {activeDataset?.kind === 'qa_quality' && (
+            {normalizeDatasetKind(activeDataset?.kind) === 'qa_quality' && (
               <Segmented
                 options={[
                   { label: '全部', value: 'all' },
@@ -830,7 +860,7 @@ export default function OwnerDatasets() {
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description="暂无可预览的数据集"
           />
-        ) : activeDataset.kind === 'qa_quality' ? (
+        ) : normalizeDatasetKind(activeDataset.kind) === 'qa_quality' ? (
           <Table<QaQualityItem>
             columns={qaColumns}
             dataSource={filteredItems as QaQualityItem[]}
@@ -840,7 +870,7 @@ export default function OwnerDatasets() {
             onRow={(record) => ({ onClick: () => showItemDetail(record) })}
             rowClassName="dataset-table-row"
           />
-        ) : activeDataset.kind === 'preference_compare' ? (
+        ) : normalizeDatasetKind(activeDataset.kind) === 'preference_compare' ? (
           <Table<PreferenceCompareItem>
             columns={prefColumns}
             dataSource={filteredItems as PreferenceCompareItem[]}
@@ -872,7 +902,7 @@ export default function OwnerDatasets() {
         closeIcon={<CloseOutlined />}
       >
         {activeItem && activeDataset ? (
-          <ItemDetail item={activeItem} kind={activeDataset.kind} />
+          <ItemDetail item={activeItem} kind={normalizeDatasetKind(activeDataset.kind)} />
         ) : (
           <Empty />
         )}
@@ -998,17 +1028,24 @@ export default function OwnerDatasets() {
             label="数据集类型"
             rules={[
               { required: true, message: '请选择或输入数据集类型' },
+              { whitespace: true, message: '请选择或输入数据集类型' },
               { max: 64, message: '数据集类型最多 64 个字符' },
             ]}
           >
             <AutoComplete
+              open={kindDropdownOpen}
               options={datasetKindOptions}
               placeholder="选择内置类型或输入自定义类型"
-              filterOption={(inputValue, option) =>
-                String(option?.label ?? option?.value ?? '')
-                  .toLowerCase()
-                  .includes(inputValue.toLowerCase())
-              }
+              onFocus={() => setKindDropdownOpen(true)}
+              onClick={() => setKindDropdownOpen(true)}
+              onSearch={() => setKindDropdownOpen(true)}
+              onSelect={() => setKindDropdownOpen(false)}
+              onOpenChange={setKindDropdownOpen}
+              filterOption={(inputValue, option) => {
+                const keyword = inputValue.toLowerCase().trim();
+                if (!keyword) return true;
+                return String(option?.label ?? option?.value ?? '').toLowerCase().includes(keyword);
+              }}
             />
           </Form.Item>
           <Form.Item label="数据文件 (可选)">

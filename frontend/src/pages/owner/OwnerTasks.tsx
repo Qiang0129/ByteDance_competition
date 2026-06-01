@@ -66,6 +66,8 @@ interface PublishFormValues {
   schemaVersionId?: string;
   aiReviewEnabled?: boolean;
   aiReviewRuleId?: string;
+  /** 是否为标注员开启 LLM 答题助手 */
+  llmAssistEnabled?: boolean;
 }
 
 const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm';
@@ -408,6 +410,7 @@ export default function OwnerTasks() {
           : undefined,
       aiReviewEnabled: row?.aiReviewEnabled ?? true,
       aiReviewRuleId: row?.aiReviewRuleId ?? aiRules[0]?.ruleId,
+      llmAssistEnabled: row?.llmAssistEnabled ?? false,
     };
   }
 
@@ -444,6 +447,7 @@ export default function OwnerTasks() {
       schemaVersionId: schema?.versionId,
       aiReviewEnabled: values.aiReviewEnabled ?? true,
       aiReviewRuleId: values.aiReviewEnabled === false ? undefined : values.aiReviewRuleId,
+      llmAssistEnabled: values.llmAssistEnabled ?? false,
       status,
     };
   }
@@ -825,6 +829,21 @@ export default function OwnerTasks() {
               />
             </Form.Item>
           ) : null}
+
+          {/*
+            标注员 LLM 助手开关:
+              - 默认关闭,需 Owner 主动开启,避免 RLHF 偏好对比等敏感任务被 LLM 影响主观判断;
+              - 开启后,标注员答题页右下角出现 AI 助手浮动按钮,可向 LLM 问"如何理解这道题",
+                助手只给参考意见,不能直接写答案字段。
+           */}
+          <Form.Item
+            label="启用 LLM 答题助手"
+            name="llmAssistEnabled"
+            valuePropName="checked"
+            extra="开启后,标注员答题页可向 AI 助手提问。助手仅给参考思路,不会直接填写答案字段。"
+          >
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          </Form.Item>
         </Form>
       </Drawer>
     </Space>

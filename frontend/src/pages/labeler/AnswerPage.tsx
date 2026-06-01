@@ -33,6 +33,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
 import { filterVisibleAnswer, LabelHubFormRenderer, resolveRuntimeRules, resolveSemanticType } from '../../modules/schema';
+import LabelerAssistantPanel from './LabelerAssistantPanel';
 import type {
   AssignmentItem,
   BatchSubmitInvalidItem,
@@ -954,6 +955,13 @@ export default function AnswerPage() {
           </Form.Item>
         </Form>
       </Drawer>
+
+      {/*
+        AI 答题助手:仅在当前题可编辑时渲染。
+        后端 llmAssistEnabled 字段落地后,改为 `item.llmAssistEnabled !== false && canEdit`
+        以支持 Owner 在任务级关闭助手;当前 Mock 阶段后端未返回该字段,默认展示。
+      */}
+      {canEdit ? <LabelerAssistantPanel item={item} /> : null}
     </Space>
   );
 }
