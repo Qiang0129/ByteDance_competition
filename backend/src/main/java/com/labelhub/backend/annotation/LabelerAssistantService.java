@@ -14,11 +14,11 @@ import com.labelhub.backend.task.TaskDeadlineSettlementService;
 import com.labelhub.backend.workflow.AuditLogRepository;
 import com.labelhub.backend.workflow.WorkflowEntityType;
 import java.io.BufferedReader;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.StringReader;
-import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -184,7 +184,7 @@ public class LabelerAssistantService {
 
   private String buildSystemPrompt(AssignmentItemRecord assignment) {
     return """
-        你是 LabelHub 的标注员答题助手。你只能帮助标注员理解题目、Schema 字段和判断思路。
+        你是 LabelHub 的标注员标注助手。你只能帮助标注员理解题目、Schema 字段和判断思路。
         禁止直接替标注员生成可提交的最终答案,禁止要求系统自动写入答案字段。
         回答必须简洁、可操作,并明确这是参考建议。
 
@@ -265,7 +265,7 @@ public class LabelerAssistantService {
           .send(request, HttpResponse.BodyHandlers.ofInputStream());
       if (response.statusCode() < 200 || response.statusCode() >= 300) {
         String errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-        auditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", errorBody);
+        safeAuditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", errorBody);
         sendEvent(writer, "error", "LLM_ASSIST_REQUEST_FAILED");
         return;
       }
@@ -291,22 +291,30 @@ public class LabelerAssistantService {
         }
       }
       if (answer.isEmpty()) {
-        auditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", "empty stream answer");
+        safeAuditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", "empty stream answer");
         sendEvent(writer, "error", "LLM_ASSIST_REQUEST_FAILED");
         return;
       }
-      auditAssistantCall(labeler, assignment, config.modelName(), question, answer.toString(), null, "success", null);
+      safeAuditAssistantCall(labeler, assignment, config.modelName(), question, answer.toString(), null, "success", null);
       sendEvent(writer, "done", "DONE");
     } catch (IOException | InterruptedException | RuntimeException exception) {
       if (exception instanceof InterruptedException) {
         Thread.currentThread().interrupt();
       }
-      auditAssistantCall(labeler, assignment, config.modelName(), question, answer.isEmpty() ? null : answer.toString(), null, "failed", exception.getMessage());
-      try {
-        sendEvent(writer, "error", "LLM_ASSIST_REQUEST_FAILED");
-      } catch (IOException ioException) {
-        throw new UncheckedIOException(ioException);
+      if (isClientDisconnect(exception)) {
+        safeAuditAssistantCall(
+            labeler,
+            assignment,
+            config.modelName(),
+            question,
+            answer.isEmpty() ? null : answer.toString(),
+            null,
+            "cancelled",
+            exception.getMessage());
+        return;
       }
+      safeAuditAssistantCall(labeler, assignment, config.modelName(), question, answer.isEmpty() ? null : answer.toString(), null, "failed", exception.getMessage());
+      safeSendEvent(writer, "error", "LLM_ASSIST_REQUEST_FAILED");
     }
   }
 
@@ -355,6 +363,14 @@ public class LabelerAssistantService {
     writer.flush();
   }
 
+  private void safeSendEvent(Writer writer, String event, String data) {
+    try {
+      sendEvent(writer, event, data);
+    } catch (IOException exception) {
+      // SSE 响应可能已被浏览器主动关闭,此时不能再把异常抛给 Spring 错误页。
+    }
+  }
+
   private void auditAssistantCall(
       AuthenticatedUser labeler,
       AssignmentItemRecord assignment,
@@ -391,6 +407,43 @@ public class LabelerAssistantService {
         null,
         null,
         writeAuditSnapshot(assignment.assignmentId(), snapshot));
+  }
+
+  private void safeAuditAssistantCall(
+      AuthenticatedUser labeler,
+      AssignmentItemRecord assignment,
+      String modelName,
+      String question,
+      String answer,
+      Integer tokensUsed,
+      String status,
+      String error) {
+    try {
+      auditAssistantCall(labeler, assignment, modelName, question, answer, tokensUsed, status, error);
+    } catch (RuntimeException exception) {
+      // 审计失败不能影响已经开始的 SSE 响应,否则会触发 response committed 错误页。
+    }
+  }
+
+  private boolean isClientDisconnect(Throwable exception) {
+    Throwable current = exception;
+    while (current != null) {
+      if (current instanceof EOFException) {
+        return true;
+      }
+      String message = current.getMessage();
+      if (message != null) {
+        String normalized = message.toLowerCase(Locale.ROOT);
+        if (normalized.contains("broken pipe")
+            || normalized.contains("connection reset")
+            || normalized.contains("clientabortexception")
+            || normalized.contains("abort")) {
+          return true;
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 
   private String writeAuditSnapshot(long assignmentId, JsonNode snapshot) {

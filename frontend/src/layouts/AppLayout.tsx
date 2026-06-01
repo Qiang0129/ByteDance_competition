@@ -51,7 +51,7 @@ import { AiAssistantIcon } from '../components/icons';
 const { Header, Sider, Content } = Layout;
 
 /** 系统版本号:优先取构建时注入的 VITE_APP_VERSION,缺省回落到默认值 */
-const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.0';
+const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.6';
 
 /** 角色顶层路径前缀,用于推断当前在哪个角色端 */
 type RoleSection = WorkspaceRole;
@@ -246,8 +246,31 @@ export default function AppLayout() {
   const section = resolveSection(location.pathname);
   const selectedKey = resolveSelectedKey(section, location.pathname);
 
-  // 侧栏折叠状态:由顶部左侧折叠按钮控制
+  // 侧栏折叠状态:由顶部左侧折叠按钮控制(桌面端语义:窄轨/宽轨)
   const [collapsed, setCollapsed] = useState(false);
+
+  /**
+   * 移动端适配(阶段 A):
+   *   - isMobile: 视口宽度 <= 768px,据此把常驻 Sider 切换成全屏遮罩抽屉;
+   *   - mobileNavOpen: 移动端抽屉式侧栏的展开状态,默认收起,汉堡按钮切换、点遮罩/菜单项后关闭。
+   * 桌面端 isMobile=false,沿用原有 collapsed 逻辑,行为完全不变。
+   */
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 768px)');
+    const onChange = (event: MediaQueryListEvent) => {
+      setIsMobile(event.matches);
+      // 切回桌面端时,确保移动抽屉关闭,避免遗留遮罩
+      if (!event.matches) setMobileNavOpen(false);
+    };
+    setIsMobile(mql.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
 
   // 滚动距离 > 8px 时给 header 加上液态玻璃样式
   const [scrolled, setScrolled] = useState(false);
@@ -262,6 +285,11 @@ export default function AppLayout() {
     };
   }, []);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuthUser());
+
+  // 路由变化时自动收起移动端抽屉(点菜单跳转后不该继续盖着遮罩)
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -433,8 +461,23 @@ export default function AppLayout() {
   ];
 
   return (
-    <Layout className="app-shell app-shell-enter">
-      <Sider width={232} collapsedWidth={72} collapsed={collapsed} theme="light" trigger={null}>
+    <Layout className={`app-shell app-shell-enter${isMobile ? ' is-mobile' : ''}${isMobile && mobileNavOpen ? ' nav-open' : ''}`}>
+      {/* 移动端抽屉遮罩:展开时显示,点击关闭。桌面端不渲染。 */}
+      {isMobile && (
+        <div
+          className={`app-mobile-mask${mobileNavOpen ? ' is-open' : ''}`}
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden={!mobileNavOpen}
+        />
+      )}
+      <Sider
+        width={232}
+        collapsedWidth={72}
+        collapsed={!isMobile && collapsed}
+        theme="light"
+        trigger={null}
+        className={isMobile ? `app-sider-mobile${mobileNavOpen ? ' is-open' : ''}` : undefined}
+      >
         <div className="app-sider-inner">
           <div className="app-logo">
             <span className="app-logo-mark">LH</span>
@@ -453,7 +496,7 @@ export default function AppLayout() {
           <div className="app-sider-footer">
             <span className="app-sider-footer-full" aria-hidden={collapsed}>
               <span className="app-sider-version">LabelHub v{APP_VERSION}</span>
-              <span className="app-sider-build">Phase 1 · MVP</span>
+              <span className="app-sider-build">Phase 2 · MVP</span>
             </span>
             <span className="app-sider-version-mark" aria-hidden={!collapsed}>
               v{APP_VERSION}
@@ -469,8 +512,20 @@ export default function AppLayout() {
             <Button
               type="text"
               className="app-header-toggle"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed((value) => !value)}
+              icon={
+                isMobile
+                  ? mobileNavOpen
+                    ? <MenuFoldOutlined />
+                    : <MenuUnfoldOutlined />
+                  : collapsed
+                    ? <MenuUnfoldOutlined />
+                    : <MenuFoldOutlined />
+              }
+              onClick={() =>
+                isMobile
+                  ? setMobileNavOpen((value) => !value)
+                  : setCollapsed((value) => !value)
+              }
             />
             <Breadcrumb
               className="app-header-breadcrumb"

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AppstoreOutlined,
   ClockCircleOutlined,
@@ -87,6 +87,27 @@ const strategyMeta: Record<AssignStrategy, { label: string; color: string }> = {
   assigned: { label: '指派', color: 'purple' },
   quota: { label: '配额抢单', color: 'gold' },
 };
+
+function resolveMarketCardStatusTag(
+  task: MarketTask,
+  expired: boolean,
+  exhausted: boolean,
+): { label: string; color: string } {
+  if (task.claimedByMe) {
+    return { label: '已认领', color: 'processing' };
+  }
+  const claimable = task.claimable ?? (!expired && !exhausted);
+  if (!claimable && task.statusLabel) {
+    return { label: task.statusLabel, color: expired ? 'default' : 'warning' };
+  }
+  if (!claimable) {
+    if (expired) return { label: '已截止', color: 'default' };
+    if (exhausted) return { label: '配额已满', color: 'warning' };
+    return { label: '不可认领', color: 'warning' };
+  }
+  const strategyTag = strategyMeta[task.assignStrategy];
+  return strategyTag ?? { label: task.assignStrategy, color: 'default' };
+}
 
 const mediaMeta: Record<
   TaskMediaType,
@@ -201,21 +222,34 @@ export default function TaskMarket() {
   const [activeTask, setActiveTask] = useState<MarketTask | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
 
-  async function loadTasks() {
+  const applyMarketTasks = useCallback((items: MarketTask[]) => {
+    setTasks(items);
+    setActiveTask((current) => {
+      if (!current) return current;
+      return items.find((item) => item.taskId === current.taskId) ?? current;
+    });
+  }, []);
+
+  const fetchMarketTasks = useCallback(async () => {
+    const response = await labelerApi.listMarketTasks({ page: 1, pageSize: 50 });
+    return Array.isArray(response.items) ? response.items : [];
+  }, []);
+
+  const loadTasks = useCallback(async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const response = await labelerApi.listMarketTasks({ page: 1, pageSize: 50 });
-      setTasks(Array.isArray(response.items) ? response.items : []);
+      applyMarketTasks(await fetchMarketTasks());
     } catch (error) {
       const text = getApiErrorMessage(error, '任务市场加载失败');
       setLoadError(text);
       setTasks([]);
+      setActiveTask(null);
       message.error(text);
     } finally {
       setLoading(false);
     }
-  }
+  }, [applyMarketTasks, fetchMarketTasks, message]);
 
   useEffect(() => {
     let cancelled = false;
@@ -225,14 +259,15 @@ export default function TaskMarket() {
       setLoadError('');
 
       try {
-        const response = await labelerApi.listMarketTasks({ page: 1, pageSize: 50 });
+        const items = await fetchMarketTasks();
         if (cancelled) return;
-        setTasks(Array.isArray(response.items) ? response.items : []);
+        applyMarketTasks(items);
       } catch (error) {
         if (cancelled) return;
         const text = getApiErrorMessage(error, '任务市场加载失败');
         setLoadError(text);
         setTasks([]);
+        setActiveTask(null);
         message.error(text);
       } finally {
         if (!cancelled) {
@@ -245,7 +280,7 @@ export default function TaskMarket() {
     return () => {
       cancelled = true;
     };
-  }, [message]);
+  }, [applyMarketTasks, fetchMarketTasks, message]);
 
   const filteredTasks = useMemo(() => {
     let list = tasks.slice();
@@ -346,17 +381,26 @@ export default function TaskMarket() {
     try {
       await labelerApi.claimTask(task.taskId);
       message.success('认领成功，已加入「我的任务」。');
-      setTasks((previous) =>
-        previous.map((current) =>
-          current.taskId === task.taskId
-            ? {
-                ...current,
-                claimedByMe: true,
-                remainingQuota: Math.max(0, (current.remainingQuota ?? 0) - 1),
-              }
-            : current,
-        ),
-      );
+      try {
+        applyMarketTasks(await fetchMarketTasks());
+      } catch (refreshError) {
+        setTasks((previous) =>
+          previous.map((current) =>
+            current.taskId === task.taskId
+              ? {
+                  ...current,
+                  claimedByMe: true,
+                }
+              : current,
+          ),
+        );
+        setActiveTask((current) =>
+          current?.taskId === task.taskId ? { ...current, claimedByMe: true } : current,
+        );
+        message.warning(
+          getApiErrorMessage(refreshError, '认领成功，但最新配额刷新失败，请刷新页面查看。'),
+        );
+      }
     } catch (error) {
       message.error(getClaimErrorMessage(error));
     } finally {
@@ -551,13 +595,10 @@ function TaskCard({
   const total = task.totalQuota ?? 0;
   const ratio = total === 0 ? 0 : Math.round(((total - remaining) / total) * 100);
   const deadline = deadlineRemaining(task.deadline);
-  const strategyTag = strategyMeta[task.assignStrategy] ?? {
-    label: task.assignStrategy,
-    color: 'default',
-  };
   const exhausted = remaining === 0;
   const expired = task.expired || deadline.expired || task.statusLabel === '已截止';
   const claimable = task.claimable ?? (!expired && !exhausted);
+  const statusTag = resolveMarketCardStatusTag(task, expired, exhausted);
 
   return (
     <Card
@@ -568,11 +609,7 @@ function TaskCard({
         <Space size={6} wrap>
           <span className="market-card-title">{task.title}</span>
           <Tag className="market-type-tag">{task.taskType}</Tag>
-          {task.statusLabel && (
-            <Tag color={expired ? 'default' : claimable ? 'success' : 'warning'}>
-              {task.statusLabel}
-            </Tag>
-          )}
+          <Tag color={statusTag.color}>{statusTag.label}</Tag>
         </Space>
         <Tooltip title={task.rewardCap ?? ''}>
           <Tag className="market-reward-tag">
@@ -590,7 +627,6 @@ function TaskCard({
       </Typography.Paragraph>
 
       <div className="market-card-tags">
-        <Tag color={strategyTag.color}>{strategyTag.label}</Tag>
         {(task.mediaTypes ?? []).map((mediaType) => {
           const meta = mediaMeta[mediaType];
           if (!meta) return null;

@@ -44,7 +44,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: "Microsoft YaHei", "微软雅黑", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "PingFang SC", "PingFang HK", "Noto Sans SC", "Microsoft YaHei", "微软雅黑", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 500;
   /* 离场动画:opacity 配合轻微缩放,与目标页淡入对接 */
   opacity: 1;
   transform: scale(1);
@@ -59,7 +60,7 @@ body {
   pointer-events: none;
 }
 
-/* 让登录页内的 antd 组件也使用微软雅黑(覆盖 ConfigProvider 的全局字体) */
+/* 让登录页内的 antd 组件也使用登录页字体栈(覆盖 ConfigProvider 的全局字体) */
 .login-page .ant-input,
 .login-page .ant-input-affix-wrapper,
 .login-page .ant-select,
@@ -67,6 +68,7 @@ body {
 .login-page .ant-form-item,
 .login-page .ant-typography {
   font-family: inherit;
+  font-weight: inherit;
 }
 
 /* 右上角两个蓝色装饰圆球 */
@@ -145,20 +147,49 @@ body {
 }
 
 .login-side-title {
-  font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
   font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 4px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   color: #2a3140;
 }
 
 /* 登录卡 */
 .login-card {
   position: relative;
+  isolation: isolate;
   width: 360px;
   padding: 64px 36px 28px;
-  background: #ffffff;
+  overflow: visible;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0) 34%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.74) 0%, rgba(246, 250, 255, 0.56) 58%, rgba(255, 255, 255, 0.66) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 18px;
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.88) inset,
+    0 -1px 3px rgba(15, 23, 42, 0.04) inset,
+    0 20px 52px rgba(15, 23, 42, 0.13),
+    0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(132deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.18) 24%, rgba(255, 255, 255, 0) 46%),
+    radial-gradient(circle at 82% 8%, rgba(255, 255, 255, 0.48) 0%, rgba(255, 255, 255, 0) 30%);
+  opacity: 0.74;
+  mix-blend-mode: screen;
+}
+
+.login-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* 翻转容器:正反两面卡片切换。
@@ -168,7 +199,7 @@ body {
   position: relative;
   width: 360px;
   perspective: 1500px;
-  filter: drop-shadow(0 18px 50px rgba(15, 23, 42, 0.12));
+  filter: drop-shadow(0 18px 50px rgba(15, 23, 42, 0.10));
 }
 
 .login-card-inner {
@@ -217,9 +248,8 @@ body {
 .login-welcome {
   margin: 8px 0 28px;
   text-align: center;
-  font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
   font-size: 25.6px;
-  font-weight: 700;
+  font-weight: 600;
   color: #000000;
   line-height: 1.4;
 }
@@ -229,15 +259,40 @@ body {
 .login-input.ant-input,
 .login-input.ant-select .ant-select-selector {
   border-radius: 999px !important;
-  background: #f5f7fb;
-  border-color: #e6eaf2;
+  background: rgba(248, 251, 255, 0.56) !important;
+  border-color: rgba(209, 218, 232, 0.74) !important;
   padding-left: 16px;
   padding-right: 16px;
   height: 44px;
+  -webkit-backdrop-filter: blur(10px) saturate(145%);
+  backdrop-filter: blur(10px) saturate(145%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 -1px 2px rgba(15, 23, 42, 0.03) inset,
+    0 6px 16px rgba(15, 23, 42, 0.04);
 }
 
 .login-input.ant-input-affix-wrapper .ant-input {
   background: transparent;
+}
+
+.login-input.ant-input-affix-wrapper:hover,
+.login-input.ant-input:hover,
+.login-input.ant-select:hover .ant-select-selector {
+  border-color: var(--lh-primary-bg-45) !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+}
+
+.login-input.ant-input-affix-wrapper-focused,
+.login-input.ant-input:focus,
+.login-input.ant-input-focused,
+.login-input.ant-select.ant-select-focused .ant-select-selector {
+  border-color: var(--lh-primary-bg-55) !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.86) inset,
+    0 0 0 3px var(--lh-primary-bg-12),
+    0 8px 18px rgba(15, 23, 42, 0.06) !important;
 }
 
 .login-input .anticon {
@@ -251,22 +306,42 @@ body {
 
 /* 蓝色胶囊登录按钮 */
 .login-submit.ant-btn {
+  position: relative;
+  overflow: hidden;
   height: 44px;
   border-radius: 999px;
   font-weight: 600;
-  letter-spacing: 2px;
+  letter-spacing: 0.08em;
   background: var(--lh-primary);
-  box-shadow: 0 8px 18px var(--lh-primary-bg-30);
+  border-color: transparent;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.32) inset,
+    0 10px 24px var(--lh-primary-bg-28),
+    0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.login-submit.ant-btn::before {
+  content: '';
+  position: absolute;
+  inset: 1px 1px auto;
+  height: 48%;
+  border-radius: 999px 999px 18px 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0));
+  pointer-events: none;
 }
 
 .login-submit.ant-btn:hover {
   background: var(--lh-primary-hover) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.38) inset,
+    0 12px 28px var(--lh-primary-bg-35),
+    0 3px 10px rgba(15, 23, 42, 0.1);
 }
 
 .login-demo-panel {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px dashed #e5eaf2;
+  border-top: 1px dashed rgba(207, 219, 236, 0.72);
 }
 
 .login-demo-title {
@@ -286,18 +361,28 @@ body {
 .login-demo-button.ant-btn {
   height: 34px;
   border-radius: 999px;
-  padding: 0 8px;
-  background: #f5f7fb;
-  border-color: #e6eaf2;
+  padding: 0 7px;
+  background: rgba(248, 251, 255, 0.54);
+  border-color: rgba(209, 218, 232, 0.72);
   color: #475569;
   font-size: 12px;
   font-weight: 600;
+  -webkit-backdrop-filter: blur(8px) saturate(145%);
+  backdrop-filter: blur(8px) saturate(145%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 -1px 2px rgba(15, 23, 42, 0.03) inset,
+    0 5px 14px rgba(15, 23, 42, 0.04);
 }
 
 .login-demo-button.ant-btn:hover {
   border-color: var(--lh-primary-bg-45) !important;
   color: var(--lh-primary) !important;
-  background: var(--lh-primary-bg-6) !important;
+  background: var(--lh-primary-bg-10) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82) inset,
+    0 0 0 2px var(--lh-primary-bg-8),
+    0 7px 16px rgba(15, 23, 42, 0.06);
 }
 
 .login-demo-button.ant-btn .anticon {
@@ -321,6 +406,77 @@ body {
 @media (max-width: 992px) {
   .login-side {
     display: none;
+  }
+}
+
+/* ========== 登录页移动端适配(<=768px)========== */
+@media (max-width: 768px) {
+  .login-page {
+    /* 强约束:铺满视口、禁止横向溢出、padding 计入宽度,避免任何子元素把页面推宽导致卡片偏移 */
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow-x: hidden;
+    padding: 20px 16px;
+    /* 移动浏览器地址栏会动态改变视口高度,用 dvh 让卡片真正垂直居中 */
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* 内容区:占满宽度并强制水平居中,兜底 flex 居中之外再加 margin auto */
+  .login-content {
+    width: 100%;
+    max-width: 100%;
+    justify-content: center;
+  }
+
+  /* 卡片与翻转容器:不再写死 360px,留 32px 安全边距,360 屏也不溢出;margin auto 二次居中兜底 */
+  .login-card,
+  .login-card-flip {
+    width: min(360px, calc(100vw - 32px));
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .login-card {
+    padding: 56px 24px 24px;
+  }
+
+  /* 装饰圆球缩小并收进角落,避免在小屏占满半屏喧宾夺主 */
+  .login-blob-large {
+    top: -90px;
+    right: -80px;
+    width: 220px;
+    height: 220px;
+  }
+
+  .login-blob-small {
+    top: 70px;
+    right: 30px;
+    width: 70px;
+    height: 70px;
+  }
+
+  /* 底部波浪压低,给卡片留出更多纵向空间 */
+  .login-wave {
+    height: 180px;
+  }
+}
+
+/* 超窄屏(<=360px)再收一档,确保 iPhone SE / 小屏 Android 不溢出 */
+@media (max-width: 360px) {
+  .login-card {
+    padding: 52px 18px 20px;
+  }
+
+  .login-welcome {
+    font-size: 22px;
+  }
+
+  /* 演示账号两列在极窄屏改单列,按钮文字不被压断 */
+  .login-demo-actions {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1515,94 +1671,35 @@ body {
   padding-top: 16px;
 }
 
-/**
- * 右列「审核员当日负载 + 审计日志」与左列任务表等高 + 审计日志内部滚动:
- *
- * 关键技巧:antd Row align="stretch" 只是把短的列拉到最高列的高度,
- *   不会反向"压短"高的列。要让右列高度由左列决定,必须让右列"自身不
- *   贡献自然高度":
- *
- *   1. xl+ 视口下,给右 Col(.owner-review-side-col)设 position: relative;
- *      内部的 Space 用 position: absolute; inset: 0 填充由左列拉出来的空间。
- *   2. Space 内 flex column:第一项「审核员负载」flex:0 0 auto 按内容高;
- *      末位项「审计日志卡」flex:1 1 0 + min-height:0 占满剩余,卡 body
- *      `flex:1; min-height:0; height:0; overflow-y:auto` 触发局部滚动。
- *   3. xl 以下视口走 antd 单列堆叠,绝对定位会破坏堆叠,所以用 @media 包裹。
- *   4. 滚动条用最细 6px,亚透明灰,与系统其它细滚动条风格一致。
- */
+.owner-review-task-table-measure {
+  width: 100%;
+}
+
+/* 右列按正常文档流堆叠;审计日志高度由 JS 测得的左侧任务表卡片高度单独驱动。 */
 .owner-review-side-stack {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+}
+
+.owner-review-workload-measure,
+.owner-review-audit-measure {
+  width: 100%;
+}
+
+.owner-review-audit-measure {
+  min-height: 0;
 }
 
 @media (min-width: 1200px) {
-  .owner-review-side-col {
-    position: relative;
-  }
-
-  .owner-review-side-stack {
-    position: absolute;
-    inset: 0;
-  }
-
-  /* 第一项:审核员负载,内容自适应,不拉伸 */
-  .owner-review-side-stack > .ant-space-item:first-child {
-    flex: 0 0 auto;
-  }
-
-  /* 末位项:审计日志容器,占满剩余高度 */
-  .owner-review-side-stack > .ant-space-item:last-child {
-    flex: 1 1 0;
-    min-height: 0;
+  .owner-review-audit-measure--height-synced {
+    height: var(--owner-review-audit-card-height);
     display: flex;
   }
 
-  .owner-review-side-stack > .ant-space-item:last-child > .ant-card.owner-review-audit-card {
-    flex: 1 1 0;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+  .owner-review-audit-measure--height-synced > .owner-review-audit-card.ant-card {
+    height: 100%;
     width: 100%;
-  }
-
-  /* 卡片 head 自适应,body 占剩余并滚动 */
-  .owner-review-side-stack > .ant-space-item:last-child
-    > .ant-card.owner-review-audit-card
-    > .ant-card-body {
-    flex: 1 1 0;
-    min-height: 0;
-    height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    /* 审计日志滚动条:最细 6px,主题色亚透明,与系统其它细滚动条风格一致 */
-    scrollbar-width: thin;
-    scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
-  }
-
-  .owner-review-side-stack > .ant-space-item:last-child
-    > .ant-card.owner-review-audit-card
-    > .ant-card-body::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  .owner-review-side-stack > .ant-space-item:last-child
-    > .ant-card.owner-review-audit-card
-    > .ant-card-body::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .owner-review-side-stack > .ant-space-item:last-child
-    > .ant-card.owner-review-audit-card
-    > .ant-card-body::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.5);
-    border-radius: 3px;
-  }
-
-  .owner-review-side-stack > .ant-space-item:last-child
-    > .ant-card.owner-review-audit-card
-    > .ant-card-body::-webkit-scrollbar-thumb:hover {
-    background: rgba(100, 116, 139, 0.7);
   }
 }
 
@@ -4665,6 +4762,11 @@ body {
   height: 72px;
 }
 
+/* 桌面端默认隐藏移动端 Tab 切换条 */
+.answer-mobile-tabs {
+  display: none;
+}
+
 /* 窄屏:取消分栏,改为上下堆叠,隐藏拖拽条 */
 @media (max-width: 991px) {
   .answer-split {
@@ -4677,6 +4779,49 @@ body {
   }
 
   .answer-split-handle {
+    display: none;
+  }
+}
+
+/*
+ * 超窄屏(<=480px)答题页 2C:Tab 切换原题/作答,各占满宽度。
+ * 由 AnswerPage 的 mobilePane 状态驱动 answer-split-mobile-raw / -form 类。
+ */
+@media (max-width: 480px) {
+  .answer-mobile-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 4px;
+    background: #f1f5f9;
+    border-radius: 12px;
+    margin-bottom: 4px;
+  }
+
+  .answer-mobile-tab {
+    flex: 1 1 0;
+    border: none;
+    background: transparent;
+    padding: 9px 0;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .answer-mobile-tab.is-active {
+    background: #fff;
+    color: var(--lh-primary);
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+  }
+
+  /* Tab 模式:根据当前选中 pane 只显示一个 */
+  .answer-split-mobile-raw .answer-split-pane-form {
+    display: none;
+  }
+
+  .answer-split-mobile-form .answer-split-pane-raw {
     display: none;
   }
 }
@@ -9008,12 +9153,15 @@ body {
 
 /* 审计日志 timeline:与 antd Timeline 配合的微调 */
 .owner-review-audit-card.ant-card {
-  height: 430px;
+  min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .owner-review-audit-card.ant-card .ant-card-body {
-  height: 360px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -9769,6 +9917,190 @@ body {
   border-top-left-radius: 4px;
 }
 
+.labeler-assistant-msg-bubble.is-error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.labeler-assistant-md {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  white-space: normal;
+}
+
+.labeler-assistant-md-heading {
+  margin: 2px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.labeler-assistant-md-heading + .labeler-assistant-md-p,
+.labeler-assistant-md-heading + .labeler-assistant-md-list {
+  margin-top: 0;
+}
+
+.labeler-assistant-md-p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.labeler-assistant-md-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.labeler-assistant-md-list li {
+  margin: 3px 0;
+  padding-left: 2px;
+}
+
+.labeler-assistant-md-list .labeler-assistant-md-list {
+  margin-top: 4px;
+}
+
+.labeler-assistant-md-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.labeler-assistant-md-paragraph-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.labeler-assistant-md-list-main {
+  display: block;
+}
+
+.labeler-assistant-md-list-sub {
+  display: block;
+  padding-left: 10px;
+  color: #475569;
+  border-left: 2px solid rgba(148, 163, 184, 0.28);
+}
+
+.labeler-assistant-md li > p {
+  margin: 0;
+}
+
+.labeler-assistant-md li > p + p {
+  margin-top: 4px;
+}
+
+.labeler-assistant-md input[type='checkbox'] {
+  margin-right: 6px;
+  transform: translateY(1px);
+}
+
+.labeler-assistant-md del {
+  color: #64748b;
+}
+
+.labeler-assistant-md-quote {
+  margin: 2px 0;
+  padding: 6px 10px;
+  border-left: 3px solid rgba(47, 123, 255, 0.35);
+  background: rgba(47, 123, 255, 0.06);
+  color: #475569;
+  border-radius: 0 8px 8px 0;
+}
+
+.labeler-assistant-md-quote > :first-child {
+  margin-top: 0;
+}
+
+.labeler-assistant-md-quote > :last-child {
+  margin-bottom: 0;
+}
+
+.labeler-assistant-md-link {
+  color: var(--lh-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.labeler-assistant-md-link:hover {
+  text-decoration: underline;
+}
+
+.labeler-assistant-md-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+}
+
+.labeler-assistant-md-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: max-content;
+  font-size: 12px;
+}
+
+.labeler-assistant-md-table th,
+.labeler-assistant-md-table td {
+  padding: 7px 9px;
+  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.labeler-assistant-md-table th:last-child,
+.labeler-assistant-md-table td:last-child {
+  border-right: none;
+}
+
+.labeler-assistant-md-table tr:last-child td {
+  border-bottom: none;
+}
+
+.labeler-assistant-md-table th {
+  background: #f8fafc;
+  color: #1f2a44;
+  font-weight: 700;
+}
+
+.labeler-assistant-md-hr {
+  width: 100%;
+  border: none;
+  border-top: 1px solid #dbe3ee;
+  margin: 4px 0;
+}
+
+.labeler-assistant-md-code {
+  margin: 2px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.labeler-assistant-md-code code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+
+.labeler-assistant-md :not(pre) > code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #334155;
+  font-size: 12px;
+}
+
 .labeler-assistant-msg-actions {
   display: flex;
   justify-content: flex-start;
@@ -9890,4 +10222,246 @@ body {
   font-size: 11px;
   color: #94a3b8;
   text-align: right;
+}
+
+
+/* ============================================================
+ * 移动端适配 · 阶段 A:全局骨架(AppLayout + 兜底)
+ * 统一断点 768px。所有规则包在 @media (max-width: 768px) 内,
+ * 桌面端零影响。配合 AppLayout 的 isMobile / mobileNavOpen 状态。
+ * ============================================================ */
+@media (max-width: 768px) {
+  /* 全局:禁止横向溢出,移动端任何子元素都不应撑出视口宽度 */
+  html,
+  body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  /* 外壳:取消桌面端 16px 四周 padding 与 gap,移动端铺满视口 */
+  .app-shell.is-mobile {
+    padding: 0;
+    gap: 0;
+  }
+
+  .app-shell.is-mobile > .ant-layout {
+    gap: 0;
+  }
+
+  .app-shell.is-mobile > .ant-layout > .ant-layout {
+    gap: 0;
+  }
+
+  /* 侧栏:从常驻布局抽离,改成 fixed 全屏高度抽屉,默认移出屏幕左侧 */
+  .app-sider-mobile.ant-layout-sider {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    height: 100vh !important;
+    max-height: 100vh;
+    border-radius: 0;
+    z-index: 1001;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1) !important;
+    box-shadow: 0 0 40px rgba(15, 23, 42, 0.25);
+    /* 移动端抽屉固定宽度,覆盖 antd 内联 width,确保菜单文字完整展示 */
+    flex: 0 0 256px !important;
+    width: 256px !important;
+    min-width: 256px !important;
+    max-width: 256px !important;
+  }
+
+  .app-sider-mobile.ant-layout-sider.is-open {
+    transform: translateX(0);
+  }
+
+  /* 抽屉遮罩:半透明黑,淡入淡出,盖住内容区 */
+  .app-mobile-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  .app-mobile-mask.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* 顶栏:贴顶铺满,去掉桌面端浮卡圆角和 16px 顶距 */
+  .app-shell.is-mobile .app-header {
+    position: sticky;
+    top: 0;
+    border-radius: 0;
+    padding: 0 12px;
+    height: 56px;
+    line-height: 56px;
+  }
+
+  /* 顶栏左侧:移动端只保留汉堡按钮,隐藏面包屑与搜索框 */
+  .app-shell.is-mobile .app-header-breadcrumb,
+  .app-shell.is-mobile .app-header-search {
+    display: none !important;
+  }
+
+  /* 用户区:隐藏角色/姓名文字,只留头像,节省横向空间 */
+  .app-shell.is-mobile .app-header-profile-text {
+    display: none;
+  }
+
+  /* 内容区:贴边、收紧内边距、取消圆角浮卡效果 */
+  .app-shell.is-mobile .app-content {
+    padding: 12px;
+    border-radius: 0;
+    min-height: calc(100vh - 56px);
+  }
+
+  /* 页面级竖向堆叠容器间距收紧 */
+  .app-shell.is-mobile .page-stack {
+    gap: 12px;
+  }
+
+  /* 标题行:移动端允许换行,避免标题 + Tag 挤出横向滚动 */
+  .app-shell.is-mobile .page-title-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /*
+   * 兜底:OwnerReview 右列在桌面端用了 @media(min-width:1200px) 的 absolute
+   * 定位等高方案,移动端宽度远小于 1200px 不会触发,这里无需额外处理。
+   * 其余页面的窄屏堆叠规则已有各自断点,阶段 B/C 再逐页收紧到 768。
+   */
+}
+
+
+/* ============================================================
+ * 移动端适配 · 阶段 B:Labeler 高频页 + 通用组件兜底
+ * 仍统一在 768px 断点内,桌面端零影响。
+ * ============================================================ */
+@media (max-width: 768px) {
+  /*
+   * 抽屉:桌面端用 width=400~560 的右侧抽屉,在手机上会溢出。
+   * antd 把宽度写在 .ant-drawer-content-wrapper 的内联 style 上,
+   * 这里统一压成接近满屏(留 24px 透气),覆盖任务详情 / 报告问题 / LLM 助手 / 任务发布等所有抽屉。
+   */
+  .ant-drawer-right .ant-drawer-content-wrapper,
+  .ant-drawer-left .ant-drawer-content-wrapper {
+    width: calc(100vw - 24px) !important;
+    max-width: 100vw !important;
+  }
+
+  /* Modal 同理:压到接近满屏,避免溢出与左右留白过宽 */
+  .ant-modal {
+    max-width: calc(100vw - 24px) !important;
+    margin: 8px auto !important;
+  }
+
+  /*
+   * antd List.Item(草稿箱 / 打回项):桌面端是「左信息 + 右操作按钮」横排,
+   * 手机上横向空间不够,改为上下堆叠,操作按钮左对齐换行。
+   */
+  .app-shell.is-mobile .ant-list-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .app-shell.is-mobile .ant-list-item .ant-list-item-action {
+    margin-inline-start: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .app-shell.is-mobile .ant-list-item .ant-list-item-action > li {
+    padding: 0;
+  }
+
+  /*
+   * 表格(我的任务等):已通过组件 scroll={{ x: 'max-content' }} 触发卡内横向滚动,
+   * 这里只保证滚动条不顶破圆角卡片,横向滚动发生在卡片内部而非整页。
+   */
+  .app-shell.is-mobile .ant-table-wrapper {
+    max-width: 100%;
+  }
+
+  /* 答题页顶栏:进度点 + 操作按钮在窄屏换行,不强行挤在一行 */
+  .app-shell.is-mobile .answer-topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* 答题页底部分页导航条:窄屏允许换行,按钮不被压扁 */
+  .app-shell.is-mobile .answer-pager {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* LLM 助手浮按钮:贴边距离收紧,避免遮挡底部操作 */
+  .labeler-assistant-trigger {
+    right: 16px;
+    bottom: 84px;
+  }
+}
+
+
+/* ============================================================
+ * 移动端适配 · 阶段 C:Owner / Reviewer 端
+ * 桌面优先,移动端保证不溢出、关键信息可读。统一 768px 断点。
+ * ============================================================ */
+@media (max-width: 768px) {
+  /*
+   * 通用表格兜底:Owner/Reviewer 端大量表格未单独设 scroll.x。
+   * 在移动端让表格在卡片内部横向滚动(而非压扁列或撑破页面):
+   *   - wrapper 横向 auto 滚动 + 细滚动条;
+   *   - 内部 table 用 max-content 保持列宽,触发滚动。
+   * 仅作用于 .app-shell.is-mobile,桌面端完全不受影响。
+   */
+  .app-shell.is-mobile .ant-table-wrapper .ant-table-content {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .app-shell.is-mobile .ant-table-wrapper .ant-table-content > table {
+    min-width: max-content;
+  }
+
+  .app-shell.is-mobile .ant-table-wrapper .ant-table-content::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .app-shell.is-mobile .ant-table-wrapper .ant-table-content::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.5);
+    border-radius: 3px;
+  }
+
+  /*
+   * OwnerReview 右列等高方案是 @media(min-width:1200px) 内的 absolute 定位,
+   * 移动端宽度 < 1200px 自然不触发,右列回退为正常文档流堆叠在左列下方,无需额外处理。
+   * Reviewer 三栏工作台(.ai-wb-grid)已有 920px 断点改单列,移动端继承生效。
+   */
+
+  /* KPI 行 / 概览卡:移动端各类 Statistic 数值字号收一档,避免换行错位 */
+  .app-shell.is-mobile .owner-stat-value,
+  .app-shell.is-mobile .ai-wb-stat-num {
+    font-size: 22px;
+  }
+
+  /* 工具条(搜索 + 筛选 + 按钮):窄屏换行,不横向溢出 */
+  .app-shell.is-mobile .owner-toolbar .ant-space,
+  .app-shell.is-mobile .market-filter-card .ant-space {
+    width: 100%;
+  }
+
+  /* 搜索框等固定宽输入在移动端放开为 100%,避免溢出卡片 */
+  .app-shell.is-mobile .owner-toolbar .ant-input-affix-wrapper,
+  .app-shell.is-mobile .owner-toolbar .ant-select,
+  .app-shell.is-mobile .market-filter-card .ant-input-affix-wrapper,
+  .app-shell.is-mobile .market-filter-card .ant-select {
+    width: 100% !important;
+  }
 }

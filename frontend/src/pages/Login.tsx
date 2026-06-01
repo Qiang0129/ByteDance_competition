@@ -20,10 +20,10 @@ type LoginSource = 'manual' | DemoLoginSource;
 type SignupFormValues = Pick<RegisterRequest, 'username' | 'password'>;
 
 const roleOptions: Array<{ label: string; value: LoginRole }> = [
-  { label: 'Owner', value: 'owner' },
-  { label: 'Labeler', value: 'labeler' },
-  { label: 'Reviewer', value: 'reviewer' },
-  { label: 'AI Reviewer', value: 'ai_reviewer' },
+  { label: '任务方', value: 'owner' },
+  { label: '标注员', value: 'labeler' },
+  { label: '人工审核员', value: 'reviewer' },
+  { label: 'AI 审核员', value: 'ai_reviewer' },
 ];
 
 const demoAccounts: Array<{
@@ -33,11 +33,11 @@ const demoAccounts: Array<{
   username: string;
   password: string;
 }> = [
-  { source: 'allRoles', role: 'owner', label: 'All Roles', username: 'demo', password: 'demo123' },
-  { source: 'owner', role: 'owner', label: 'Owner', username: 'owner', password: 'owner123' },
-  { source: 'labeler', role: 'labeler', label: 'Labeler', username: 'labeler', password: 'labeler123' },
-  { source: 'reviewer', role: 'reviewer', label: 'Reviewer', username: 'reviewer', password: 'reviewer123' },
-  { source: 'ai_reviewer', role: 'ai_reviewer', label: 'AI Reviewer', username: 'ai_reviewer', password: 'ai_reviewer123' },
+  { source: 'allRoles', role: 'owner', label: '全部角色', username: 'demo', password: 'demo123' },
+  { source: 'owner', role: 'owner', label: '任务方', username: 'owner', password: 'owner123' },
+  { source: 'labeler', role: 'labeler', label: '标注员', username: 'labeler', password: 'labeler123' },
+  { source: 'reviewer', role: 'reviewer', label: '人工审核员', username: 'reviewer', password: 'reviewer123' },
+  { source: 'ai_reviewer', role: 'ai_reviewer', label: 'AI 审核员', username: 'ai_reviewer', password: 'ai_reviewer123' },
 ];
 
 export default function Login() {
@@ -85,14 +85,14 @@ export default function Login() {
     try {
       const response = await authApi.login(values);
       const landingPath = resolveLandingPath(response.user.roles, values.role);
-      message.success('Signed in successfully.');
+      message.success('登录成功');
       setLeaving(true);
       // 等离场动画跑完再跳转,避免直接 navigate 造成"闪一下"
       window.setTimeout(() => {
         navigate(landingPath);
       }, 480);
     } catch (error) {
-      message.error(error instanceof Error ? error.message : 'Sign in failed.');
+      message.error(error instanceof Error ? error.message : '登录失败');
       setSigningIn(null);
     }
   };
@@ -100,10 +100,10 @@ export default function Login() {
   const handleSignupFinish = async (values: SignupFormValues) => {
     try {
       await authApi.register({ ...values, role: 'labeler' });
-      message.success('Account created. Please sign in.');
+      message.success('账号创建成功，请登录');
       setMode('login');
     } catch (error) {
-      message.error(error instanceof Error ? error.message : 'Sign up failed.');
+      message.error(error instanceof Error ? error.message : '注册失败');
     }
   };
 
@@ -141,7 +141,7 @@ export default function Login() {
             </svg>
           </div>
           <div className="login-side-title">
-            {mode === 'login' ? 'ACCOUNT LOGIN' : 'CREATE ACCOUNT'}
+            {mode === 'login' ? '账号登录' : '创建账号'}
           </div>
         </div>
 
@@ -154,7 +154,7 @@ export default function Login() {
                 <UserOutlined />
               </div>
 
-              <h1 className="login-welcome">Welcome back</h1>
+              <h1 className="login-welcome">欢迎回来</h1>
 
               <Form<LoginRequest>
                 layout="vertical"
@@ -164,12 +164,12 @@ export default function Login() {
               >
                 <Form.Item
                   name="username"
-                  rules={[{ required: true, message: 'Please enter username' }]}
+                  rules={[{ required: true, message: '请输入用户名' }]}
                 >
                   <Input
                     className="login-input"
                     prefix={<UserOutlined />}
-                    placeholder="Username"
+                    placeholder="用户名"
                     size="large"
                     autoComplete="username"
                   />
@@ -177,12 +177,12 @@ export default function Login() {
 
                 <Form.Item
                   name="password"
-                  rules={[{ required: true, message: 'Please enter password' }]}
+                  rules={[{ required: true, message: '请输入密码' }]}
                 >
                   <Input.Password
                     className="login-input"
                     prefix={<KeyOutlined />}
-                    placeholder="Password"
+                    placeholder="密码"
                     size="large"
                     autoComplete="current-password"
                   />
@@ -190,14 +190,14 @@ export default function Login() {
 
                 <Form.Item
                   name="role"
-                  rules={[{ required: true, message: 'Please select a role' }]}
+                  rules={[{ required: true, message: '请选择角色' }]}
                 >
                   <Select
                     className="login-input login-input-select"
                     options={roleOptions}
                     size="large"
                     suffixIcon={<TeamOutlined />}
-                    placeholder="Select role"
+                    placeholder="选择角色"
                   />
                 </Form.Item>
 
@@ -210,7 +210,7 @@ export default function Login() {
                   loading={signingIn === 'manual'}
                   disabled={!!signingIn && signingIn !== 'manual'}
                 >
-                  LOGIN
+                  登录
                 </Button>
               </Form>
 
@@ -242,7 +242,7 @@ export default function Login() {
               </div>
 
               <div className="login-footer">
-                Don&apos;t have an account ?
+                还没有账号？
                 <a
                   href="#signup"
                   onClick={(event) => {
@@ -250,7 +250,7 @@ export default function Login() {
                     setMode('signup');
                   }}
                 >
-                  signup
+                  注册
                 </a>
               </div>
             </section>
@@ -261,7 +261,7 @@ export default function Login() {
                 <UserOutlined />
               </div>
 
-              <h1 className="login-welcome">Let&apos;s get started</h1>
+              <h1 className="login-welcome">创建账号</h1>
 
               <Form<SignupFormValues>
                 layout="vertical"
@@ -270,12 +270,12 @@ export default function Login() {
               >
                 <Form.Item
                   name="username"
-                  rules={[{ required: true, message: 'Please enter username' }]}
+                  rules={[{ required: true, message: '请输入用户名' }]}
                 >
                   <Input
                     className="login-input"
                     prefix={<UserOutlined />}
-                    placeholder="Username"
+                    placeholder="用户名"
                     size="large"
                     autoComplete="username"
                   />
@@ -283,12 +283,12 @@ export default function Login() {
 
                 <Form.Item
                   name="password"
-                  rules={[{ required: true, message: 'Please enter password' }]}
+                  rules={[{ required: true, message: '请输入密码' }]}
                 >
                   <Input.Password
                     className="login-input"
                     prefix={<KeyOutlined />}
-                    placeholder="Password"
+                    placeholder="密码"
                     size="large"
                     autoComplete="new-password"
                   />
@@ -301,12 +301,12 @@ export default function Login() {
                   block
                   className="login-submit"
                 >
-                  SIGNUP
+                  注册
                 </Button>
               </Form>
 
               <div className="login-footer">
-                Already have an account ?
+                已有账号？
                 <a
                   href="#login"
                   onClick={(event) => {
@@ -314,7 +314,7 @@ export default function Login() {
                     setMode('login');
                   }}
                 >
-                  login
+                  登录
                 </a>
               </div>
             </section>

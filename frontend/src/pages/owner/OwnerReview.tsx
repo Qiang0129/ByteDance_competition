@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import {
   AuditOutlined,
   CheckCircleFilled,
@@ -111,6 +112,50 @@ export default function OwnerReview() {
   const [auditDrawerTotal, setAuditDrawerTotal] = useState(0);
   const [auditDrawerLoading, setAuditDrawerLoading] = useState(false);
   const [auditDrawerError, setAuditDrawerError] = useState<string | null>(null);
+  const taskTableCardMeasureRef = useRef<HTMLDivElement | null>(null);
+  const reviewerWorkloadMeasureRef = useRef<HTMLDivElement | null>(null);
+  const auditLogMeasureRef = useRef<HTMLDivElement | null>(null);
+  const [auditLogCardHeight, setAuditLogCardHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    const taskTableEl = taskTableCardMeasureRef.current;
+    const reviewerWorkloadEl = reviewerWorkloadMeasureRef.current;
+    const auditLogEl = auditLogMeasureRef.current;
+    if (
+      !taskTableEl
+      || !reviewerWorkloadEl
+      || !auditLogEl
+      || typeof ResizeObserver === 'undefined'
+    ) {
+      setAuditLogCardHeight(null);
+      return;
+    }
+
+    let frameId = 0;
+    const syncAuditLogCardHeight = () => {
+      window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        const taskTableRect = taskTableEl.getBoundingClientRect();
+        const auditLogRect = auditLogEl.getBoundingClientRect();
+        const nextHeight = Math.round(taskTableRect.bottom - auditLogRect.top);
+        setAuditLogCardHeight((prevHeight) => {
+          if (nextHeight <= 0) return prevHeight === null ? prevHeight : null;
+          return prevHeight === nextHeight ? prevHeight : nextHeight;
+        });
+      });
+    };
+
+    const observer = new ResizeObserver(syncAuditLogCardHeight);
+    observer.observe(taskTableEl);
+    observer.observe(reviewerWorkloadEl);
+    observer.observe(auditLogEl);
+    syncAuditLogCardHeight();
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      observer.disconnect();
+    };
+  }, []);
 
   /** 拉取 KPI + 任务列表 + 审计日志 */
   const loadAll = useCallback(async () => {
@@ -387,9 +432,7 @@ export default function OwnerReview() {
       {/* 顶部 KPI 概览 */}
       <OverviewKpi overview={overview} loading={loading} />
 
-      {/* 主区:左侧任务进度表 18/24(右边对齐 KPI 第 3 张「抽检覆盖率」右边),
-          右侧审核员负载 + 审计日志 6/24(左边对齐 KPI 第 4 张「双审一致率」左边)。
-          Row align="stretch" 让左右两列等高,审计日志卡 flex 撑满剩余高度。 */}
+      {/* 主区:右侧审计日志通过 ResizeObserver 跟随左侧任务表卡片高度,不包含上方工具条。 */}
       <Row gutter={16} align="stretch">
         <Col xs={24} xl={18}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -422,20 +465,25 @@ export default function OwnerReview() {
             </Card>
 
             {/* 任务进度表 */}
-            <Card className="owner-table-card owner-review-task-table-card" loading={loading}>
-              <Table<OwnerReviewTaskRow>
-                rowKey="taskId"
-                columns={taskColumns}
-                dataSource={visibleTasks}
-                locale={{ emptyText: <Empty description="暂无审核任务" /> }}
-                pagination={{
-                  defaultPageSize: 10,
-                  showSizeChanger: true,
-                  showTotal: (total) => `共 ${total} 个任务`,
-                  pageSizeOptions: ['10', '20', '50', '100'],
-                }}
-              />
-            </Card>
+            <div
+              ref={taskTableCardMeasureRef}
+              className="owner-review-task-table-measure"
+            >
+              <Card className="owner-table-card owner-review-task-table-card" loading={loading}>
+                <Table<OwnerReviewTaskRow>
+                  rowKey="taskId"
+                  columns={taskColumns}
+                  dataSource={visibleTasks}
+                  locale={{ emptyText: <Empty description="暂无审核任务" /> }}
+                  pagination={{
+                    defaultPageSize: 10,
+                    showSizeChanger: true,
+                    showTotal: (total) => `共 ${total} 个任务`,
+                    pageSizeOptions: ['10', '20', '50', '100'],
+                  }}
+                />
+              </Card>
+            </div>
           </Space>
         </Col>
 
@@ -446,15 +494,32 @@ export default function OwnerReview() {
             className="owner-review-side-stack"
             style={{ width: '100%' }}
           >
-            <ReviewerWorkloadCard overview={overview} loading={loading} />
-            <AuditLogCard
-              entries={auditLog}
-              loading={loading}
-              reviewers={reviewers}
-              reviewerId={auditReviewerId}
-              onReviewerChange={setAuditReviewerId}
-              onOpenAll={openAuditDrawer}
-            />
+            <div
+              ref={reviewerWorkloadMeasureRef}
+              className="owner-review-workload-measure"
+            >
+              <ReviewerWorkloadCard overview={overview} loading={loading} />
+            </div>
+            <div
+              ref={auditLogMeasureRef}
+              className={`owner-review-audit-measure${
+                auditLogCardHeight ? ' owner-review-audit-measure--height-synced' : ''
+              }`}
+              style={
+                auditLogCardHeight
+                  ? ({ '--owner-review-audit-card-height': `${auditLogCardHeight}px` } as CSSProperties)
+                  : undefined
+              }
+            >
+              <AuditLogCard
+                entries={auditLog}
+                loading={loading}
+                reviewers={reviewers}
+                reviewerId={auditReviewerId}
+                onReviewerChange={setAuditReviewerId}
+                onOpenAll={openAuditDrawer}
+              />
+            </div>
           </Space>
         </Col>
       </Row>

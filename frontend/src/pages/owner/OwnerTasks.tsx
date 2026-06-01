@@ -66,7 +66,7 @@ interface PublishFormValues {
   schemaVersionId?: string;
   aiReviewEnabled?: boolean;
   aiReviewRuleId?: string;
-  /** 是否为标注员开启 LLM 答题助手 */
+  /** 是否为标注员开启 LLM 标注助手 */
   llmAssistEnabled?: boolean;
 }
 
@@ -118,6 +118,7 @@ export default function OwnerTasks() {
   const [submitting, setSubmitting] = useState(false);
   const submitStateRef = useRef<TaskState>('published');
   const lastSchemaSelectionRef = useRef<string | undefined>();
+  const lastDatasetSelectionRef = useRef<string | undefined>();
 
   const selectedStrategy = Form.useWatch('strategy', form);
   const selectedDatasetId = Form.useWatch('datasetId', form);
@@ -182,6 +183,7 @@ export default function OwnerTasks() {
   useEffect(() => {
     if (!drawerOpen) {
       lastSchemaSelectionRef.current = undefined;
+      lastDatasetSelectionRef.current = undefined;
       return;
     }
     if (!selectedSchemaVersionId) {
@@ -197,6 +199,36 @@ export default function OwnerTasks() {
       form.setFieldValue('datasetId', schema.datasetId);
     }
   }, [drawerOpen, form, publishedSchemas, selectedSchemaVersionId]);
+
+  useEffect(() => {
+    if (!drawerOpen || activeRow) {
+      lastDatasetSelectionRef.current = selectedDatasetId;
+      return;
+    }
+    if (!selectedDatasetId) {
+      const firstDatasetId = datasets[0]?.id;
+      if (firstDatasetId) {
+        lastDatasetSelectionRef.current = firstDatasetId;
+        form.setFieldsValue({
+          datasetId: firstDatasetId,
+          quota: resolveDatasetQuota(firstDatasetId),
+        });
+      } else {
+        lastDatasetSelectionRef.current = selectedDatasetId;
+      }
+      return;
+    }
+    const quota = resolveDatasetQuota(selectedDatasetId);
+    if (lastDatasetSelectionRef.current === selectedDatasetId) {
+      const currentQuota = form.getFieldValue('quota');
+      if ((currentQuota === null || currentQuota === undefined) && quota !== null) {
+        form.setFieldValue('quota', quota);
+      }
+      return;
+    }
+    lastDatasetSelectionRef.current = selectedDatasetId;
+    form.setFieldValue('quota', quota);
+  }, [activeRow, drawerOpen, form, selectedDatasetId, datasets]);
 
   const labelerOptions = assignableLabelers.map((labeler) => ({
     label: `${labeler.displayName} (${labeler.username})`,
@@ -245,9 +277,10 @@ export default function OwnerTasks() {
             </Typography.Text>
           ) : null}
           {strategy === 'assigned' && record.assignedLabelerIds.length > 0 ? (
-            <Typography.Text type="secondary">
+            // 复用本页统计卡的圆角胶囊样式(owner-stat-trend + mute),保持气泡形态一致
+            <Tag className="owner-stat-trend owner-stat-mute">
               已指派 {record.assignedLabelerIds.length} 人
-            </Typography.Text>
+            </Tag>
           ) : null}
         </Space>
       ),
@@ -392,14 +425,22 @@ export default function OwnerTasks() {
     return datasets.find((dataset) => dataset.taskId === row.taskId)?.id ?? '';
   }
 
+  function resolveDatasetQuota(datasetId?: string) {
+    if (!datasetId) {
+      return null;
+    }
+    return datasets.find((dataset) => dataset.id === datasetId)?.itemCount ?? null;
+  }
+
   function toFormValues(row?: OwnerTaskRow): PublishFormValues {
+    const datasetId = inferDatasetId(row);
     return {
       title: row?.title ?? '',
       tags: row?.tags?.length ? row.tags : ['电商', '中文'],
       reward: row?.reward ?? '0.30 元 / 条 · 月度封顶 1500 元',
-      quota: row?.quotaTotal ?? 5000,
+      quota: row?.quotaTotal ?? resolveDatasetQuota(datasetId),
       deadline: row?.deadline ? dayjs(row.deadline, DATE_TIME_FORMAT) : null,
-      datasetId: inferDatasetId(row),
+      datasetId,
       strategy: row?.assignStrategy ?? 'first-come',
       maxClaimPerUser: row?.maxClaimPerUser ?? null,
       assignedLabelerIds: row?.assignedLabelerIds ?? [],
@@ -418,7 +459,9 @@ export default function OwnerTasks() {
     setActiveRow(row ?? null);
     submitStateRef.current = row?.state ?? 'published';
     lastSchemaSelectionRef.current = row?.schemaVersionId || undefined;
-    form.setFieldsValue(toFormValues(row));
+    const values = toFormValues(row);
+    lastDatasetSelectionRef.current = values.datasetId;
+    form.setFieldsValue(values);
     setDrawerOpen(true);
   }
 
@@ -837,7 +880,7 @@ export default function OwnerTasks() {
                 助手只给参考意见,不能直接写答案字段。
            */}
           <Form.Item
-            label="启用 LLM 答题助手"
+            label="启用 LLM 标注助手"
             name="llmAssistEnabled"
             valuePropName="checked"
             extra="开启后,标注员答题页可向 AI 助手提问。助手仅给参考思路,不会直接填写答案字段。"

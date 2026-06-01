@@ -31,6 +31,7 @@ export interface AssistantStreamHandlers {
   onDelta: (delta: string) => void;
   onDone?: () => void;
   onError?: (error: Error) => void;
+  signal?: AbortSignal;
 }
 
 function toQueryString(query?: MarketTasksQuery): string {
@@ -167,7 +168,7 @@ export const labelerApi = {
     });
   },
 
-  /** LLM 答题助手:直接读取 text/event-stream,不做普通 JSON 回退 */
+  /** LLM 标注助手:直接读取 text/event-stream,不做普通 JSON 回退 */
   async streamAssistant(
     assignmentId: string,
     payload: AssistantAskRequest,
@@ -180,6 +181,7 @@ export const labelerApi = {
         ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
       },
       body: JSON.stringify(payload),
+      signal: handlers.signal,
     });
     if (!response.ok) {
       const contentType = response.headers.get('content-type') ?? '';
@@ -195,6 +197,7 @@ export const labelerApi = {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let doneEventReceived = false;
 
     const flushEvents = (chunk: string) => {
       buffer += chunk;
@@ -206,6 +209,7 @@ export const labelerApi = {
         if (parsed.event === 'delta') {
           handlers.onDelta(parsed.data);
         } else if (parsed.event === 'done') {
+          doneEventReceived = true;
           handlers.onDone?.();
         } else if (parsed.event === 'error') {
           const error = new Error(parsed.data || 'AI 助手请求失败');
@@ -219,14 +223,17 @@ export const labelerApi = {
       const { done, value } = await reader.read();
       if (done) break;
       flushEvents(decoder.decode(value, { stream: true }));
+      if (doneEventReceived) break;
     }
     const tail = decoder.decode();
-    if (tail) flushEvents(tail);
-    if (buffer.trim()) {
+    if (!doneEventReceived && tail) flushEvents(tail);
+    if (!doneEventReceived && buffer.trim()) {
       const parsed = parseSseEvent(buffer);
       if (parsed?.event === 'delta') handlers.onDelta(parsed.data);
+      if (parsed?.event === 'done') handlers.onDone?.();
       if (parsed?.event === 'error') throw new Error(parsed.data || 'AI 助手请求失败');
     }
+    reader.releaseLock();
   },
 };
 

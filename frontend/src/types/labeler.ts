@@ -245,7 +245,7 @@ export interface AssignmentItem {
   /** 最新一版正式提交答案,用于已提交题目回显和打回修改基线 */
   latestAnnotation?: Annotation | null;
   /**
-   * 是否为该任务启用 LLM 答题助手(由 Owner 在任务发布时控制)。
+   * 是否为该任务启用 LLM 标注助手(由 Owner 在任务发布时控制)。
    *   - true:答题页右下角渲染 AI 助手浮动按钮 + 抽屉;
    *   - false / undefined:不渲染任何助手入口。
    */

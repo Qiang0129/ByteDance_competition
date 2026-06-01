@@ -7,6 +7,8 @@ import {
   ThunderboltFilled,
 } from '@ant-design/icons';
 import { App as AntdApp, Button, Drawer, Input, Tooltip, Typography } from 'antd';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import { labelerApi } from '../../api/labeler';
 import { AiAssistantIcon } from '../../components/icons';
@@ -34,6 +36,10 @@ interface AssistantMessage {
   content: string;
   /** ISO 时间戳,展示时格式化为 HH:mm */
   createdAt: string;
+  /** 当前 AI 消息是否仍在接收流式 token */
+  streaming?: boolean;
+  /** 流式请求失败时标记,用于样式提示 */
+  failed?: boolean;
 }
 
 /** 几条引导问题,标注员卡壳时点击直接发送,降低开口成本 */
@@ -42,6 +48,7 @@ const SUGGESTED_PROMPTS = [
   '当前 Schema 字段分别表示什么意思?',
   '我应该从哪些维度判断这条标注的好坏?',
 ];
+const ASSISTANT_STREAM_TIMEOUT_MS = 120_000;
 
 export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }) {
   const { message } = AntdApp.useApp();
@@ -78,37 +85,63 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
         role: 'assistant',
         content: '',
         createdAt: new Date().toISOString(),
+        streaming: true,
       };
       const history = messages.map((msg) => ({ role: msg.role, content: msg.content }));
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setInput('');
       setPending(true);
       scrollToBottom();
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), ASSISTANT_STREAM_TIMEOUT_MS);
       try {
         await labelerApi.streamAssistant(
           item.assignmentId,
           { question: text, history },
           {
+            signal: controller.signal,
             onDelta: (delta) => {
               setMessages((prev) =>
                 prev.map((msg) =>
-                  msg.id === assistantId ? { ...msg, content: msg.content + delta } : msg,
+                  msg.id === assistantId
+                    ? { ...msg, content: msg.content + delta, streaming: false }
+                    : msg,
                 ),
               );
               scrollToBottom();
             },
+            onDone: () => {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantId ? { ...msg, streaming: false } : msg,
+                ),
+              );
+            },
           },
         );
       } catch (error) {
-        message.error(error instanceof Error ? error.message : 'AI 助手请求失败,请稍后重试。');
+        const isAbort = error instanceof DOMException && error.name === 'AbortError';
+        const fallbackText = isAbort ? 'AI 助手响应超时,请重新发送。' : 'AI 助手请求失败,请稍后重试。';
+        message.error(error instanceof Error && !isAbort ? error.message : fallbackText);
         setMessages((prev) =>
           prev.map((msg) =>
-            msg.id === assistantId && !msg.content
-              ? { ...msg, content: 'AI 助手请求失败,请稍后重试。' }
+            msg.id === assistantId
+              ? {
+                  ...msg,
+                  content: msg.content || fallbackText,
+                  streaming: false,
+                  failed: true,
+                }
               : msg,
           ),
         );
       } finally {
+        window.clearTimeout(timeoutId);
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantId ? { ...msg, streaming: false } : msg,
+          ),
+        );
         setPending(false);
         scrollToBottom();
       }
@@ -171,7 +204,7 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
         type="button"
         className="labeler-assistant-trigger"
         onClick={() => setOpen(true)}
-        aria-label="打开 AI 答题助手"
+        aria-label="打开 AI 标注助手"
       >
         <AiAssistantIcon style={{ fontSize: 22 }} />
       </button>
@@ -179,7 +212,7 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
       <Drawer
         title={
           <span className="labeler-assistant-title">
-            <AiAssistantIcon /> AI 答题助手
+            <AiAssistantIcon /> AI 标注助手
           </span>
         }
         open={open}
@@ -227,13 +260,21 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
                   <span>{msg.role === 'user' ? '我' : 'AI 助手'}</span>
                   <span>{formatHHmm(msg.createdAt)}</span>
                 </div>
-                <div className={`labeler-assistant-msg-bubble ${msg.role === 'assistant' && !msg.content && pending ? 'is-thinking' : ''}`}>
-                  {msg.role === 'assistant' && !msg.content && pending ? (
+                <div
+                  className={[
+                    'labeler-assistant-msg-bubble',
+                    msg.role === 'assistant' && msg.streaming && !msg.content ? 'is-thinking' : '',
+                    msg.failed ? 'is-error' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  {msg.role === 'assistant' && msg.streaming && !msg.content ? (
                     <span className="labeler-assistant-dots">
                       <i />
                       <i />
                       <i />
                     </span>
+                  ) : msg.role === 'assistant' ? (
+                    <AssistantMarkdown source={msg.content} />
                   ) : (
                     msg.content
                   )}
@@ -252,21 +293,6 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
                 )}
               </div>
             ))
-          )}
-          {pending && !messages.some((msg) => msg.role === 'assistant' && msg.content === '') && (
-            <div className="labeler-assistant-msg is-assistant">
-              <div className="labeler-assistant-msg-meta">
-                <span>AI 助手</span>
-                <span>正在思考…</span>
-              </div>
-              <div className="labeler-assistant-msg-bubble is-thinking">
-                <span className="labeler-assistant-dots">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-              </div>
-            </div>
           )}
         </div>
 
@@ -314,4 +340,108 @@ function formatHHmm(iso: string): string {
   const hh = String(date.getHours()).padStart(2, '0');
   const mm = String(date.getMinutes()).padStart(2, '0');
   return `${hh}:${mm}`;
+}
+
+function AssistantMarkdown({ source }: { source: string }) {
+  const normalizedSource = normalizeAssistantMarkdown(source);
+  return (
+    <div className="labeler-assistant-md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        skipHtml
+        components={{
+          h1: ({ children }) => <h1 className="labeler-assistant-md-heading">{children}</h1>,
+          h2: ({ children }) => <h2 className="labeler-assistant-md-heading">{children}</h2>,
+          h3: ({ children }) => <h3 className="labeler-assistant-md-heading">{children}</h3>,
+          h4: ({ children }) => <h4 className="labeler-assistant-md-heading">{children}</h4>,
+          p: ({ children }) => <p className="labeler-assistant-md-p">{children}</p>,
+          ul: ({ children }) => <ul className="labeler-assistant-md-list">{children}</ul>,
+          ol: ({ children }) => <ol className="labeler-assistant-md-list labeler-assistant-md-ordered">{children}</ol>,
+          li: ({ children }) => <li>{children}</li>,
+          blockquote: ({ children }) => (
+            <blockquote className="labeler-assistant-md-quote">{children}</blockquote>
+          ),
+          code: ({ className, children, ...props }) => (
+            <code className={className} {...props}>
+              {children}
+            </code>
+          ),
+          pre: ({ children }) => <pre className="labeler-assistant-md-code">{children}</pre>,
+          a: ({ children, href }) => (
+            <a
+              className="labeler-assistant-md-link"
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {children}
+            </a>
+          ),
+          table: ({ children }) => (
+            <div className="labeler-assistant-md-table-wrap">
+              <table className="labeler-assistant-md-table">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => <th>{children}</th>,
+          td: ({ children }) => <td>{children}</td>,
+          hr: () => <hr className="labeler-assistant-md-hr" />,
+        }}
+      >
+        {normalizedSource}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function normalizeAssistantMarkdown(source: string): string {
+  return source
+    .split(/(```[\s\S]*?```)/g)
+    .map((part) => (part.startsWith('```') ? part : normalizeCompressedTables(part)))
+    .join('');
+}
+
+function normalizeCompressedTables(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => normalizeCompressedTableLine(line))
+    .join('\n');
+}
+
+function normalizeCompressedTableLine(line: string): string {
+  if (!line.includes('||')) return line;
+  const rows = line
+    .trim()
+    .split(/\s*\|\|\s*/g)
+    .map((row) => normalizeTableRow(row))
+    .filter((row) => row !== null);
+  if (rows.length < 3 || !rows.some(isMarkdownTableDivider)) {
+    return line;
+  }
+  return `\n${rows.join('\n')}\n`;
+}
+
+function normalizeTableRow(row: string): string | null {
+  const trimmed = row.trim();
+  if (!trimmed || !trimmed.includes('|')) {
+    return null;
+  }
+  const cells = trimmed
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim())
+    .filter(Boolean);
+  if (cells.length < 2) {
+    return null;
+  }
+  return `| ${cells.join(' | ')} |`;
+}
+
+function isMarkdownTableDivider(row: string): boolean {
+  const cells = row
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+  return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 }

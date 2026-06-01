@@ -13,14 +13,17 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@fontsource/noto-sans-sc": "^5.2.9",
     "@formily/core": "^2.3.7",
     "@formily/json-schema": "^2.3.7",
     "@formily/react": "^2.3.7",
     "antd": "^6.4.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.15.1",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

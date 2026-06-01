@@ -268,6 +268,7 @@ export default function MyTasks() {
           dataSource={rows}
           loading={loading}
           pagination={false}
+          scroll={{ x: 'max-content' }}
           locale={{ emptyText: <Empty description="暂无已认领任务,请先到任务市场领取。" /> }}
         />
       </Card>

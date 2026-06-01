@@ -105,6 +105,13 @@ export default function AnswerPage() {
   // 左右卡片分栏:左侧占比(百分比),通过中间拖拽条调节,并持久化到 localStorage
   const [leftPercent, setLeftPercent] = useState(loadSplitPercent);
   const splitRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * 超窄屏(<480px)答题页 Tab 切换(对齐用户选择 2C):
+   *   - 'raw' 显示原题,'form' 显示作答表单,两者占满宽度;
+   *   - 480~768px 走 CSS 上下堆叠(两个 pane 都显示),此状态不生效;
+   *   - >768px 桌面端左右分栏,此状态不生效。
+   */
+  const [mobilePane, setMobilePane] = useState<'raw' | 'form'>('raw');
 
   /**
    * 最近一次值变更是否来自「离散字段」(单选 / 多选 / tags / file / select)。
@@ -781,9 +788,31 @@ export default function AnswerPage() {
         />
       ) : null}
 
-      <div className="answer-split" ref={splitRef}>
+      <div className={`answer-split answer-split-mobile-${mobilePane}`} ref={splitRef}>
+        {/* 超窄屏(<480px)Tab 切换条:在原题/作答间切换,仅移动端 CSS 显示 */}
+        <div className="answer-mobile-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobilePane === 'raw'}
+            className={`answer-mobile-tab${mobilePane === 'raw' ? ' is-active' : ''}`}
+            onClick={() => setMobilePane('raw')}
+          >
+            原题
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobilePane === 'form'}
+            className={`answer-mobile-tab${mobilePane === 'form' ? ' is-active' : ''}`}
+            onClick={() => setMobilePane('form')}
+          >
+            作答
+          </button>
+        </div>
+
         {/* 左:原题数据 */}
-        <div className="answer-split-pane" style={{ width: `${leftPercent}%` }}>
+        <div className="answer-split-pane answer-split-pane-raw" style={{ width: `${leftPercent}%` }}>
           <Card
             title={<RawPayloadTitle payload={item.rawPayload} />}
             className="answer-section"
@@ -803,7 +832,7 @@ export default function AnswerPage() {
         </div>
 
         {/* 右:Schema 渲染表单 */}
-        <div className="answer-split-pane" style={{ width: `${100 - leftPercent}%` }}>
+        <div className="answer-split-pane answer-split-pane-form" style={{ width: `${100 - leftPercent}%` }}>
           <Card
             title={
               <Space>
@@ -957,7 +986,7 @@ export default function AnswerPage() {
       </Drawer>
 
       {/*
-        AI 答题助手:仅在当前题可编辑时渲染。
+        AI 标注助手:仅在当前题可编辑时渲染。
         Owner 任务级开关关闭或题目锁定时,不展示任何助手入口。
       */}
       {item.llmAssistEnabled === true && canEdit ? <LabelerAssistantPanel item={item} /> : null}
