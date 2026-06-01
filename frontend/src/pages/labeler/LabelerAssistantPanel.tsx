@@ -9,7 +9,6 @@ import {
 import { App as AntdApp, Button, Drawer, Input, Tooltip, Typography } from 'antd';
 
 import { labelerApi } from '../../api/labeler';
-import { getApiErrorMessage } from '../../api/client';
 import { AiAssistantIcon } from '../../components/icons';
 import type { AssignmentItem } from '../../types/labeler';
 
@@ -73,24 +72,42 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
         content: text,
         createdAt: time,
       };
-      setMessages((prev) => [...prev, userMsg]);
+      const assistantId = idSeed.current++;
+      const assistantMsg: AssistantMessage = {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        createdAt: new Date().toISOString(),
+      };
+      const history = messages.map((msg) => ({ role: msg.role, content: msg.content }));
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setInput('');
       setPending(true);
       scrollToBottom();
       try {
-        const response = await labelerApi.askAssistant(item.assignmentId, {
-          question: text,
-          history: messages.map((msg) => ({ role: msg.role, content: msg.content })),
-        });
-        const reply: AssistantMessage = {
-          id: idSeed.current++,
-          role: 'assistant',
-          content: response.answer,
-          createdAt: response.createdAt || new Date().toISOString(),
-        };
-        setMessages((prev) => [...prev, reply]);
+        await labelerApi.streamAssistant(
+          item.assignmentId,
+          { question: text, history },
+          {
+            onDelta: (delta) => {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantId ? { ...msg, content: msg.content + delta } : msg,
+                ),
+              );
+              scrollToBottom();
+            },
+          },
+        );
       } catch (error) {
-        message.error(getApiErrorMessage(error, 'AI 助手请求失败,请稍后重试。'));
+        message.error(error instanceof Error ? error.message : 'AI 助手请求失败,请稍后重试。');
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantId && !msg.content
+              ? { ...msg, content: 'AI 助手请求失败,请稍后重试。' }
+              : msg,
+          ),
+        );
       } finally {
         setPending(false);
         scrollToBottom();
@@ -210,7 +227,17 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
                   <span>{msg.role === 'user' ? '我' : 'AI 助手'}</span>
                   <span>{formatHHmm(msg.createdAt)}</span>
                 </div>
-                <div className="labeler-assistant-msg-bubble">{msg.content}</div>
+                <div className={`labeler-assistant-msg-bubble ${msg.role === 'assistant' && !msg.content && pending ? 'is-thinking' : ''}`}>
+                  {msg.role === 'assistant' && !msg.content && pending ? (
+                    <span className="labeler-assistant-dots">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  ) : (
+                    msg.content
+                  )}
+                </div>
                 {msg.role === 'assistant' && (
                   <div className="labeler-assistant-msg-actions">
                     <Button
@@ -226,7 +253,7 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
               </div>
             ))
           )}
-          {pending && (
+          {pending && !messages.some((msg) => msg.role === 'assistant' && msg.content === '') && (
             <div className="labeler-assistant-msg is-assistant">
               <div className="labeler-assistant-msg-meta">
                 <span>AI 助手</span>

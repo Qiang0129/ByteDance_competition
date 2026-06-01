@@ -113,7 +113,6 @@ com\labelhub\backend\annotation\BatchSubmitInvalidItem.class
 com\labelhub\backend\task\OwnerTaskResponse.class
 com\labelhub\backend\labeler\LabelerOverviewRepository$RecentBatchRecord.class
 com\labelhub\backend\review\ReviewRepository$ReviewBatchRecord.class
-com\labelhub\backend\annotation\AssistantAskResponse.class
 com\labelhub\backend\annotation\AnswerValidationService.class
 com\labelhub\backend\ai\AiReviewRepository$AiReviewResultRecord.class
 com\labelhub\backend\annotation\AssignmentPositionResponse.class

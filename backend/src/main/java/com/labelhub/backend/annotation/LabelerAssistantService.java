@@ -13,25 +13,32 @@ import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.task.TaskDeadlineSettlementService;
 import com.labelhub.backend.workflow.AuditLogRepository;
 import com.labelhub.backend.workflow.WorkflowEntityType;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.StringReader;
+import java.io.UncheckedIOException;
+import java.io.Writer;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @Service
 public class LabelerAssistantService {
 
-  private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
   private static final int MAX_QUESTION_LENGTH = 500;
   private static final int MAX_HISTORY_ITEMS = 8;
   private static final int MAX_HISTORY_CONTENT_LENGTH = 1000;
@@ -60,7 +67,7 @@ public class LabelerAssistantService {
     this.objectMapper = objectMapper;
   }
 
-  public AssistantAskResponse ask(
+  public StreamingResponseBody stream(
       Authentication authentication,
       long assignmentId,
       AssistantAskRequest request) {
@@ -88,33 +95,7 @@ public class LabelerAssistantService {
       throw exception;
     }
     ObjectNode payload = buildChatCompletionPayload(config, assignment, question, history);
-    try {
-      JsonNode response = buildClient(apiKey)
-          .post()
-          .uri(resolveChatCompletionsUrl(config.apiBaseUrl(), config.useFullUrl()))
-          .body(payload)
-          .retrieve()
-          .body(JsonNode.class);
-      String answer = extractAnswer(response);
-      int tokensUsed = extractTokensUsed(response);
-      auditAssistantCall(labeler, assignment, config.modelName(), question, answer, tokensUsed, "success", null);
-      return new AssistantAskResponse(answer, tokensUsed, formatDateTime(LocalDateTime.now()));
-    } catch (RestClientResponseException exception) {
-      auditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", exception.getResponseBodyAsString());
-      throw new ApiException(
-          HttpStatus.BAD_GATEWAY,
-          "LLM_ASSIST_REQUEST_FAILED",
-          "llm assistant request failed");
-    } catch (ApiException exception) {
-      auditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", exception.getMessage());
-      throw exception;
-    } catch (RuntimeException exception) {
-      auditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", exception.getMessage());
-      throw new ApiException(
-          HttpStatus.BAD_GATEWAY,
-          "LLM_ASSIST_REQUEST_FAILED",
-          "llm assistant request failed");
-    }
+    return outputStream -> streamChatCompletion(outputStream, labeler, assignment, config, apiKey, question, payload);
   }
 
   private void ensureAssistantAllowed(AssignmentItemRecord assignment) {
@@ -190,6 +171,7 @@ public class LabelerAssistantService {
     }
     messages.add(message("user", question));
     root.put("temperature", 0.2);
+    root.put("stream", true);
     return root;
   }
 
@@ -258,15 +240,74 @@ public class LabelerAssistantService {
         .orElse("[]");
   }
 
-  private RestClient buildClient(String apiKey) {
-    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-    requestFactory.setConnectTimeout(Duration.ofSeconds(10));
-    requestFactory.setReadTimeout(Duration.ofSeconds(60));
-    return RestClient.builder()
-        .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-        .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-        .requestFactory(requestFactory)
-        .build();
+  private void streamChatCompletion(
+      OutputStream outputStream,
+      AuthenticatedUser labeler,
+      AssignmentItemRecord assignment,
+      AiModelConfigRepository.AiModelConfigRecord config,
+      String apiKey,
+      String question,
+      ObjectNode payload) {
+    Writer writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
+    StringBuilder answer = new StringBuilder();
+    try {
+      HttpRequest request = HttpRequest.newBuilder()
+          .uri(URI.create(resolveChatCompletionsUrl(config.apiBaseUrl(), config.useFullUrl())))
+          .timeout(Duration.ofSeconds(90))
+          .header(HttpHeaders.CONTENT_TYPE, "application/json")
+          .header(HttpHeaders.ACCEPT, "text/event-stream")
+          .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+          .POST(HttpRequest.BodyPublishers.ofString(writeJson(payload), StandardCharsets.UTF_8))
+          .build();
+      HttpResponse<java.io.InputStream> response = HttpClient.newBuilder()
+          .connectTimeout(Duration.ofSeconds(10))
+          .build()
+          .send(request, HttpResponse.BodyHandlers.ofInputStream());
+      if (response.statusCode() < 200 || response.statusCode() >= 300) {
+        String errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+        auditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", errorBody);
+        sendEvent(writer, "error", "LLM_ASSIST_REQUEST_FAILED");
+        return;
+      }
+      try (BufferedReader reader = new BufferedReader(
+          new java.io.InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+        String line;
+        while ((line = reader.readLine()) != null) {
+          if (!line.startsWith("data:")) {
+            continue;
+          }
+          String data = line.substring("data:".length()).trim();
+          if (data.isBlank()) {
+            continue;
+          }
+          if ("[DONE]".equals(data)) {
+            break;
+          }
+          String delta = extractStreamDelta(data);
+          if (delta != null && !delta.isEmpty()) {
+            answer.append(delta);
+            sendEvent(writer, "delta", delta);
+          }
+        }
+      }
+      if (answer.isEmpty()) {
+        auditAssistantCall(labeler, assignment, config.modelName(), question, null, null, "failed", "empty stream answer");
+        sendEvent(writer, "error", "LLM_ASSIST_REQUEST_FAILED");
+        return;
+      }
+      auditAssistantCall(labeler, assignment, config.modelName(), question, answer.toString(), null, "success", null);
+      sendEvent(writer, "done", "DONE");
+    } catch (IOException | InterruptedException | RuntimeException exception) {
+      if (exception instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      auditAssistantCall(labeler, assignment, config.modelName(), question, answer.isEmpty() ? null : answer.toString(), null, "failed", exception.getMessage());
+      try {
+        sendEvent(writer, "error", "LLM_ASSIST_REQUEST_FAILED");
+      } catch (IOException ioException) {
+        throw new UncheckedIOException(ioException);
+      }
+    }
   }
 
   private String resolveChatCompletionsUrl(String apiBaseUrl, boolean useFullUrl) {
@@ -283,38 +324,35 @@ public class LabelerAssistantService {
     return base + "/chat/completions";
   }
 
-  private String extractAnswer(JsonNode response) {
-    JsonNode content = response.path("choices").path(0).path("message").path("content");
-    String answer = extractContentText(content);
-    if (answer == null || answer.isBlank()) {
-      throw new ApiException(HttpStatus.BAD_GATEWAY, "LLM_ASSIST_REQUEST_FAILED", "llm assistant returned empty answer");
+  private String extractStreamDelta(String data) {
+    JsonNode root = readJson(data);
+    JsonNode delta = root.path("choices").path(0).path("delta").path("content");
+    if (delta.isTextual()) {
+      return delta.asText();
     }
-    return answer.trim();
+    JsonNode messageContent = root.path("choices").path(0).path("message").path("content");
+    return messageContent.isTextual() ? messageContent.asText() : null;
   }
 
-  private String extractContentText(JsonNode content) {
-    if (content == null || content.isMissingNode() || content.isNull()) {
-      return null;
-    }
-    if (content.isTextual()) {
-      return content.asText();
-    }
-    if (content.isArray()) {
-      List<String> parts = new ArrayList<>();
-      for (JsonNode item : content) {
-        String text = item.path("text").asText("");
-        if (!text.isBlank()) {
-          parts.add(text);
-        }
+  private void sendEvent(Writer writer, String event, String data) throws IOException {
+    writer.write("event: ");
+    writer.write(event);
+    writer.write("\n");
+    try (BufferedReader reader = new BufferedReader(new StringReader(data == null ? "" : data))) {
+      String line;
+      boolean wroteLine = false;
+      while ((line = reader.readLine()) != null) {
+        writer.write("data: ");
+        writer.write(line);
+        writer.write("\n");
+        wroteLine = true;
       }
-      return String.join("\n", parts);
+      if (!wroteLine) {
+        writer.write("data: \n");
+      }
     }
-    return content.toString();
-  }
-
-  private int extractTokensUsed(JsonNode response) {
-    JsonNode total = response.path("usage").path("total_tokens");
-    return total.isNumber() ? total.asInt() : 0;
+    writer.write("\n");
+    writer.flush();
   }
 
   private void auditAssistantCall(
@@ -465,7 +503,4 @@ public class LabelerAssistantService {
     return value == null || value.isBlank() ? fallback : value;
   }
 
-  private String formatDateTime(LocalDateTime dateTime) {
-    return dateTime == null ? "" : DATE_TIME.format(dateTime);
-  }
 }

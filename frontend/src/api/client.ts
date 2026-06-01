@@ -53,7 +53,7 @@ export function clearAuthToken() {
   window.localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
-function buildApiUrl(path: string) {
+export function buildApiUrl(path: string) {
   const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(
     /\/$/,
     '',

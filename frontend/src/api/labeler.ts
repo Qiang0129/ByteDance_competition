@@ -8,12 +8,11 @@
  * 后端 Spring Boot 接口落地后,无需修改前端调用方,只需在 client.ts 中切换基础 URL。
  */
 
-import { apiRequest } from './client';
+import { ApiError, apiRequest, buildApiUrl, getAuthToken } from './client';
 import type {
   Annotation,
   Assignment,
   AssistantAskRequest,
-  AssistantAskResponse,
   AssignmentItem,
   BatchSubmitResponse,
   Draft,
@@ -27,6 +26,12 @@ import type {
   ReturnedItemSource,
   SubmitAnnotationRequest,
 } from '../types/labeler';
+
+export interface AssistantStreamHandlers {
+  onDelta: (delta: string) => void;
+  onDone?: () => void;
+  onError?: (error: Error) => void;
+}
 
 function toQueryString(query?: MarketTasksQuery): string {
   if (!query) return '';
@@ -162,14 +167,80 @@ export const labelerApi = {
     });
   },
 
-  /** LLM 答题助手:只返回参考思路,不会直接写入答案字段 */
-  askAssistant(
+  /** LLM 答题助手:直接读取 text/event-stream,不做普通 JSON 回退 */
+  async streamAssistant(
     assignmentId: string,
     payload: AssistantAskRequest,
-  ): Promise<AssistantAskResponse> {
-    return apiRequest<AssistantAskResponse>(`/labeler/assignments/${assignmentId}/assistant`, {
+    handlers: AssistantStreamHandlers,
+  ): Promise<void> {
+    const response = await fetch(buildApiUrl(`/labeler/assignments/${assignmentId}/assistant`), {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+      },
       body: JSON.stringify(payload),
     });
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') ?? '';
+      const errorPayload = contentType.includes('application/json')
+        ? await response.json()
+        : await response.text();
+      throw new ApiError(response.status, response.statusText, errorPayload);
+    }
+    if (!response.body) {
+      throw new Error('浏览器不支持流式响应');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const flushEvents = (chunk: string) => {
+      buffer += chunk;
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? '';
+      for (const rawEvent of events) {
+        const parsed = parseSseEvent(rawEvent);
+        if (!parsed) continue;
+        if (parsed.event === 'delta') {
+          handlers.onDelta(parsed.data);
+        } else if (parsed.event === 'done') {
+          handlers.onDone?.();
+        } else if (parsed.event === 'error') {
+          const error = new Error(parsed.data || 'AI 助手请求失败');
+          handlers.onError?.(error);
+          throw error;
+        }
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      flushEvents(decoder.decode(value, { stream: true }));
+    }
+    const tail = decoder.decode();
+    if (tail) flushEvents(tail);
+    if (buffer.trim()) {
+      const parsed = parseSseEvent(buffer);
+      if (parsed?.event === 'delta') handlers.onDelta(parsed.data);
+      if (parsed?.event === 'error') throw new Error(parsed.data || 'AI 助手请求失败');
+    }
   },
 };
+
+function parseSseEvent(rawEvent: string): { event: string; data: string } | null {
+  const lines = rawEvent.split(/\r?\n/);
+  let event = 'message';
+  const data: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.slice('event:'.length).trim();
+    } else if (line.startsWith('data:')) {
+      data.push(line.slice('data:'.length).replace(/^ /, ''));
+    }
+  }
+  if (!event && data.length === 0) return null;
+  return { event, data: data.join('\n') };
+}

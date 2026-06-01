@@ -3,6 +3,8 @@ package com.labelhub.backend.annotation;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.labelhub.backend.task.PageResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequestMapping("/api")
@@ -92,10 +95,12 @@ public class AnnotationController {
   }
 
   @PostMapping("/labeler/assignments/{assignmentId}/assistant")
-  public AssistantAskResponse askAssistant(
+  public ResponseEntity<StreamingResponseBody> askAssistant(
       Authentication authentication,
       @PathVariable long assignmentId,
       @RequestBody(required = false) AssistantAskRequest request) {
-    return labelerAssistantService.ask(authentication, assignmentId, request);
+    return ResponseEntity.ok()
+        .contentType(MediaType.TEXT_EVENT_STREAM)
+        .body(labelerAssistantService.stream(authentication, assignmentId, request));
   }
 }
