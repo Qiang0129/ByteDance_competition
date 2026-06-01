@@ -6,8 +6,10 @@ import {
   SendOutlined,
   ThunderboltFilled,
 } from '@ant-design/icons';
-import { App as AntdApp, Button, Drawer, Input, Tag, Tooltip, Typography } from 'antd';
+import { App as AntdApp, Button, Drawer, Input, Tooltip, Typography } from 'antd';
 
+import { labelerApi } from '../../api/labeler';
+import { getApiErrorMessage } from '../../api/client';
 import { AiAssistantIcon } from '../../components/icons';
 import type { AssignmentItem } from '../../types/labeler';
 
@@ -17,7 +19,7 @@ import type { AssignmentItem } from '../../types/labeler';
  * 设计要点(对齐 AGENTS.md 决议):
  *   - 入口:右下角浮动按钮(只在 item.llmAssistEnabled === true 时渲染);
  *   - 展开:antd Drawer 从右滑入,360px 宽,与系统其它 Drawer(报告问题 / 任务发布)风格一致;
- *   - 数据流:本阶段先用 Mock 回答,不调用真实后端 LLM;后端 endpoint 后续接入。
+ *   - 数据流:调用后端 LLM 助手接口,后端负责模型配置、上下文裁剪与审计。
  *   - 安全边界:助手只能"复制到剪贴板",绝不直接写答案字段,避免污染人类标注。
  *   - 上下文:把 raw_payload 的非媒体字段 + 当前 schema 字段名作为系统提示发给 LLM(后端落地时实现)。
  *
@@ -59,63 +61,8 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
     });
   }, []);
 
-  /**
-   * Mock 回答生成器:
-   *   - 仅用于阶段 1 占位,真实接入 LLM 后会替换为 fetch 调用;
-   *   - 不会读取 schema / rawPayload 之外的任何信息,模拟"上下文受限"的真实助手语境。
-   */
-  const buildMockAnswer = useCallback(
-    (question: string): string => {
-      const q = question.trim().toLowerCase();
-      const fieldNames = item.fields
-        .filter((field) => field.kind !== 'show-item' && field.fieldName)
-        .map((field) => `${field.label || field.fieldName}(${field.fieldName})`);
-      const taskTitle = item.taskTitle ?? '当前任务';
-      const mediaType = item.rawPayload?.media_type ?? 'text';
-
-      if (q.includes('schema') || q.includes('字段')) {
-        return [
-          `当前模板共有 ${fieldNames.length} 个待填字段:`,
-          fieldNames.length > 0 ? `· ${fieldNames.join('\n· ')}` : '(模板为空)',
-          '',
-          '建议你先快速浏览一遍字段含义,确认每个字段是单选 / 多选 / 文本,再开始作答。',
-        ].join('\n');
-      }
-
-      if (q.includes('维度') || q.includes('好坏') || q.includes('打分')) {
-        return [
-          `针对「${taskTitle}」,常见的标注维度有:`,
-          '1. 准确性:回答是否事实正确、是否覆盖问题核心。',
-          '2. 完整性:是否漏掉用户问题的关键点。',
-          '3. 可读性:语言是否通顺、结构是否清晰。',
-          '4. 安全性:是否包含违规、敏感、误导性内容。',
-          '',
-          '请根据任务说明的维度优先级权衡,如果模板里给了 dimensions 字段,以 dimensions 为准。',
-        ].join('\n');
-      }
-
-      if (q.includes('解释') || q.includes('题目')) {
-        return [
-          `这道题来自「${taskTitle}」,媒体类型为 ${mediaType}。`,
-          '请你逐字段判断:先看左侧原题主要内容,再到右侧表单填写。',
-          '如果遇到不确定,优先参考任务说明里的判定标准,不要根据个人偏好下结论。',
-        ].join('\n');
-      }
-
-      return [
-        '我是 LabelHub 答题助手(演示模式)。当前我能帮你:',
-        '· 解释题目和 Schema 字段',
-        '· 提示常见标注维度',
-        '· 给出判断思路供参考(不会直接给答案)',
-        '',
-        `你可以试着问:"${SUGGESTED_PROMPTS[0]}"`,
-      ].join('\n');
-    },
-    [item],
-  );
-
   const send = useCallback(
-    (raw?: string) => {
+    async (raw?: string) => {
       const text = (raw ?? input).trim();
       if (!text || pending) return;
       const now = new Date();
@@ -130,20 +77,26 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
       setInput('');
       setPending(true);
       scrollToBottom();
-      // 模拟思考延时,体感更接近真实 LLM 调用
-      window.setTimeout(() => {
+      try {
+        const response = await labelerApi.askAssistant(item.assignmentId, {
+          question: text,
+          history: messages.map((msg) => ({ role: msg.role, content: msg.content })),
+        });
         const reply: AssistantMessage = {
           id: idSeed.current++,
           role: 'assistant',
-          content: buildMockAnswer(text),
-          createdAt: new Date().toISOString(),
+          content: response.answer,
+          createdAt: response.createdAt || new Date().toISOString(),
         };
         setMessages((prev) => [...prev, reply]);
+      } catch (error) {
+        message.error(getApiErrorMessage(error, 'AI 助手请求失败,请稍后重试。'));
+      } finally {
         setPending(false);
         scrollToBottom();
-      }, 600);
+      }
     },
-    [buildMockAnswer, input, pending, scrollToBottom],
+    [input, item.assignmentId, message, messages, pending, scrollToBottom],
   );
 
   const clearAll = useCallback(() => {
@@ -210,7 +163,6 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
         title={
           <span className="labeler-assistant-title">
             <AiAssistantIcon /> AI 答题助手
-            <Tag color="blue" style={{ marginLeft: 8 }}>演示模式</Tag>
           </span>
         }
         open={open}
@@ -291,34 +243,37 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
           )}
         </div>
 
-        {/* 底部输入区 */}
+        {/* 底部输入区:输入框与发送按钮同行,类似现代 Chat 应用 */}
         <div className="labeler-assistant-input">
-          <Input.TextArea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onPressEnter={(e) => {
-              if (!e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder="问 AI:这道题我应该怎么理解?(Enter 发送,Shift+Enter 换行)"
-            autoSize={{ minRows: 2, maxRows: 4 }}
-            disabled={pending}
-            maxLength={500}
-            showCount
-          />
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            loading={pending}
-            disabled={!input.trim()}
-            onClick={() => send()}
-            block
-            style={{ marginTop: 8 }}
-          >
-            发送
-          </Button>
+          <div className="labeler-assistant-input-row">
+            <Input.TextArea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onPressEnter={(e) => {
+                if (!e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              placeholder="输入你的问题…"
+              autoSize={{ minRows: 1, maxRows: 4 }}
+              disabled={pending}
+              maxLength={500}
+              className="labeler-assistant-textarea"
+            />
+            <button
+              type="button"
+              className="labeler-assistant-send-btn"
+              disabled={!input.trim() || pending}
+              onClick={() => send()}
+              aria-label="发送"
+            >
+              <SendOutlined />
+            </button>
+          </div>
+          <span className="labeler-assistant-input-hint">
+            Enter 发送 · Shift+Enter 换行 · {input.length}/500
+          </span>
         </div>
       </Drawer>
     </>

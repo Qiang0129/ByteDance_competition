@@ -9814,10 +9814,80 @@ body {
   }
 }
 
-/* 底部输入区:常驻在抽屉底部,不随消息列表滚动 */
+/* 底部输入区:现代 Chat 风格,输入框与发送按钮同行,圆角胶囊容器 */
 .labeler-assistant-input {
   flex: 0 0 auto;
-  padding: 12px 16px 16px;
+  padding: 12px 16px 14px;
   border-top: 1px solid #eef2f7;
   background: #fff;
+}
+
+.labeler-assistant-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: #f4f6f9;
+  border: 1px solid #e8ecf1;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.labeler-assistant-input-row:focus-within {
+  border-color: var(--lh-primary);
+  box-shadow: 0 0 0 3px var(--lh-primary-bg-10, rgba(47, 123, 255, 0.1));
+}
+
+.labeler-assistant-textarea.ant-input {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+}
+
+.labeler-assistant-textarea.ant-input:focus {
+  box-shadow: none !important;
+}
+
+/* 隐藏 antd TextArea 自带的字数统计(我们用自定义 hint 替代) */
+.labeler-assistant-textarea + .ant-input-data-count,
+.labeler-assistant-textarea ~ .ant-input-data-count {
+  display: none !important;
+}
+
+.labeler-assistant-send-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: var(--lh-primary);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.labeler-assistant-send-btn:hover:not(:disabled) {
+  background: var(--lh-primary-hover, #2466e6);
+  transform: scale(1.06);
+}
+
+.labeler-assistant-send-btn:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.labeler-assistant-input-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: right;
 }

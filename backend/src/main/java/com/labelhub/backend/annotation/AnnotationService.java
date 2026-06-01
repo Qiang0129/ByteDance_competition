@@ -116,7 +116,8 @@ public class AnnotationService {
         resolvePosition(assignment, schema),
         returnReason,
         draft,
-        latestAnnotation);
+        latestAnnotation,
+        readMetadataLlmAssistEnabled(assignment.rewardRuleJson()));
   }
 
   public DraftResponse getDraft(Authentication authentication, long assignmentId) {
@@ -653,6 +654,15 @@ public class AnnotationService {
     JsonNode root = readJson(rewardRuleJson);
     JsonNode value = root.path("aiReviewEnabled");
     return value.isMissingNode() || value.isNull() || value.asBoolean(true);
+  }
+
+  private boolean readMetadataLlmAssistEnabled(String rewardRuleJson) {
+    if (rewardRuleJson == null || rewardRuleJson.isBlank()) {
+      return false;
+    }
+    JsonNode root = readJson(rewardRuleJson);
+    JsonNode value = root.path("llmAssistEnabled");
+    return !value.isMissingNode() && !value.isNull() && value.asBoolean(false);
   }
 
   private Long readMetadataAiReviewRuleId(String rewardRuleJson) {

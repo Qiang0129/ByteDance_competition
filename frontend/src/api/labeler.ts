@@ -12,6 +12,8 @@ import { apiRequest } from './client';
 import type {
   Annotation,
   Assignment,
+  AssistantAskRequest,
+  AssistantAskResponse,
   AssignmentItem,
   BatchSubmitResponse,
   Draft,
@@ -155,6 +157,17 @@ export const labelerApi = {
     payload: ReportIssueRequest,
   ): Promise<ReportIssueResponse> {
     return apiRequest<ReportIssueResponse>(`/assignments/${assignmentId}/issues`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /** LLM 答题助手:只返回参考思路,不会直接写入答案字段 */
+  askAssistant(
+    assignmentId: string,
+    payload: AssistantAskRequest,
+  ): Promise<AssistantAskResponse> {
+    return apiRequest<AssistantAskResponse>(`/labeler/assignments/${assignmentId}/assistant`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });

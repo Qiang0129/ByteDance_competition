@@ -252,6 +252,22 @@ export interface AssignmentItem {
   llmAssistEnabled?: boolean;
 }
 
+export interface AssistantHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface AssistantAskRequest {
+  question: string;
+  history?: AssistantHistoryMessage[];
+}
+
+export interface AssistantAskResponse {
+  answer: string;
+  tokensUsed?: number;
+  createdAt: string;
+}
+
 /** 任务市场分页查询参数 */
 export interface MarketTasksQuery {
   keyword?: string;

@@ -30,6 +30,7 @@ com\labelhub\backend\annotation\ReportIssueResponse.class
 com\labelhub\backend\ai\AiReviewService$ValidRuleInput.class
 com\labelhub\backend\ai\AiReviewRepository$AiReviewJobPayloadRecord.class
 com\labelhub\backend\annotation\AnnotationRepository.class
+com\labelhub\backend\annotation\LabelerAssistantService.class
 com\labelhub\backend\dashboard\SubmissionTimelineMonthResponse.class
 com\labelhub\backend\review\AiReviewResultResponse.class
 com\labelhub\backend\review\ReviewBatchResponse.class
@@ -99,6 +100,7 @@ com\labelhub\backend\ownerreview\OwnerReviewRepository$AnnotationRecord.class
 com\labelhub\backend\annotation\AnnotationRepository$IssueRecord.class
 com\labelhub\backend\annotation\AnnotationRepository$AssignmentProgressRecord.class
 com\labelhub\backend\annotation\DraftRequest.class
+com\labelhub\backend\annotation\AssistantMessageRequest.class
 com\labelhub\backend\auth\AuthService.class
 com\labelhub\backend\export\ExportController.class
 com\labelhub\backend\review\ReviewerOverviewResponse.class
@@ -111,6 +113,7 @@ com\labelhub\backend\annotation\BatchSubmitInvalidItem.class
 com\labelhub\backend\task\OwnerTaskResponse.class
 com\labelhub\backend\labeler\LabelerOverviewRepository$RecentBatchRecord.class
 com\labelhub\backend\review\ReviewRepository$ReviewBatchRecord.class
+com\labelhub\backend\annotation\AssistantAskResponse.class
 com\labelhub\backend\annotation\AnswerValidationService.class
 com\labelhub\backend\ai\AiReviewRepository$AiReviewResultRecord.class
 com\labelhub\backend\annotation\AssignmentPositionResponse.class
@@ -125,6 +128,7 @@ com\labelhub\backend\review\ReviewController.class
 com\labelhub\backend\review\ReviewService.class
 com\labelhub\backend\dashboard\IssueFeedbackResponse.class
 com\labelhub\backend\ai\AiReviewService$1.class
+com\labelhub\backend\annotation\AssistantAskRequest.class
 com\labelhub\backend\task\TaskRepository$QueryParts.class
 com\labelhub\backend\ai\AiReviewRuleRequest.class
 com\labelhub\backend\dataset\DatasetResponse.class

@@ -912,9 +912,9 @@ export default function AnswerPage() {
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          当前作业 <Typography.Text code>{item.assignmentId}</Typography.Text>
+          当前作业 <Tag color="blue">{item.taskTitle}</Tag>
           {' · '}
-          题目 <Typography.Text code>{item.itemId}</Typography.Text>
+          题目 <Tag color="blue">第 {item.position.index} / {item.position.total} 题</Tag>
         </Typography.Paragraph>
         <Form<ReportIssueRequest>
           form={reportForm}
@@ -958,10 +958,9 @@ export default function AnswerPage() {
 
       {/*
         AI 答题助手:仅在当前题可编辑时渲染。
-        后端 llmAssistEnabled 字段落地后,改为 `item.llmAssistEnabled !== false && canEdit`
-        以支持 Owner 在任务级关闭助手;当前 Mock 阶段后端未返回该字段,默认展示。
+        Owner 任务级开关关闭或题目锁定时,不展示任何助手入口。
       */}
-      {canEdit ? <LabelerAssistantPanel item={item} /> : null}
+      {item.llmAssistEnabled === true && canEdit ? <LabelerAssistantPanel item={item} /> : null}
     </Space>
   );
 }

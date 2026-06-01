@@ -23,4 +23,5 @@ public record OwnerTaskResponse(
     String description,
     boolean aiReviewEnabled,
     String aiReviewRuleId,
-    String aiReviewRuleName) {}
+    String aiReviewRuleName,
+    boolean llmAssistEnabled) {}

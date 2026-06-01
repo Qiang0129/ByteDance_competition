@@ -20,9 +20,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class AnnotationController {
 
   private final AnnotationService annotationService;
+  private final LabelerAssistantService labelerAssistantService;
 
-  public AnnotationController(AnnotationService annotationService) {
+  public AnnotationController(
+      AnnotationService annotationService,
+      LabelerAssistantService labelerAssistantService) {
     this.annotationService = annotationService;
+    this.labelerAssistantService = labelerAssistantService;
   }
 
   @GetMapping("/assignments/{assignmentId}/item")
@@ -85,5 +89,13 @@ public class AnnotationController {
       @PathVariable long assignmentId,
       @RequestBody(required = false) ReportIssueRequest request) {
     return annotationService.reportIssue(authentication, assignmentId, request);
+  }
+
+  @PostMapping("/labeler/assignments/{assignmentId}/assistant")
+  public AssistantAskResponse askAssistant(
+      Authentication authentication,
+      @PathVariable long assignmentId,
+      @RequestBody(required = false) AssistantAskRequest request) {
+    return labelerAssistantService.ask(authentication, assignmentId, request);
   }
 }

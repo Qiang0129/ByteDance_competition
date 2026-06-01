@@ -78,6 +78,7 @@ const segmentLabel: Record<string, string> = {
   export: '导出中心',
   overview: '工作概览',
   ai: '待审队列',
+  answer: '答题',
   disputes: '争议样本',
   reports: '审核报表',
   settings: '系统设置',
@@ -333,6 +334,8 @@ export default function AppLayout() {
       acc += `/${segment}`;
       // 跳过第一段(角色名)避免和 root 重复
       if (idx === 0) return;
+      // 跳过纯数字片段(如 assignmentId / taskId),避免面包屑显示无意义 ID
+      if (/^\d+$/.test(segment)) return;
       const label = segmentLabel[segment] ?? segment;
       const isLast = idx === parts.length - 1;
       items.push({

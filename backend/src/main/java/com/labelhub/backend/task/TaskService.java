@@ -384,6 +384,9 @@ public class TaskService {
         request.aiReviewEnabled(),
         aiReviewRule.ruleId(),
         aiReviewRule.ruleName(),
+        request.llmAssistEnabled() == null
+            ? fallbackMetadata != null && fallbackMetadata.resolvedLlmAssistEnabled()
+            : request.llmAssistEnabled(),
         resolveTaskType(request),
         resolveRewardPerItem(request.reward()));
   }
@@ -619,7 +622,8 @@ public class TaskService {
         record.description(),
         metadata.resolvedAiReviewEnabled(),
         metadata.aiReviewRuleId() == null ? null : Long.toString(metadata.aiReviewRuleId()),
-        metadata.aiReviewRuleName());
+        metadata.aiReviewRuleName(),
+        metadata.resolvedLlmAssistEnabled());
   }
 
   private MarketTaskResponse toMarketResponse(TaskRecord record, long currentUserId) {
@@ -1058,6 +1062,7 @@ public class TaskService {
         true,
         null,
         null,
+        false,
         "Annotation Task",
         null);
   }

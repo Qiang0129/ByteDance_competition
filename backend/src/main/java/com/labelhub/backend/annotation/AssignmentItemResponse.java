@@ -19,4 +19,5 @@ public record AssignmentItemResponse(
     AssignmentPositionResponse position,
     String returnReason,
     DraftResponse draft,
-    AnnotationResponse latestAnnotation) {}
+    AnnotationResponse latestAnnotation,
+    boolean llmAssistEnabled) {}
