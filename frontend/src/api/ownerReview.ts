@@ -9,7 +9,7 @@
  *   - GET    /reviews/tasks                   按任务聚合的审核进度列表
  *   - GET    /reviews/tasks/{taskId}/annotations 任务下条目明细(只读)
  *   - GET    /reviews/audit-log               审计日志
- *   - POST   /reviews/batch-decision          批量人工裁决(可选)
+ *   - POST   /reviews/batch-decision          预留兼容方法,当前 Owner 页不接入后端裁决
  *
  * 与 Reviewer 端 `/reviewer/*` 区别:
  *   - Owner 端是横向看「所有任务 / 所有审核员」的进度;
@@ -24,6 +24,7 @@ import type {
   OwnerReviewBatchDecisionResponse,
   OwnerReviewOverview,
   OwnerReviewPageResult,
+  OwnerReviewReviewer,
   OwnerReviewTaskRow,
   OwnerReviewTasksQuery,
   ReviewAuditLogEntry,
@@ -55,6 +56,11 @@ export const ownerReviewApi = {
     );
   },
 
+  /** 系统内所有人工审核员 */
+  listReviewers(): Promise<OwnerReviewReviewer[]> {
+    return apiRequest<OwnerReviewReviewer[]>('/reviews/reviewers');
+  },
+
   /** 单任务下的条目明细(只读) */
   listTaskAnnotations(
     taskId: string,
@@ -74,7 +80,7 @@ export const ownerReviewApi = {
     );
   },
 
-  /** 批量人工裁决 */
+  /** 预留兼容方法:当前 Owner 人工审核页只读,不调用该接口。 */
   batchDecision(
     payload: OwnerReviewBatchDecisionRequest,
   ): Promise<OwnerReviewBatchDecisionResponse> {

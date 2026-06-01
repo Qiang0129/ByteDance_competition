@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRightOutlined,
   ExclamationCircleOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
@@ -24,6 +23,7 @@ import type {
   AiReviewResult,
   AiReviewTaskSummary,
   AnnotationToReview,
+  ReviewerListView,
 } from '../../types/reviewer';
 
 /**
@@ -43,6 +43,8 @@ export default function ReviewerAi() {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<AiReviewTaskSummary[]>([]);
   const [filter, setFilter] = useState<DecisionFilter>('all');
+  /** 任务视图:待审 / 已完成 / 全部。已完成视图下任务卡片只读。 */
+  const [view, setView] = useState<ReviewerListView>('pending');
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
@@ -53,6 +55,7 @@ export default function ReviewerAi() {
       const resp = await reviewerApi.listAiReviewTasks({
         decision: filter,
         keyword: keyword || undefined,
+        view,
       });
       setTasks(resp.items ?? []);
       setUsingFallback(false);
@@ -70,7 +73,7 @@ export default function ReviewerAi() {
     } finally {
       setLoading(false);
     }
-  }, [filter, keyword, message]);
+  }, [filter, keyword, message, view]);
 
   useEffect(() => {
     void loadTasks();
@@ -100,6 +103,18 @@ export default function ReviewerAi() {
     [visibleTasks],
   );
 
+  /** 进入对应任务的工作台。已完成视图带 view=reviewed 切换为只读模式。 */
+  const enterTask = useCallback(
+    (task: AiReviewTaskSummary) => {
+      const readOnly = view === 'reviewed' || (view === 'all' && task.pendingHuman <= 0);
+      const target = readOnly
+        ? `/reviewer/ai/${encodeURIComponent(task.taskId)}?view=reviewed`
+        : `/reviewer/ai/${encodeURIComponent(task.taskId)}`;
+      navigate(target);
+    },
+    [navigate, view],
+  );
+
   return (
     <Space direction="vertical" size="large" className="page-stack">
       <div className="page-title-row">
@@ -124,6 +139,15 @@ export default function ReviewerAi() {
           />
           <Segmented
             options={[
+              { label: '待审', value: 'pending' },
+              { label: '已完成', value: 'reviewed' },
+              { label: '全部', value: 'all' },
+            ]}
+            value={view}
+            onChange={(v) => setView(v as ReviewerListView)}
+          />
+          <Segmented
+            options={[
               { label: '全部', value: 'all' },
               { label: 'PASS', value: 'PASS' },
               { label: '人工复核', value: 'NEED_HUMAN_REVIEW' },
@@ -141,15 +165,24 @@ export default function ReviewerAi() {
       <Spin spinning={loading}>
         {visibleTasks.length === 0 && !loading ? (
           <Card>
-            <Empty description="暂无 AI 预审结果" />
+            <Empty
+              description={
+                view === 'reviewed'
+                  ? '尚未审核过任何任务'
+                  : view === 'all'
+                    ? '暂无 AI 预审结果'
+                    : '暂无待审任务,可切到「已完成」回看历史'
+              }
+            />
           </Card>
         ) : (
           <div className="ai-review-card-grid">
             {visibleTasks.map((task) => (
               <AiReviewTaskCard
-                key={task.taskId}
+                key={`${view}-${task.taskId}`}
                 task={task}
-                onEnter={() => navigate(`/reviewer/ai/${encodeURIComponent(task.taskId)}`)}
+                view={view}
+                onEnter={() => enterTask(task)}
               />
             ))}
           </div>
@@ -171,15 +204,29 @@ export default function ReviewerAi() {
 /* ============ 任务卡片 ============ */
 function AiReviewTaskCard({
   task,
+  view,
   onEnter,
 }: {
   task: AiReviewTaskSummary;
+  view: ReviewerListView;
   onEnter: () => void;
 }) {
-  const donePct = task.total > 0 ? Math.round(((task.total - task.pendingHuman) / task.total) * 100) : 0;
+  // 已完成视图下,进度按"已审/总数"展示;待审视图按原有"已审进度"展示。
+  const reviewedCount = task.reviewedCount ?? 0;
+  const donePct =
+    task.total > 0
+      ? view === 'reviewed'
+        ? 100
+        : Math.round(((task.total - task.pendingHuman) / task.total) * 100)
+      : 0;
+  const isReviewedOnly = view === 'reviewed' || (view !== 'pending' && task.pendingHuman <= 0);
+  const buttonText = isReviewedOnly ? '查看历史 →' : '进入审核 →';
+  const progressText = isReviewedOnly
+    ? `已审 ${reviewedCount || task.total} · 共 ${task.total} 条`
+    : `待审 ${task.pendingHuman} · 共 ${task.total} 条`;
 
   return (
-    <Card className="ai-review-card" hoverable onClick={onEnter}>
+    <Card className={`ai-review-card${isReviewedOnly ? ' is-reviewed' : ''}`} hoverable onClick={onEnter}>
       <div className="ai-review-card-head">
         <div className="ai-review-card-icon">
           <AiAssistantIcon />
@@ -188,6 +235,7 @@ function AiReviewTaskCard({
           <span className="ai-review-card-title">{task.taskTitle}</span>
           {task.taskType && <span className="ai-review-card-type">{task.taskType}</span>}
         </div>
+        {isReviewedOnly && <Tag color="default">已完成</Tag>}
       </div>
 
       <div className="ai-review-card-stats">
@@ -209,13 +257,11 @@ function AiReviewTaskCard({
         <div className="ai-review-card-progress-bar">
           <span style={{ width: `${donePct}%` }} />
         </div>
-        <span className="ai-review-card-progress-text">
-          待审 {task.pendingHuman} · 共 {task.total} 条
-        </span>
+        <span className="ai-review-card-progress-text">{progressText}</span>
       </div>
 
       <Button
-        type="primary"
+        type={isReviewedOnly ? 'default' : 'primary'}
         block
         className="ai-review-card-enter"
         onClick={(e) => {
@@ -223,7 +269,7 @@ function AiReviewTaskCard({
           onEnter();
         }}
       >
-        进入审核 <ArrowRightOutlined />
+        {buttonText}
       </Button>
     </Card>
   );
@@ -249,6 +295,7 @@ export function groupTasksFromItems(items: AnnotationToReview[]): AiReviewTaskSu
         needHumanCount: 0,
         rejectCount: 0,
         pendingHuman: 0,
+        reviewedCount: 0,
       };
       map.set(taskId, summary);
     }

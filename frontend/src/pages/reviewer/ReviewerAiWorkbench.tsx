@@ -16,7 +16,7 @@ import {
   Spin,
   Tag,
 } from 'antd';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { getApiErrorMessage } from '../../api/client';
 import { reviewerApi } from '../../api/reviewer';
@@ -44,8 +44,33 @@ const decisionMeta: Record<AiReviewResult['decision'], { color: string; label: s
   NEED_HUMAN_REVIEW: { color: 'warning', label: '人工复核' },
 };
 
+/** 已完成视图下用于展示当前 reviewer 的最终人工裁决。后端 decision 已统一大写。 */
+function humanDecisionMeta(
+  decision: AnnotationToReview['decision'],
+): { color: string; label: string } | null {
+  if (!decision) return null;
+  const key = decision.toString().toUpperCase();
+  switch (key) {
+    case 'APPROVE':
+      return { color: 'success', label: '通过' };
+    case 'RETURN':
+      return { color: 'error', label: '打回' };
+    case 'REVISE':
+      return { color: 'processing', label: '直接修订' };
+    case 'ESCALATE':
+      return { color: 'magenta', label: '已升级争议' };
+    default:
+      return { color: 'default', label: key };
+  }
+}
+
 export default function ReviewerAiWorkbench() {
   const { taskId = '' } = useParams<{ taskId: string }>();
+  const [searchParams] = useSearchParams();
+  /** 视图模式:reviewed = 只读历史回看;其他 = 默认待审审核模式 */
+  const view: 'reviewed' | 'pending' =
+    searchParams.get('view') === 'reviewed' ? 'reviewed' : 'pending';
+  const readOnly = view === 'reviewed';
   const { message } = AntdApp.useApp();
   const navigate = useNavigate();
 
@@ -70,7 +95,7 @@ export default function ReviewerAiWorkbench() {
     setLoading(true);
     setError(null);
     try {
-      const resp = await reviewerApi.listAiReviewAnnotations(taskId, { pageSize: 200 });
+      const resp = await reviewerApi.listAiReviewAnnotations(taskId, { pageSize: 200, view });
       setItems(resp.items ?? []);
     } catch (requestError) {
       const text = getApiErrorMessage(requestError, '加载任务标注失败');
@@ -79,7 +104,7 @@ export default function ReviewerAiWorkbench() {
     } finally {
       setLoading(false);
     }
-  }, [taskId, message]);
+  }, [taskId, message, view]);
 
   useEffect(() => {
     void loadAnnotations();
@@ -302,9 +327,13 @@ export default function ReviewerAiWorkbench() {
           返回任务列表
         </Button>
         <span className="ai-wb-task-title">{taskTitle}</span>
-        <Tag icon={<AiAssistantIcon />} color="processing">
-          共 {items.length} 条待审
-        </Tag>
+        {readOnly ? (
+          <Tag color="default">已完成 · 仅查看</Tag>
+        ) : (
+          <Tag icon={<AiAssistantIcon />} color="processing">
+            共 {items.length} 条待审
+          </Tag>
+        )}
       </div>
 
       <Spin spinning={loading}>
@@ -337,37 +366,39 @@ export default function ReviewerAiWorkbench() {
                 ))}
               </div>
 
-              {/* 批量操作栏 */}
-              <div className="ai-wb-bulkbar">
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={selectedCount > 0 && !allSelected}
-                  onChange={toggleSelectAll}
-                  disabled={currentList.length === 0}
-                >
-                  {selectedCount > 0 ? `已选 ${selectedCount} 条` : '全选'}
-                </Checkbox>
-                <div className="ai-wb-bulk-actions">
-                  <Button
-                    size="small"
-                    className="ai-wb-bulk-btn is-approve"
-                    disabled={selectedCount === 0}
-                    loading={bulkCommitting}
-                    onClick={() => void batchCommit('APPROVE')}
+              {/* 批量操作栏:已完成视图(只读)下隐藏,避免误触 */}
+              {!readOnly && (
+                <div className="ai-wb-bulkbar">
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={selectedCount > 0 && !allSelected}
+                    onChange={toggleSelectAll}
+                    disabled={currentList.length === 0}
                   >
-                    批量通过
-                  </Button>
-                  <Button
-                    size="small"
-                    className="ai-wb-bulk-btn is-return"
-                    disabled={selectedCount === 0}
-                    loading={bulkCommitting}
-                    onClick={() => void batchCommit('RETURN')}
-                  >
-                    批量打回
-                  </Button>
+                    {selectedCount > 0 ? `已选 ${selectedCount} 条` : '全选'}
+                  </Checkbox>
+                  <div className="ai-wb-bulk-actions">
+                    <Button
+                      size="small"
+                      className="ai-wb-bulk-btn is-approve"
+                      disabled={selectedCount === 0}
+                      loading={bulkCommitting}
+                      onClick={() => void batchCommit('APPROVE')}
+                    >
+                      批量通过
+                    </Button>
+                    <Button
+                      size="small"
+                      className="ai-wb-bulk-btn is-return"
+                      disabled={selectedCount === 0}
+                      loading={bulkCommitting}
+                      onClick={() => void batchCommit('RETURN')}
+                    >
+                      批量打回
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="ai-wb-list">
                 {currentList.length === 0 ? (
@@ -379,6 +410,7 @@ export default function ReviewerAiWorkbench() {
                       item={it}
                       active={it.annotationId === activeId}
                       selected={selectedIds.has(it.annotationId)}
+                      readOnly={readOnly}
                       onToggleSelect={() => toggleSelect(it.annotationId)}
                       onClick={() => {
                         setActiveId(it.annotationId);
@@ -402,6 +434,7 @@ export default function ReviewerAiWorkbench() {
                 onRevise={() => openRevise(active)}
                 onApprove={() => void commit(active.annotationId, 'APPROVE')}
                 committing={committingId === active.annotationId}
+                readOnly={readOnly}
               />
             ) : (
               <div className="ai-wb-detail-empty">
@@ -493,12 +526,14 @@ function AnnotationListItem({
   item,
   active,
   selected,
+  readOnly,
   onToggleSelect,
   onClick,
 }: {
   item: AnnotationToReview;
   active: boolean;
   selected: boolean;
+  readOnly?: boolean;
   onToggleSelect: () => void;
   onClick: () => void;
 }) {
@@ -506,15 +541,19 @@ function AnnotationListItem({
   const meta = ai ? decisionMeta[ai.decision] : null;
   const primaryTitle = pickTitle(item);
   const roundTagColor = item.revisionNo > 1 ? 'orange' : 'default';
+  /** 已完成视图额外展示最终人工裁决 Tag,与 AI 决策并列 */
+  const humanMeta = humanDecisionMeta(item.decision);
 
   return (
     <div className={`ai-wb-item${active ? ' is-active' : ''}${selected ? ' is-selected' : ''}`}>
-      <Checkbox
-        className="ai-wb-item-check"
-        checked={selected}
-        onChange={onToggleSelect}
-        onClick={(e) => e.stopPropagation()}
-      />
+      {!readOnly && (
+        <Checkbox
+          className="ai-wb-item-check"
+          checked={selected}
+          onChange={onToggleSelect}
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
       <button type="button" className="ai-wb-item-main" onClick={onClick}>
         <div className="ai-wb-item-head">
           <span className="ai-wb-item-id">第 {displayItemIndex(item)} 题</span>
@@ -525,6 +564,11 @@ function AnnotationListItem({
           {ai && <Tag className="ai-wb-item-score">AI {ai.total_score}</Tag>}
           <Tag color={roundTagColor} className="ai-wb-item-round">第 {item.revisionNo} 轮</Tag>
           {meta && <Tag color={meta.color} className="ai-wb-item-decision">{meta.label}</Tag>}
+          {readOnly && humanMeta && (
+            <Tag color={humanMeta.color} className="ai-wb-item-human-decision">
+              {humanMeta.label}
+            </Tag>
+          )}
         </div>
       </button>
     </div>
@@ -540,6 +584,7 @@ function AnnotationDetail({
   onRevise,
   onApprove,
   committing,
+  readOnly,
 }: {
   item: AnnotationToReview;
   opinion: string;
@@ -548,6 +593,7 @@ function AnnotationDetail({
   onRevise: () => void;
   onApprove: () => void;
   committing?: boolean;
+  readOnly?: boolean;
 }) {
   const ai = item.aiResult;
   const answerEntries = Object.entries(item.answerJson ?? {});
@@ -555,6 +601,7 @@ function AnnotationDetail({
   const hasComparison = !!prev && Object.keys(prev).length > 0;
   const title = pickTitle(item);
   const itemIndex = displayItemIndex(item);
+  const humanMeta = humanDecisionMeta(item.decision);
 
   return (
     <>
@@ -666,38 +713,64 @@ function AnnotationDetail({
         </div>
       )}
 
-      {/* 审核意见 */}
-      <div className="ai-wb-opinion">
-        <div className="ai-wb-opinion-title">审核意见(打回时必填)</div>
-        <Input.TextArea
-          rows={3}
-          value={opinion}
-          onChange={(e) => onOpinionChange(e.target.value)}
-          placeholder="填写本轮审核意见,打回时需说明具体问题…"
-        />
-      </div>
+      {/* 审核意见(只读视图改为展示已写入的人工裁决记录) */}
+      {readOnly ? (
+        <div className="ai-wb-readonly-result">
+          <div className="ai-wb-readonly-title">最终人工裁决</div>
+          <div className="ai-wb-readonly-meta">
+            {humanMeta && (
+              <Tag color={humanMeta.color} className="ai-wb-readonly-decision">
+                {humanMeta.label}
+              </Tag>
+            )}
+            {item.humanReviewerName && (
+              <span className="ai-wb-readonly-actor">审核员:{item.humanReviewerName}</span>
+            )}
+            {item.humanReviewedAt && (
+              <span className="ai-wb-readonly-time">{item.humanReviewedAt}</span>
+            )}
+          </div>
+          {item.humanReason ? (
+            <div className="ai-wb-readonly-reason">{item.humanReason}</div>
+          ) : (
+            <div className="ai-wb-readonly-reason is-empty">无书面理由</div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="ai-wb-opinion">
+            <div className="ai-wb-opinion-title">审核意见(打回时必填)</div>
+            <Input.TextArea
+              rows={3}
+              value={opinion}
+              onChange={(e) => onOpinionChange(e.target.value)}
+              placeholder="填写本轮审核意见,打回时需说明具体问题…"
+            />
+          </div>
 
-      {/* 裁决按钮 */}
-      <div className="ai-wb-actions">
-        <button type="button" className="ai-wb-action is-return" onClick={onReturn} disabled={committing}>
-          <span className="ai-wb-action-main">↩ 打回</span>
-          <span className="ai-wb-action-sub">退回标注员修改</span>
-        </button>
-        <button
-          type="button"
-          className="ai-wb-action is-revise"
-          onClick={onRevise}
-          disabled={committing || !item.schemaFields?.length}
-          title={!item.schemaFields?.length ? '缺少 Schema 快照,无法就地修订' : undefined}
-        >
-          <span className="ai-wb-action-main">✎ 直接修订</span>
-          <span className="ai-wb-action-sub">审核员就地改写并入库</span>
-        </button>
-        <button type="button" className="ai-wb-action is-approve" onClick={onApprove} disabled={committing}>
-          <span className="ai-wb-action-main">✓ 通过 · 入库</span>
-          <span className="ai-wb-action-sub">本条进入终审 / 可导出</span>
-        </button>
-      </div>
+          {/* 裁决按钮 */}
+          <div className="ai-wb-actions">
+            <button type="button" className="ai-wb-action is-return" onClick={onReturn} disabled={committing}>
+              <span className="ai-wb-action-main">↩ 打回</span>
+              <span className="ai-wb-action-sub">退回标注员修改</span>
+            </button>
+            <button
+              type="button"
+              className="ai-wb-action is-revise"
+              onClick={onRevise}
+              disabled={committing || !item.schemaFields?.length}
+              title={!item.schemaFields?.length ? '缺少 Schema 快照,无法就地修订' : undefined}
+            >
+              <span className="ai-wb-action-main">✎ 直接修订</span>
+              <span className="ai-wb-action-sub">审核员就地改写并入库</span>
+            </button>
+            <button type="button" className="ai-wb-action is-approve" onClick={onApprove} disabled={committing}>
+              <span className="ai-wb-action-main">✓ 通过 · 入库</span>
+              <span className="ai-wb-action-sub">本条进入终审 / 可导出</span>
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 }

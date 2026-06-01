@@ -14,15 +14,16 @@ import {
 } from '@ant-design/icons';
 import {
   App as AntdApp,
+  Alert,
   Button,
   Card,
   Col,
   Drawer,
   Empty,
   Input,
+  Pagination,
   Progress,
   Row,
-  Segmented,
   Select,
   Space,
   Table,
@@ -32,16 +33,16 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { PaginationProps } from 'antd';
 
 import { ownerReviewApi } from '../../api/ownerReview';
 import { getApiErrorMessage } from '../../api/client';
 import type {
   OwnerReviewAnnotation,
   OwnerReviewOverview,
+  OwnerReviewReviewer,
   OwnerReviewTaskRow,
   ReviewAuditLogEntry,
-  ReviewStage,
-  ReviewStageProgress,
 } from '../../types/ownerReview';
 
 /**
@@ -50,29 +51,14 @@ import type {
  * 对齐《项目实施计划书》4.5 / 4.6:
  *   - Owner 视角是「跟踪 + 审计」,不是替代 Reviewer 逐条裁决;
  *   - 顶部 KPI 概览 (待审、今日通过/打回、争议、抽检覆盖、双审一致率、返工率);
- *   - 任务级进度表 (初审 / 复审 / 终审 三段进度条 + 抽检比例 + SLA);
- *   - 任务详情抽屉:阶段汇总卡 + 条目明细表 (只读);
- *   - 审计日志侧栏:操作时间线,可按操作者角色过滤。
+ *   - 任务级进度表:审核结果计数 + 抽检比例 + SLA;
+ *   - 任务详情抽屉:条目明细表 (只读);
+ *   - 审计日志侧栏:操作时间线,可按审核员过滤。
  *
- * 后端接口未实现时回落到 public/sample-datasets/owner-review-*.json,
- * 顶部用 Tag 标记演示模式,所有交互保持可演示。
+ * 后端接口失败时显示真实错误态,不再回落演示样例。
  */
 
 const { Title, Paragraph, Text } = Typography;
-
-const stageLabel: Record<ReviewStage, string> = {
-  initial: '初审',
-  second: '复审',
-  final: '终审',
-  sampling: '抽检',
-};
-
-const stageColor: Record<ReviewStage, string> = {
-  initial: '#3b82f6',
-  second: '#6366f1',
-  final: '#16a34a',
-  sampling: '#f59e0b',
-};
 
 const annotationStatusMeta: Record<
   OwnerReviewAnnotation['status'],
@@ -85,33 +71,10 @@ const annotationStatusMeta: Record<
   disputed: { label: '争议中', color: 'magenta' },
 };
 
-const operatorRoleLabel: Record<ReviewAuditLogEntry['operatorRole'], string> = {
-  owner: '任务负责人',
-  labeler: '标注员',
-  reviewer: '审核员',
-  system_agent: '系统/AI',
-};
-
 /** 把 0-1 的小数格式化为百分比文本 */
 function pct(value: number, fractionDigits = 1) {
   if (Number.isNaN(value) || !Number.isFinite(value)) return '0%';
   return `${(value * 100).toFixed(fractionDigits)}%`;
-}
-
-/** 从任务的 stages 数组里安全取某阶段进度,缺失时返回零值 */
-function pickStage(
-  stages: ReviewStageProgress[],
-  stage: ReviewStage,
-): ReviewStageProgress {
-  return (
-    stages.find((s) => s.stage === stage) ?? {
-      stage,
-      pending: 0,
-      reviewed: 0,
-      approved: 0,
-      returned: 0,
-    }
-  );
 }
 
 export default function OwnerReview() {
@@ -120,20 +83,18 @@ export default function OwnerReview() {
   const [overview, setOverview] = useState<OwnerReviewOverview | null>(null);
   const [tasks, setTasks] = useState<OwnerReviewTaskRow[]>([]);
   const [auditLog, setAuditLog] = useState<ReviewAuditLogEntry[]>([]);
+  const [reviewers, setReviewers] = useState<OwnerReviewReviewer[]>([]);
   const [loading, setLoading] = useState(false);
-  const [usingFallback, setUsingFallback] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   /** 任务表筛选 */
   const [keyword, setKeyword] = useState('');
-  const [stageFilter, setStageFilter] = useState<ReviewStage | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<
     'all' | 'in_progress' | 'completed' | 'has_disputes'
   >('all');
 
   /** 审计日志筛选 */
-  const [auditRole, setAuditRole] = useState<
-    ReviewAuditLogEntry['operatorRole'] | 'all'
-  >('all');
+  const [auditReviewerId, setAuditReviewerId] = useState<string>('all');
 
   /** 任务详情抽屉 */
   const [detailTask, setDetailTask] = useState<OwnerReviewTaskRow | null>(null);
@@ -141,40 +102,44 @@ export default function OwnerReview() {
     OwnerReviewAnnotation[]
   >([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
-  /** 拉取 KPI + 任务列表 + 审计日志,后端不可用时回落样例 */
+  /** 全量审计日志 Drawer */
+  const [auditDrawerOpen, setAuditDrawerOpen] = useState(false);
+  const [auditDrawerPage, setAuditDrawerPage] = useState(1);
+  const [auditDrawerItems, setAuditDrawerItems] = useState<ReviewAuditLogEntry[]>([]);
+  const [auditDrawerTotal, setAuditDrawerTotal] = useState(0);
+  const [auditDrawerLoading, setAuditDrawerLoading] = useState(false);
+  const [auditDrawerError, setAuditDrawerError] = useState<string | null>(null);
+
+  /** 拉取 KPI + 任务列表 + 审计日志 */
   const loadAll = useCallback(async () => {
     setLoading(true);
-    let fallback = false;
+    setLoadError(null);
     try {
-      const [overviewRes, tasksRes, auditRes] = await Promise.all([
+      const [overviewRes, tasksRes, auditRes, reviewerRes] = await Promise.all([
         ownerReviewApi.getOverview(30),
-        ownerReviewApi.listTasks({ stage: 'all', status: 'all' }),
-        ownerReviewApi.listAuditLog({ days: 7 }),
+        ownerReviewApi.listTasks({ status: 'all' }),
+        ownerReviewApi.listAuditLog({
+          days: 7,
+          reviewerId: auditReviewerId === 'all' ? undefined : auditReviewerId,
+        }),
+        ownerReviewApi.listReviewers(),
       ]);
       setOverview(overviewRes);
       setTasks(tasksRes.items ?? []);
       setAuditLog(auditRes.items ?? []);
-    } catch {
-      // 后端未就绪:并行拉三份样例 JSON,保证页面可演示
-      fallback = true;
-      try {
-        const [ov, tk, al] = await Promise.all([
-          fetch('/sample-datasets/owner-review-overview.json').then((r) => r.json()),
-          fetch('/sample-datasets/owner-review-tasks.json').then((r) => r.json()),
-          fetch('/sample-datasets/owner-review-audit-log.json').then((r) => r.json()),
-        ]);
-        setOverview(ov as OwnerReviewOverview);
-        setTasks((tk?.items ?? []) as OwnerReviewTaskRow[]);
-        setAuditLog((al?.items ?? []) as ReviewAuditLogEntry[]);
-      } catch (error) {
-        message.error(getApiErrorMessage(error, '人工审核数据加载失败,且无法读取样例'));
-      }
+      setReviewers(reviewerRes ?? []);
+    } catch (error) {
+      setOverview(null);
+      setTasks([]);
+      setAuditLog([]);
+      setReviewers([]);
+      setLoadError(getApiErrorMessage(error, '人工审核数据加载失败'));
     } finally {
-      setUsingFallback(fallback);
       setLoading(false);
     }
-  }, [message]);
+  }, [auditReviewerId]);
 
   useEffect(() => {
     void loadAll();
@@ -184,6 +149,7 @@ export default function OwnerReview() {
   const openTaskDetail = async (task: OwnerReviewTaskRow) => {
     setDetailTask(task);
     setDetailAnnotations([]);
+    setDetailError(null);
     setDetailLoading(true);
     try {
       const res = await ownerReviewApi.listTaskAnnotations(task.taskId, {
@@ -191,18 +157,57 @@ export default function OwnerReview() {
         pageSize: 50,
       });
       setDetailAnnotations(res.items ?? []);
-    } catch {
-      try {
-        const sample = await fetch(
-          '/sample-datasets/owner-review-annotations.json',
-        ).then((r) => r.json());
-        setDetailAnnotations((sample?.items ?? []) as OwnerReviewAnnotation[]);
-      } catch (error) {
-        message.error(getApiErrorMessage(error, '加载条目明细失败'));
-      }
+    } catch (error) {
+      setDetailAnnotations([]);
+      setDetailError(getApiErrorMessage(error, '加载条目明细失败'));
+      message.error(getApiErrorMessage(error, '加载条目明细失败'));
     } finally {
       setDetailLoading(false);
     }
+  };
+
+  const auditReviewerName = useMemo(() => {
+    if (auditReviewerId === 'all') return '全部审核员';
+    return reviewers.find((reviewer) => reviewer.reviewerId === auditReviewerId)
+      ?.reviewerName ?? '指定审核员';
+  }, [auditReviewerId, reviewers]);
+
+  const loadAuditDrawer = useCallback(
+    async (page = 1) => {
+      setAuditDrawerLoading(true);
+      setAuditDrawerError(null);
+      try {
+        const res = await ownerReviewApi.listAuditLog({
+          days: 365,
+          reviewerId: auditReviewerId === 'all' ? undefined : auditReviewerId,
+          page,
+          pageSize: 20,
+        });
+        setAuditDrawerItems(res.items ?? []);
+        setAuditDrawerTotal(res.total ?? 0);
+        setAuditDrawerPage(res.page ?? page);
+      } catch (error) {
+        setAuditDrawerItems([]);
+        setAuditDrawerTotal(0);
+        setAuditDrawerError(getApiErrorMessage(error, '加载全部审计日志失败'));
+      } finally {
+        setAuditDrawerLoading(false);
+      }
+    },
+    [auditReviewerId],
+  );
+
+  const openAuditDrawer = () => {
+    setAuditDrawerOpen(true);
+    void loadAuditDrawer(1);
+  };
+
+  const closeAuditDrawer = () => {
+    setAuditDrawerOpen(false);
+  };
+
+  const handleAuditDrawerPageChange: PaginationProps['onChange'] = (page) => {
+    void loadAuditDrawer(page);
   };
 
   /** 任务表筛选(本地) */
@@ -214,22 +219,12 @@ export default function OwnerReview() {
         const blob = `${t.taskId} ${t.taskTitle} ${t.taskType ?? ''} ${reviewerNames}`.toLowerCase();
         if (!blob.includes(kw)) return false;
       }
-      if (stageFilter !== 'all') {
-        const stage = pickStage(t.stages, stageFilter);
-        if (stage.pending <= 0 && stage.reviewed <= 0) return false;
-      }
       if (statusFilter === 'in_progress' && t.inProgress <= 0) return false;
       if (statusFilter === 'completed' && t.inProgress > 0) return false;
       if (statusFilter === 'has_disputes' && t.disputes <= 0) return false;
       return true;
     });
-  }, [tasks, keyword, stageFilter, statusFilter]);
-
-  /** 审计日志按角色过滤 */
-  const visibleAuditLog = useMemo(() => {
-    if (auditRole === 'all') return auditLog;
-    return auditLog.filter((l) => l.operatorRole === auditRole);
-  }, [auditLog, auditRole]);
+  }, [tasks, keyword, statusFilter]);
 
   /* ============== 任务表列定义 ============== */
   const taskColumns: ColumnsType<OwnerReviewTaskRow> = [
@@ -265,30 +260,23 @@ export default function OwnerReview() {
       ),
     },
     {
-      title: '三阶段审核进度',
-      width: 280,
-      render: (_, row) => <StageProgressBar task={row} />,
-    },
-    {
       title: '通过 / 打回 / 进行中',
-      width: 180,
+      width: 230,
       render: (_, row) => (
-        <Space direction="vertical" size={2}>
-          <span>
-            <Text type="success">
-              <CheckCircleFilled /> {row.approvedCount}
-            </Text>
-            <Text type="secondary"> · </Text>
-            <Text type="danger">
-              <CloseCircleFilled /> {row.returnedCount}
-            </Text>
-            <Text type="secondary"> · </Text>
-            <Text style={{ color: '#f59e0b' }}>
-              <ClockCircleOutlined /> {row.inProgress}
-            </Text>
-          </span>
+        <Space direction="vertical" size={6}>
+          <Space size={6} wrap>
+            <Tag className="owner-review-result-pill is-approved" icon={<CheckCircleFilled />}>
+              通过 {row.approvedCount}
+            </Tag>
+            <Tag className="owner-review-result-pill is-returned" icon={<CloseCircleFilled />}>
+              打回 {row.returnedCount}
+            </Tag>
+            <Tag className="owner-review-result-pill is-progress" icon={<ClockCircleOutlined />}>
+              进行中 {row.inProgress}
+            </Tag>
+          </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            共 {row.totalAnnotations} 条
+            共 {row.totalAnnotations} 条 · 人工已审 {row.totalReviewed}
           </Text>
         </Space>
       ),
@@ -372,16 +360,29 @@ export default function OwnerReview() {
         <Space direction="vertical" size={4}>
           <Title level={3}>人工审核</Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            跟踪初审 / 复审 / 终审进度,支持批量通过与打回,审计日志可追溯到具体审核员。
+            只读跟踪人工审核进度、审核人员表现与审计日志。
           </Paragraph>
         </Space>
         <Space size={8}>
-          {usingFallback && <Tag color="gold">演示模式 · 后端未就绪</Tag>}
           <Tag color="processing" icon={<ThunderboltFilled />}>
             Phase 5 · AI 与人工审核
           </Tag>
         </Space>
       </div>
+
+      {loadError && (
+        <Alert
+          type="error"
+          showIcon
+          message="人工审核数据加载失败"
+          description={loadError}
+          action={
+            <Button size="small" icon={<ReloadOutlined />} onClick={() => void loadAll()}>
+              重试
+            </Button>
+          }
+        />
+      )}
 
       {/* 顶部 KPI 概览 */}
       <OverviewKpi overview={overview} loading={loading} />
@@ -401,16 +402,6 @@ export default function OwnerReview() {
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                 />
-                <Segmented
-                  value={stageFilter}
-                  onChange={(v) => setStageFilter(v as ReviewStage | 'all')}
-                  options={[
-                    { label: '全部阶段', value: 'all' },
-                    { label: '初审', value: 'initial' },
-                    { label: '复审', value: 'second' },
-                    { label: '终审', value: 'final' },
-                  ]}
-                />
                 <Select
                   value={statusFilter}
                   onChange={(v) => setStatusFilter(v)}
@@ -429,7 +420,7 @@ export default function OwnerReview() {
             </Card>
 
             {/* 任务进度表 */}
-            <Card className="owner-table-card" loading={loading}>
+            <Card className="owner-table-card owner-review-task-table-card" loading={loading}>
               <Table<OwnerReviewTaskRow>
                 rowKey="taskId"
                 columns={taskColumns}
@@ -450,10 +441,12 @@ export default function OwnerReview() {
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <ReviewerWorkloadCard overview={overview} loading={loading} />
             <AuditLogCard
-              entries={visibleAuditLog}
+              entries={auditLog}
               loading={loading}
-              roleFilter={auditRole}
-              onRoleChange={setAuditRole}
+              reviewers={reviewers}
+              reviewerId={auditReviewerId}
+              onReviewerChange={setAuditReviewerId}
+              onOpenAll={openAuditDrawer}
             />
           </Space>
         </Col>
@@ -464,7 +457,22 @@ export default function OwnerReview() {
         task={detailTask}
         annotations={detailAnnotations}
         loading={detailLoading}
+        error={detailError}
+        onRetry={detailTask ? () => void openTaskDetail(detailTask) : undefined}
         onClose={() => setDetailTask(null)}
+      />
+
+      <AuditLogDrawer
+        open={auditDrawerOpen}
+        reviewerName={auditReviewerName}
+        entries={auditDrawerItems}
+        total={auditDrawerTotal}
+        page={auditDrawerPage}
+        loading={auditDrawerLoading}
+        error={auditDrawerError}
+        onPageChange={handleAuditDrawerPageChange}
+        onRetry={() => void loadAuditDrawer(auditDrawerPage)}
+        onClose={closeAuditDrawer}
       />
     </Space>
   );
@@ -556,72 +564,6 @@ function OverviewKpi({
   );
 }
 
-/* =============== 三阶段进度条 =============== */
-
-/**
- * 三阶段进度条组件:
- *   - 每段宽度按该阶段的总条目数(reviewed + pending)在任务总条目数中的占比;
- *   - 已审部分用主色实色,待审部分用 hatch 斜纹;
- *   - 鼠标悬停显示该阶段的具体数字,便于 Owner 一眼定位瓶颈。
- */
-function StageProgressBar({ task }: { task: OwnerReviewTaskRow }) {
-  // 三阶段总量 = reviewed + pending,缺失阶段为 0
-  // pickStage 已经把 stage 字段写入返回值,这里再 spread 即可,
-  // 不重复写 stage 避免 TS2783 spread 覆盖告警
-  const stageData = (['initial', 'second', 'final'] as ReviewStage[]).map(
-    (stage) => {
-      const s = pickStage(task.stages, stage);
-      const total = s.reviewed + s.pending;
-      return { ...s, total };
-    },
-  );
-
-  const grandTotal = stageData.reduce((sum, s) => sum + s.total, 0) || 1;
-
-  return (
-    <div className="owner-review-stage-bar">
-      <div className="owner-review-stage-bar-track">
-        {stageData.map((s) => {
-          if (s.total <= 0) return null;
-          const widthPct = (s.total / grandTotal) * 100;
-          // 这里用 stage 名做样式钩子,reviewed/pending 比例用渐变叠加
-          return (
-            <Tooltip
-              key={s.stage}
-              title={
-                <Space direction="vertical" size={0}>
-                  <span>
-                    <strong>{stageLabel[s.stage]}</strong> · {s.reviewed} / {s.total} 已审
-                  </span>
-                  <span>
-                    通过 {s.approved} · 打回 {s.returned}
-                  </span>
-                </Space>
-              }
-            >
-              <span
-                className={`owner-review-stage-seg is-${s.stage}`}
-                style={{ width: `${widthPct}%` }}
-              />
-            </Tooltip>
-          );
-        })}
-      </div>
-      <div className="owner-review-stage-legend">
-        {stageData.map((s) => (
-          <span key={s.stage} className="owner-review-stage-legend-item">
-            <span
-              className="owner-review-stage-legend-dot"
-              style={{ background: stageColor[s.stage] }}
-            />
-            {stageLabel[s.stage]} {s.reviewed}/{s.total}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /* =============== 审核员负载 =============== */
 
 function ReviewerWorkloadCard({
@@ -644,11 +586,9 @@ function ReviewerWorkloadCard({
                 <span className="owner-review-workload-name">{w.reviewerName}</span>
                 <span className="owner-review-workload-meta">
                   <span>
-                    待审 <strong>{w.pending}</strong>
-                  </span>
-                  <span>
                     今日已审 <strong>{w.reviewedToday}</strong>
                   </span>
+                  <span>平均 {Math.round(w.avgDurationSec)} 秒/条</span>
                 </span>
               </Space>
               <Tooltip
@@ -676,39 +616,53 @@ function ReviewerWorkloadCard({
 function AuditLogCard({
   entries,
   loading,
-  roleFilter,
-  onRoleChange,
+  reviewers,
+  reviewerId,
+  onReviewerChange,
+  onOpenAll,
 }: {
   entries: ReviewAuditLogEntry[];
   loading: boolean;
-  roleFilter: ReviewAuditLogEntry['operatorRole'] | 'all';
-  onRoleChange: (v: ReviewAuditLogEntry['operatorRole'] | 'all') => void;
+  reviewers: OwnerReviewReviewer[];
+  reviewerId: string;
+  onReviewerChange: (v: string) => void;
+  onOpenAll: () => void;
 }) {
   return (
     <Card
       className="owner-review-audit-card"
       title="审计日志"
       extra={
-        <Select
-          size="small"
-          value={roleFilter}
-          onChange={onRoleChange}
-          style={{ width: 130 }}
-          options={[
-            { label: '全部角色', value: 'all' },
-            { label: '审核员', value: 'reviewer' },
-            { label: '负责人', value: 'owner' },
-            { label: '系统/AI', value: 'system_agent' },
-            { label: '标注员', value: 'labeler' },
-          ]}
-        />
+        <Space size={6}>
+          <Select
+            size="small"
+            value={reviewerId}
+            onChange={onReviewerChange}
+            style={{ width: 150 }}
+            options={[
+              { label: '全部审核员', value: 'all' },
+              ...reviewers.map((reviewer) => ({
+                label: reviewer.reviewerName,
+                value: reviewer.reviewerId,
+              })),
+            ]}
+          />
+          <Tooltip title="查看全部日志">
+            <Button
+              size="small"
+              icon={<FileSearchOutlined />}
+              aria-label="查看全部日志"
+              onClick={onOpenAll}
+            />
+          </Tooltip>
+        </Space>
       }
       loading={loading}
       bordered={false}
     >
       {entries.length === 0 ? (
         <Empty
-          description="近 7 天暂无审核流转日志"
+          description="近 7 天暂无人工审核日志"
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
@@ -721,6 +675,93 @@ function AuditLogCard({
         />
       )}
     </Card>
+  );
+}
+
+function AuditLogDrawer({
+  open,
+  reviewerName,
+  entries,
+  total,
+  page,
+  loading,
+  error,
+  onPageChange,
+  onRetry,
+  onClose,
+}: {
+  open: boolean;
+  reviewerName: string;
+  entries: ReviewAuditLogEntry[];
+  total: number;
+  page: number;
+  loading: boolean;
+  error?: string | null;
+  onPageChange: PaginationProps['onChange'];
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      width={Math.min(760, window.innerWidth * 0.9)}
+      title={
+        <Space direction="vertical" size={2}>
+          <Text strong>全部审计日志</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {reviewerName} · 近 365 天
+          </Text>
+        </Space>
+      }
+      destroyOnClose
+    >
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            message="全部审计日志加载失败"
+            description={error}
+            action={
+              <Button size="small" icon={<ReloadOutlined />} onClick={onRetry}>
+                重试
+              </Button>
+            }
+          />
+        )}
+        <Card
+          className="owner-review-audit-drawer-card"
+          loading={loading}
+          bordered={false}
+        >
+          {entries.length === 0 ? (
+            <Empty
+              description="近 365 天暂无人工审核日志"
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            />
+          ) : (
+            <Timeline
+              mode="left"
+              items={entries.map((entry) => ({
+                color: timelineColorOf(entry),
+                children: <AuditEntryLine entry={entry} />,
+              }))}
+            />
+          )}
+        </Card>
+        <div className="owner-review-audit-drawer-pagination">
+          <Pagination
+            current={page}
+            pageSize={20}
+            total={total}
+            showSizeChanger={false}
+            showTotal={(value) => `共 ${value} 条日志`}
+            onChange={onPageChange}
+          />
+        </div>
+      </Space>
+    </Drawer>
   );
 }
 
@@ -741,10 +782,6 @@ function AuditEntryLine({ entry }: { entry: ReviewAuditLogEntry }) {
       </span>
       <Text type="secondary" className="owner-review-audit-meta">
         {entry.operatorName}
-        <Text type="secondary" style={{ margin: '0 4px' }}>
-          ·
-        </Text>
-        {operatorRoleLabel[entry.operatorRole]}
         {entry.taskTitle && (
           <>
             <Text type="secondary" style={{ margin: '0 4px' }}>
@@ -796,11 +833,15 @@ function TaskDetailDrawer({
   task,
   annotations,
   loading,
+  error,
+  onRetry,
   onClose,
 }: {
   task: OwnerReviewTaskRow | null;
   annotations: OwnerReviewAnnotation[];
   loading: boolean;
+  error?: string | null;
+  onRetry?: () => void;
   onClose: () => void;
 }) {
   // 只读条目表
@@ -821,15 +862,6 @@ function TaskDetailDrawer({
             {row.labelerName}
           </Text>
         </Space>
-      ),
-    },
-    {
-      title: '当前阶段',
-      width: 90,
-      render: (_, row) => (
-        <Tag color="processing" style={{ borderRadius: 999 }}>
-          {stageLabel[row.currentStage]}
-        </Tag>
       ),
     },
     {
@@ -931,40 +963,22 @@ function TaskDetailDrawer({
     >
       {task && (
         <>
-          {/* 三阶段汇总卡 */}
-          <div className="owner-review-stage-cards">
-            {(['initial', 'second', 'final'] as ReviewStage[]).map((stage) => {
-              const s = pickStage(task.stages, stage);
-              const total = s.reviewed + s.pending;
-              const reviewedPct =
-                total > 0 ? Math.round((s.reviewed / total) * 100) : 0;
-              return (
-                <div key={stage} className="owner-review-stage-card">
-                  <div className="owner-review-stage-card-title">
-                    <span
-                      className="owner-review-stage-legend-dot"
-                      style={{ background: stageColor[stage] }}
-                    />
-                    {stageLabel[stage]}
-                  </div>
-                  <div className="owner-review-stage-card-value">
-                    {reviewedPct}%
-                  </div>
-                  <div className="owner-review-stage-card-meta">
-                    <span>
-                      已审 <strong>{s.reviewed}</strong>
-                    </span>
-                    <span>
-                      待审 <strong>{s.pending}</strong>
-                    </span>
-                    <span>
-                      打回 <strong>{s.returned}</strong>
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {error && (
+            <Alert
+              type="error"
+              showIcon
+              message="条目明细加载失败"
+              description={error}
+              style={{ marginBottom: 16 }}
+              action={
+                onRetry ? (
+                  <Button size="small" icon={<ReloadOutlined />} onClick={onRetry}>
+                    重试
+                  </Button>
+                ) : undefined
+              }
+            />
+          )}
 
           {/* 条目明细表 */}
           <Card

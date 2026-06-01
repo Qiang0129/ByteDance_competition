@@ -58,9 +58,10 @@ public class ReviewController {
       Authentication authentication,
       @RequestParam(required = false) String decision,
       @RequestParam(required = false) String keyword,
+      @RequestParam(required = false) String view,
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer pageSize) {
-    return reviewService.listAiReviewTasks(authentication, decision, keyword, page, pageSize);
+    return reviewService.listAiReviewTasks(authentication, decision, keyword, view, page, pageSize);
   }
 
   @GetMapping("/ai-review/tasks/{taskId}/annotations")
@@ -69,9 +70,10 @@ public class ReviewController {
       @PathVariable long taskId,
       @RequestParam(required = false) String decision,
       @RequestParam(required = false) String keyword,
+      @RequestParam(required = false) String view,
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer pageSize) {
-    return reviewService.listAiReviewAnnotations(authentication, taskId, decision, keyword, page, pageSize);
+    return reviewService.listAiReviewAnnotations(authentication, taskId, decision, keyword, view, page, pageSize);
   }
 
   @PostMapping("/annotations/{annotationId}/decision")

@@ -23,32 +23,41 @@ export const reviewerApi = {
 
   /**
    * AI 预审 - 按任务聚合的任务列表。
-   * 后端待实现:GET /reviewer/ai-review/tasks?decision=&keyword=
+   * 后端待实现:GET /reviewer/ai-review/tasks?decision=&keyword=&view=
    * decision 取值:all | PASS | NEED_HUMAN_REVIEW | REJECT
+   * view 取值:pending(默认,未审)| reviewed(我已审)| all(全部)
    */
   listAiReviewTasks(
-    params: { decision?: string; keyword?: string } = {},
+    params: { decision?: string; keyword?: string; view?: 'pending' | 'reviewed' | 'all' } = {},
   ): Promise<ReviewerPageResult<AiReviewTaskSummary>> {
     const search = new URLSearchParams();
     if (params.decision && params.decision !== 'all') search.set('decision', params.decision);
     if (params.keyword) search.set('keyword', params.keyword);
+    if (params.view && params.view !== 'pending') search.set('view', params.view);
     const qs = search.toString();
     return apiRequest(`/reviewer/ai-review/tasks${qs ? `?${qs}` : ''}`);
   },
 
   /**
    * AI 预审 - 拉取某任务下已出 AI 结论的标注明细(展开任务时调用)。
-   * 后端待实现:GET /reviewer/ai-review/tasks/{taskId}/annotations?decision=&page=&pageSize=
+   * 后端待实现:GET /reviewer/ai-review/tasks/{taskId}/annotations?decision=&page=&pageSize=&view=
    */
   listAiReviewAnnotations(
     taskId: string,
-    params: { decision?: string; keyword?: string; page?: number; pageSize?: number } = {},
+    params: {
+      decision?: string;
+      keyword?: string;
+      page?: number;
+      pageSize?: number;
+      view?: 'pending' | 'reviewed' | 'all';
+    } = {},
   ): Promise<ReviewerPageResult<AnnotationToReview>> {
     const search = new URLSearchParams();
     if (params.decision && params.decision !== 'all') search.set('decision', params.decision);
     if (params.keyword) search.set('keyword', params.keyword);
     if (params.page) search.set('page', String(params.page));
     if (params.pageSize) search.set('pageSize', String(params.pageSize));
+    if (params.view && params.view !== 'pending') search.set('view', params.view);
     const qs = search.toString();
     return apiRequest(
       `/reviewer/ai-review/tasks/${taskId}/annotations${qs ? `?${qs}` : ''}`,

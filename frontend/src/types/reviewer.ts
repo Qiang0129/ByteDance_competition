@@ -72,7 +72,16 @@ export interface AnnotationToReview {
   isDispute?: boolean;
   /** 审核阶段时间线:按 assignment 聚合的多轮 AI 预审与人工复审 */
   reviewTimeline?: ReviewTimelineStage[];
+  /** 已完成视图回填:最后一轮人工裁决理由 */
+  humanReason?: string;
+  /** 已完成视图回填:最后一轮人工裁决时间(yyyy-MM-dd HH:mm:ss) */
+  humanReviewedAt?: string;
+  /** 已完成视图回填:最后一轮人工裁决审核员姓名 */
+  humanReviewerName?: string;
 }
+
+/** 待审/已完成/全部 视图,用于切换 AI 预审任务列表过滤 */
+export type ReviewerListView = 'pending' | 'reviewed' | 'all';
 
 export interface ReviewTimelineStage {
   roundNo: number;
@@ -103,6 +112,8 @@ export interface AiReviewTaskSummary {
   rejectCount: number;
   /** 尚未人工裁决的条数(用于角标提示) */
   pendingHuman: number;
+  /** 当前 reviewer 已审过的条数(view=reviewed/all 时有效) */
+  reviewedCount?: number;
   updatedAt?: string;
 }
 

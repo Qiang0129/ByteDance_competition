@@ -1481,6 +1481,40 @@ body {
   padding: 4px 8px;
 }
 
+.owner-review-task-table-card.ant-card {
+  min-height: 430px;
+}
+
+.owner-review-task-table-card.ant-card .ant-card-body {
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+
+.owner-review-task-table-card.ant-card .ant-table-wrapper,
+.owner-review-task-table-card.ant-card .ant-spin-nested-loading,
+.owner-review-task-table-card.ant-card .ant-spin-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.owner-review-task-table-card.ant-card .ant-table {
+  flex: 1;
+}
+
+/**
+ * 让分页器贴卡片底部:`ant-table-pagination` 是 `ant-spin-container` 的最后一个子,
+ * 在已经把 wrapper / spin-nested-loading / spin-container 设为 column flex 的基础上,
+ * 用 `margin-top: auto` 把它推到 column 末尾,即便表格只有 2 行也能贴底,
+ * 视觉上跟卡片右下角对齐,与 OwnerTasks 等其它表格卡片观感一致。
+ */
+.owner-review-task-table-card.ant-card .ant-table-wrapper .ant-table-pagination {
+  margin-top: auto !important;
+  margin-bottom: 4px;
+  padding-top: 16px;
+}
+
 .owner-task-row td {
   padding: 14px 16px !important;
 }
@@ -8513,6 +8547,64 @@ body {
   gap: 16px;
 }
 
+/* 已完成视图(只读)结果面板 */
+.ai-wb-readonly-result {
+  margin-top: 16px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: grid;
+  gap: 10px;
+}
+
+.ai-wb-readonly-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.ai-wb-readonly-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.ai-wb-readonly-actor {
+  font-weight: 500;
+  color: #475569;
+}
+
+.ai-wb-readonly-reason {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px dashed #cbd5e1;
+  color: #1f2937;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ai-wb-readonly-reason.is-empty {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* 已完成任务卡片淡化样式 */
+.ai-review-card.is-reviewed {
+  background: #f8fafc;
+  opacity: 0.92;
+}
+
+.ai-review-card.is-reviewed .ai-review-card-progress-bar span {
+  background: #94a3b8;
+}
+
 /* 右栏 */
 .ai-wb-stat-grid {
   display: grid;
@@ -8743,70 +8835,6 @@ body {
 }
 
 /* 三阶段进度条:用三段堆叠条 + 文本标签,体现初审 / 复审 / 终审 */
-.owner-review-stage-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 220px;
-}
-
-.owner-review-stage-bar-track {
-  display: flex;
-  height: 8px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: #f1f5f9;
-}
-
-.owner-review-stage-seg {
-  height: 100%;
-  display: block;
-  transition: width 0.3s ease;
-}
-
-.owner-review-stage-seg.is-initial {
-  background: linear-gradient(90deg, #93c5fd, #3b82f6);
-}
-
-.owner-review-stage-seg.is-second {
-  background: linear-gradient(90deg, #6366f1, #4338ca);
-}
-
-.owner-review-stage-seg.is-final {
-  background: linear-gradient(90deg, #22c55e, #16a34a);
-}
-
-.owner-review-stage-seg.is-pending {
-  background: repeating-linear-gradient(
-    45deg,
-    #e2e8f0,
-    #e2e8f0 4px,
-    #f1f5f9 4px,
-    #f1f5f9 8px
-  );
-}
-
-.owner-review-stage-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  font-size: 11px;
-  color: #64748b;
-}
-
-.owner-review-stage-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.owner-review-stage-legend-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
 /* 任务行内的 SLA / 抽检率胶囊 */
 .owner-review-meta-tag.ant-tag {
   border-radius: 999px;
@@ -8823,6 +8851,34 @@ body {
 .owner-review-meta-tag.is-sampling {
   background: var(--lh-primary-bg-10);
   color: var(--lh-primary);
+}
+
+.owner-review-result-pill.ant-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-end: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.owner-review-result-pill.is-approved {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+}
+
+.owner-review-result-pill.is-returned {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+}
+
+.owner-review-result-pill.is-progress {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
 }
 
 /* 审核员负载迷你卡 */
@@ -8860,8 +8916,32 @@ body {
 }
 
 /* 审计日志 timeline:与 antd Timeline 配合的微调 */
+.owner-review-audit-card.ant-card {
+  height: 430px;
+  overflow: hidden;
+}
+
+.owner-review-audit-card.ant-card .ant-card-body {
+  height: 360px;
+  overflow: hidden;
+}
+
 .owner-review-audit-card .ant-timeline-item-content {
   margin-inline-start: 16px;
+}
+
+.owner-review-audit-drawer-card.ant-card .ant-card-body {
+  padding: 4px 8px;
+}
+
+.owner-review-audit-drawer-card .ant-timeline-item-content {
+  margin-inline-start: 16px;
+}
+
+.owner-review-audit-drawer-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 4px 8px;
 }
 
 .owner-review-audit-row {
@@ -8895,58 +8975,25 @@ body {
   margin-top: 4px;
 }
 
-/* 任务详情抽屉:阶段卡 + 条目表 */
-.owner-review-stage-cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.owner-review-stage-card {
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid #eef0f5;
-  background: #fafbfd;
-}
-
-.owner-review-stage-card-title {
-  font-size: 12px;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.owner-review-stage-card-value {
-  font-size: 22px;
-  font-weight: 700;
-  color: #1f2a44;
-  line-height: 1.1;
-}
-
-.owner-review-stage-card-meta {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #64748b;
-  display: flex;
-  gap: 10px;
-}
-
-.owner-review-stage-card-meta strong {
-  color: #1f2a44;
-}
-
 /* 暗色模式适配:沿用现有 dark 规则的色彩语义,避免新增暗色 token */
-:root[data-color-mode='dark'] .owner-review-workload-item,
-:root[data-color-mode='dark'] .owner-review-stage-card {
+:root[data-color-mode='dark'] .owner-review-workload-item {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-:root[data-color-mode='dark'] .owner-review-stage-bar-track {
-  background: rgba(255, 255, 255, 0.08);
+:root[data-color-mode='dark'] .owner-review-result-pill.is-approved {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
+:root[data-color-mode='dark'] .owner-review-result-pill.is-returned {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+:root[data-color-mode='dark'] .owner-review-result-pill.is-progress {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
 }
 
 
@@ -9368,5 +9415,101 @@ body {
 }
 
 :root[data-color-mode='dark'] .donut-center-total {
+  color: #f5f7fb;
+}
+
+
+/* ========== AI 审核后台作业概览图表卡 ========== */
+
+/* 卡片底部留白,避免内容紧贴下沿 */
+.ai-overview-chart-card.ant-card .ant-card-body {
+  padding-bottom: 20px;
+}
+
+/* AI 通过率:中心大字 + 副标题 */
+.ai-overview-pass-rate {
+  font-size: 34px;
+  font-weight: 700;
+  color: #22c55e;
+  line-height: 1.1;
+}
+
+.ai-overview-pass-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #eef0f5;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.ai-overview-pass-foot strong {
+  color: #1f2a44;
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+/* 处理效率:左右两个迷你指标 */
+.ai-overview-eff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 20px 4px 4px;
+}
+
+.ai-overview-eff-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 8px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #eef0f5;
+}
+
+.ai-overview-eff-icon {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.ai-overview-eff-icon.is-clock {
+  background: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+}
+
+.ai-overview-eff-icon.is-success {
+  background: rgba(34, 197, 94, 0.14);
+  color: #22c55e;
+}
+
+.ai-overview-eff-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2a44;
+  line-height: 1.1;
+}
+
+.ai-overview-eff-label {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* 暗色模式 */
+:root[data-color-mode='dark'] .ai-overview-eff-cell {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-color-mode='dark'] .ai-overview-eff-value {
   color: #f5f7fb;
 }

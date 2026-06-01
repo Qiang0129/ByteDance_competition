@@ -75,10 +75,10 @@ const { Paragraph, Text, Title } = Typography;
  * 后端未实现时从现有 GET /ai-review/jobs 本地计算回落。
  */
 
-/** 决策颜色 */
+/** 决策颜色:与 Owner 数据看板配色系一致,柔和不刺眼 */
 const DECISION_COLORS: Record<string, string> = {
   PASS: '#22c55e',
-  NEED_HUMAN_REVIEW: '#f59e0b',
+  NEED_HUMAN_REVIEW: '#a855f7',
   REJECT: '#ef4444',
 };
 
@@ -349,93 +349,144 @@ function AiReviewerOverview() {
         </Spin>
       </Card>
 
-      {/* 图表行 2:决策分布环状图 + AI 通过率圆环 + 平均处理时长 */}
+      {/* 图表行 2:决策分布环状图 + AI 通过率圆环 + 处理效率 */}
       <Row gutter={16}>
+        {/* 决策分布:左圆环 + 右图例(参考 Owner 看板 ReviewDistributionCard) */}
         <Col xs={24} lg={10}>
-          <Card title="决策分布" loading={loading}>
-            <Spin spinning={loading}>
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie
-                    data={decisions}
-                    dataKey="count"
-                    nameKey="decision"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={3}
-                    label={({ name, value }) => `${decisionLabel(String(name))} ${value}`}
-                  >
-                    {decisions.map((entry) => (
-                      <Cell key={entry.decision} fill={DECISION_COLORS[entry.decision] ?? '#94a3b8'} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value, name) => [value, decisionLabel(String(name))]} />
-                  <Legend formatter={(value: string) => decisionLabel(value)} />
-                </PieChart>
-              </ResponsiveContainer>
-            </Spin>
+          <Card title="决策分布" loading={loading} className="ai-overview-chart-card">
+            <Row gutter={[8, 8]} align="middle" style={{ paddingTop: 8 }}>
+              <Col xs={24} md={13}>
+                <div style={{ position: 'relative', width: '100%', height: 200 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={decisions}
+                        dataKey="count"
+                        nameKey="decision"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={58}
+                        outerRadius={80}
+                        paddingAngle={2}
+                        stroke="none"
+                      >
+                        {decisions.map((entry) => (
+                          <Cell key={entry.decision} fill={DECISION_COLORS[entry.decision] ?? '#94a3b8'} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+                        formatter={(value, name) => [value as number, decisionLabel(String(name))]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="donut-center-text">
+                    <div className="donut-center-total">
+                      {decisions.reduce((s, d) => s + d.count, 0)}
+                    </div>
+                    <div className="donut-center-sub">Total</div>
+                  </div>
+                </div>
+              </Col>
+              <Col xs={24} md={11}>
+                <ul className="donut-legend">
+                  {decisions.map((d) => {
+                    const total = decisions.reduce((s, x) => s + x.count, 0);
+                    const ratio = total === 0 ? 0 : (d.count / total) * 100;
+                    return (
+                      <li key={d.decision}>
+                        <span
+                          className="donut-dot"
+                          style={{ background: DECISION_COLORS[d.decision] ?? '#94a3b8' }}
+                        />
+                        <span className="donut-percent">{ratio.toFixed(0)}%</span>
+                        <span className="donut-label">{decisionLabel(d.decision)}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Col>
+            </Row>
           </Card>
         </Col>
+
+        {/* AI 通过率:圆环 + 中心大字 + 下方说明 */}
         <Col xs={24} lg={8}>
-          <Card title="AI 通过率" loading={loading}>
-            <ResponsiveContainer width="100%" height={260}>
-              <RadialBarChart
-                cx="50%"
-                cy="50%"
-                innerRadius="60%"
-                outerRadius="90%"
-                data={passRateData}
-                startAngle={90}
-                endAngle={-270}
-              >
-                <RadialBar dataKey="value" cornerRadius={10} background={{ fill: '#f1f5f9' }} />
-              </RadialBarChart>
-            </ResponsiveContainer>
-            <div style={{ textAlign: 'center', marginTop: -40, position: 'relative', zIndex: 1 }}>
-              <Text style={{ fontSize: 32, fontWeight: 700, color: '#22c55e' }}>
-                {Math.round((kpi?.passRate ?? 0) * 100)}%
-              </Text>
-              <br />
-              <Text type="secondary" style={{ fontSize: 12 }}>PASS 占比</Text>
+          <Card title="AI 通过率" loading={loading} className="ai-overview-chart-card">
+            <div style={{ position: 'relative', width: '100%', height: 200 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <RadialBarChart
+                  cx="50%"
+                  cy="50%"
+                  innerRadius="68%"
+                  outerRadius="92%"
+                  data={passRateData}
+                  startAngle={90}
+                  endAngle={-270}
+                >
+                  <RadialBar dataKey="value" cornerRadius={12} background={{ fill: '#f1f5f9' }} />
+                </RadialBarChart>
+              </ResponsiveContainer>
+              <div className="donut-center-text">
+                <div className="ai-overview-pass-rate">
+                  {Math.round((kpi?.passRate ?? 0) * 100)}%
+                </div>
+                <div className="donut-center-sub">PASS 占比</div>
+              </div>
+            </div>
+            <div className="ai-overview-pass-foot">
+              <span>
+                成功 <strong>{kpi?.succeededJobs ?? 0}</strong>
+              </span>
+              <span style={{ color: '#cbd5e1' }}>·</span>
+              <span>
+                总数 <strong>{kpi?.totalJobs ?? 0}</strong>
+              </span>
             </div>
           </Card>
         </Col>
+
+        {/* 处理效率:左右两个迷你指标卡 */}
         <Col xs={24} lg={6}>
-          <Card title="处理效率" loading={loading}>
-            <Space direction="vertical" size={24} style={{ width: '100%', paddingTop: 20 }}>
-              <div style={{ textAlign: 'center' }}>
-                <Text style={{ fontSize: 36, fontWeight: 700, color: '#1f2a44' }}>
+          <Card title="处理效率" loading={loading} className="ai-overview-chart-card">
+            <div className="ai-overview-eff-grid">
+              <div className="ai-overview-eff-cell">
+                <ClockCircleOutlined className="ai-overview-eff-icon is-clock" />
+                <div className="ai-overview-eff-value">
                   {kpi?.avgDurationSec ? `${Math.round(kpi.avgDurationSec)}s` : '-'}
-                </Text>
-                <br />
-                <Text type="secondary">平均处理时长</Text>
+                </div>
+                <div className="ai-overview-eff-label">平均处理时长</div>
               </div>
-              <div style={{ textAlign: 'center' }}>
-                <Text style={{ fontSize: 36, fontWeight: 700, color: 'var(--lh-primary)' }}>
-                  {kpi?.succeededJobs ?? 0}
-                </Text>
-                <br />
-                <Text type="secondary">已完成审核</Text>
+              <div className="ai-overview-eff-cell">
+                <CheckCircleFilled className="ai-overview-eff-icon is-success" />
+                <div className="ai-overview-eff-value">{kpi?.succeededJobs ?? 0}</div>
+                <div className="ai-overview-eff-label">已完成审核</div>
               </div>
-            </Space>
+            </div>
           </Card>
         </Col>
       </Row>
 
       {/* 图表行 3:任务维度柱状图 */}
-      <Card title="任务审核量对比" loading={loading}>
+      <Card title="任务审核量对比" loading={loading} className="ai-overview-chart-card">
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={taskVolumes} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
-            <XAxis dataKey="taskTitle" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="pass" name="PASS" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
-            <Bar dataKey="needHuman" name="人工复核" stackId="a" fill="#f59e0b" />
-            <Bar dataKey="reject" name="REJECT" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+          <BarChart data={taskVolumes} margin={{ top: 10, right: 30, left: 0, bottom: 0 }} barCategoryGap="32%">
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
+            <XAxis
+              dataKey="taskTitle"
+              tick={{ fontSize: 11, fill: '#94a3b8' }}
+              axisLine={{ stroke: '#e2e8f0' }}
+              tickLine={false}
+            />
+            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <Tooltip
+              cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
+              contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+            />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Bar dataKey="pass" name="通过" stackId="a" fill="#22c55e" maxBarSize={32} />
+            <Bar dataKey="needHuman" name="人工复核" stackId="a" fill="#a855f7" maxBarSize={32} />
+            <Bar dataKey="reject" name="打回" stackId="a" fill="#ef4444" maxBarSize={32} radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </Card>

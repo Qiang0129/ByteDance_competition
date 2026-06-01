@@ -427,7 +427,9 @@ function JobDetailPanel({
         <div className="ai-queue-detail-header">
           <div>
             <Title level={5} style={{ marginBottom: 4 }}>
-              {job.annotationId} · {job.taskTitle || job.taskId}
+              {job.taskTitle || `任务 ${job.taskId}`}
+              {' | '}
+              第 {job.itemIndex && job.itemIndex > 0 ? job.itemIndex : job.annotationId} 题
             </Title>
             <Text type="secondary" style={{ fontSize: 12 }}>
               提交于 {job.createdAt} · 规则 {job.ruleName ?? job.ruleId ?? '默认'}

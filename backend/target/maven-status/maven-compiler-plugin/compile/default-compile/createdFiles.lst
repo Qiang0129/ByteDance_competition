@@ -7,6 +7,7 @@ com\labelhub\backend\export\ExportRepository.class
 com\labelhub\backend\auth\SecurityConfig.class
 com\labelhub\backend\ai\AiReviewCompleteRequest.class
 com\labelhub\backend\labeler\LabelerOverviewResponse$ReviewDistribution.class
+com\labelhub\backend\ownerreview\OwnerReviewReviewerResponse.class
 com\labelhub\backend\schema\SchemaDiagnosticResponse.class
 com\labelhub\backend\task\TaskService$AiReviewRuleSelection.class
 com\labelhub\backend\auth\ApiErrorResponse.class
@@ -15,8 +16,10 @@ com\labelhub\backend\dashboard\DashboardRepository$DisputeStatsRecord.class
 com\labelhub\backend\labeler\LabelerOverviewRepository.class
 com\labelhub\backend\schema\UpdateSchemaDraftRequest.class
 com\labelhub\backend\export\ExportRepository$ExportJobRecord.class
+com\labelhub\backend\ownerreview\OwnerReviewTaskResponse.class
 com\labelhub\backend\ai\AiReviewCancelRequest.class
 com\labelhub\backend\labeler\LabelerReturnedItemsRepository$ReturnedItemRecord.class
+com\labelhub\backend\ownerreview\ReviewerWorkloadResponse.class
 com\labelhub\backend\dashboard\ReviewDistributionResponse.class
 com\labelhub\backend\task\TaskRepository$TaskAnnotationStateRecord.class
 com\labelhub\backend\annotation\DraftResponse.class
@@ -32,6 +35,7 @@ com\labelhub\backend\review\AiReviewResultResponse.class
 com\labelhub\backend\review\ReviewBatchResponse.class
 com\labelhub\backend\auth\UserAccount.class
 com\labelhub\backend\export\ExportService.class
+com\labelhub\backend\ownerreview\OwnerReviewRepository.class
 com\labelhub\backend\dataset\CreateDatasetRequest.class
 com\labelhub\backend\ai\AiReviewRepository$AiReviewJobRecord.class
 com\labelhub\backend\auth\LoginResponse.class
@@ -67,6 +71,7 @@ com\labelhub\backend\schema\SchemaValidationRequest.class
 com\labelhub\backend\dashboard\DisputeStatsResponse.class
 com\labelhub\backend\dashboard\DashboardIssueFeedbackService.class
 com\labelhub\backend\review\ReviewRepository$AnnotationStateRecord.class
+com\labelhub\backend\ownerreview\OwnerReviewRepository$ReviewerWorkloadRecord.class
 com\labelhub\backend\review\ReviewService$RevisionSchema.class
 com\labelhub\backend\dataset\DatasetController.class
 com\labelhub\backend\annotation\SubmitAnnotationRequest.class
@@ -90,6 +95,7 @@ com\labelhub\backend\ai\AiModelConfigsController.class
 com\labelhub\backend\ai\AiReviewRuleResponse.class
 com\labelhub\backend\ai\AiModelConfigController.class
 com\labelhub\backend\dashboard\RecentTaskActivityResponse.class
+com\labelhub\backend\ownerreview\OwnerReviewRepository$AnnotationRecord.class
 com\labelhub\backend\annotation\AnnotationRepository$IssueRecord.class
 com\labelhub\backend\annotation\AnnotationRepository$AssignmentProgressRecord.class
 com\labelhub\backend\annotation\DraftRequest.class
@@ -99,6 +105,7 @@ com\labelhub\backend\review\ReviewerOverviewResponse.class
 com\labelhub\backend\export\ExportFailRequest.class
 com\labelhub\backend\auth\LoginRequest.class
 com\labelhub\backend\review\ReviewTimelineStageResponse.class
+com\labelhub\backend\ownerreview\OwnerReviewRepository$TaskRecord.class
 com\labelhub\backend\auth\CurrentUserResponse.class
 com\labelhub\backend\annotation\BatchSubmitInvalidItem.class
 com\labelhub\backend\task\OwnerTaskResponse.class
@@ -137,6 +144,7 @@ com\labelhub\backend\auth\TokenService.class
 com\labelhub\backend\annotation\AnnotationService.class
 com\labelhub\backend\auth\AuthRepository.class
 com\labelhub\backend\labeler\LabelerOverviewService.class
+com\labelhub\backend\ownerreview\OwnerReviewOverviewResponse.class
 com\labelhub\backend\ai\AiModelConfigRequest.class
 com\labelhub\backend\schema\SchemaVersionResponse.class
 com\labelhub\backend\ai\AiModelConfigService$ValidConfig.class
@@ -150,6 +158,7 @@ com\labelhub\backend\annotation\AnnotationRepository$LabelerDraftRecord.class
 com\labelhub\backend\task\TaskRepository.class
 com\labelhub\backend\annotation\LabelerDraftResponse.class
 com\labelhub\backend\annotation\AnnotationRepository$AnnotationRecord.class
+com\labelhub\backend\ownerreview\OwnerReviewRepository$ConsistencyCounts.class
 com\labelhub\backend\auth\CorsConfig.class
 com\labelhub\backend\ai\AiModelConfigResponse.class
 com\labelhub\backend\annotation\AnnotationService$PreparedBatchSubmission.class
@@ -157,6 +166,7 @@ com\labelhub\backend\task\UpdateTaskStateRequest.class
 com\labelhub\backend\labeler\LabelerOverviewRepository$HumanDecisionCounts.class
 com\labelhub\backend\dashboard\DashboardRepository$RecentActivityRecord.class
 com\labelhub\backend\ai\AiReviewRepository.class
+com\labelhub\backend\ownerreview\OwnerReviewRepository$AuditLogRecord.class
 com\labelhub\backend\LabelHubBackendApplication.class
 com\labelhub\backend\annotation\ReportIssueRequest.class
 com\labelhub\backend\auth\DemoUserInitializer.class
@@ -178,6 +188,7 @@ com\labelhub\backend\task\TaskDeadlineSettlementService$SchemaContext.class
 com\labelhub\backend\dashboard\DashboardOverviewResponse$Deltas.class
 com\labelhub\backend\labeler\LabelerReturnedItemsService.class
 com\labelhub\backend\dataset\DatasetRepository.class
+com\labelhub\backend\ownerreview\OwnerReviewRepository$ReviewerRecord.class
 com\labelhub\backend\schema\SchemaService$DatasetBinding.class
 com\labelhub\backend\task\TaskRepository$TaskAssignmentStateRecord.class
 com\labelhub\backend\ai\AiReviewService$RetryPolicy.class
@@ -187,6 +198,7 @@ com\labelhub\backend\review\ReviewRepository.class
 com\labelhub\backend\dashboard\RoleBreakdownResponse.class
 com\labelhub\backend\schema\SchemaValidationResponse.class
 com\labelhub\backend\dashboard\DashboardRepository$RoleBreakdownRecord.class
+com\labelhub\backend\ownerreview\OwnerReviewAnnotationResponse.class
 com\labelhub\backend\review\ReviewerPageResponse.class
 com\labelhub\backend\labeler\LabelerOverviewResponse$HeroStats.class
 com\labelhub\backend\auth\GlobalExceptionHandler.class
@@ -199,11 +211,14 @@ com\labelhub\backend\ai\AiReviewBatchDeleteResponse.class
 com\labelhub\backend\ai\AiReviewFailRequest.class
 com\labelhub\backend\review\ReviewRepository$AiReviewTaskSummaryRecord.class
 com\labelhub\backend\dashboard\DashboardRepository$AiDecisionCounts.class
+com\labelhub\backend\ownerreview\OwnerReviewAuditLogEntryResponse.class
+com\labelhub\backend\ownerreview\OwnerReviewService.class
 com\labelhub\backend\task\TaskRecord.class
 com\labelhub\backend\annotation\AnnotationRepository$SchemaSnapshotRecord.class
 com\labelhub\backend\task\AssignmentRecord.class
 com\labelhub\backend\dataset\DatasetRecord.class
 com\labelhub\backend\labeler\LabelerOverviewResponse.class
+com\labelhub\backend\ownerreview\OwnerReviewController.class
 com\labelhub\backend\ai\AiModelConfigCrypto.class
 com\labelhub\backend\ai\AiReviewController.class
 com\labelhub\backend\ai\AiReviewService.class

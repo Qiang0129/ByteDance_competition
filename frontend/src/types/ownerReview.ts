@@ -3,7 +3,6 @@
  *
  * 字段命名严格对齐《项目实施计划书》4.5 / 4.6 / 5.1:
  *   - 状态机:DRAFT → SUBMITTED → AI_REVIEWING → REVIEWING → APPROVED / RETURNED / REVISED → ACCEPTED / EXPORTED
- *   - 审核阶段:initial(初审) / second(复审) / final(终审) / sampling(抽检)
  *   - 审核动作:APPROVE / RETURN / REVISE / ESCALATE
  *   - 4.6 数据看板核心指标:抽检比例、双审一致率、争议样本、返工率
  *
@@ -14,9 +13,6 @@
  */
 
 import type { ReviewDecision } from './reviewer';
-
-/** 审核阶段:对齐计划书 4.5 三段式审核流转 */
-export type ReviewStage = 'initial' | 'second' | 'final' | 'sampling';
 
 /** 审核员工作负载条目 */
 export interface ReviewerWorkload {
@@ -54,19 +50,6 @@ export interface OwnerReviewOverview {
   reviewerWorkloads: ReviewerWorkload[];
 }
 
-/** 单个阶段进度 */
-export interface ReviewStageProgress {
-  stage: ReviewStage;
-  /** 待审条目数 */
-  pending: number;
-  /** 已审条目数 */
-  reviewed: number;
-  /** 通过条目数 */
-  approved: number;
-  /** 打回条目数 */
-  returned: number;
-}
-
 /** 任务级审核进度行 */
 export interface OwnerReviewTaskRow {
   taskId: string;
@@ -78,14 +61,14 @@ export interface OwnerReviewTaskRow {
   approvedCount: number;
   /** 已打回条目数(任一阶段打回) */
   returnedCount: number;
-  /** 进行中(还没走完三审) */
+  /** 进行中或待人工审核的条目数 */
   inProgress: number;
   /** 争议样本数 */
   disputes: number;
   /** 抽检比例 0-1 */
   samplingRatio: number;
-  /** 三阶段进度,允许部分缺失(任务未配置复审/终审时) */
-  stages: ReviewStageProgress[];
+  /** 已进入人工审核的条目数 */
+  totalReviewed: number;
   /** 当前主审核员显示名(可能多人) */
   reviewerNames?: string[];
   /** SLA 截止时间 */
@@ -101,9 +84,7 @@ export interface OwnerReviewAnnotation {
   itemId: string;
   labelerName: string;
   submittedAt: string;
-  /** 当前生效的审核阶段 */
-  currentStage: ReviewStage;
-  /** 当前阶段是否已完成 */
+  /** 当前审核结果状态 */
   status: 'reviewing' | 'approved' | 'returned' | 'revised' | 'disputed';
   /** AI 预审决策 */
   aiDecision?: 'PASS' | 'REJECT' | 'NEED_HUMAN_REVIEW';
@@ -149,8 +130,6 @@ export interface OwnerReviewPageResult<T> {
 
 /** Owner 审核任务列表查询参数 */
 export interface OwnerReviewTasksQuery {
-  /** 阶段过滤 */
-  stage?: ReviewStage | 'all';
   /** 关键词:任务名 / 任务 ID / 审核员名 */
   keyword?: string;
   /** 状态过滤 */
@@ -163,6 +142,8 @@ export interface OwnerReviewTasksQuery {
 export interface OwnerReviewAuditQuery {
   /** 任务过滤 */
   taskId?: string;
+  /** 审核员过滤 */
+  reviewerId?: string;
   /** 操作过滤 */
   action?: string;
   /** 操作者角色 */
@@ -171,6 +152,11 @@ export interface OwnerReviewAuditQuery {
   days?: number;
   page?: number;
   pageSize?: number;
+}
+
+export interface OwnerReviewReviewer {
+  reviewerId: string;
+  reviewerName: string;
 }
 
 /** 批量审核动作请求 */

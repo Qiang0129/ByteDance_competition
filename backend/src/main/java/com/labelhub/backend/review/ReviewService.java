@@ -115,14 +115,18 @@ public class ReviewService {
       Authentication authentication,
       String decision,
       String keyword,
+      String view,
       Integer page,
       Integer pageSize) {
-    requireReviewer(authentication);
+    AuthenticatedUser reviewer = requireReviewer(authentication);
     String normalizedDecision = normalizeAiDecisionFilter(decision);
+    String normalizedView = normalizeReviewerView(view);
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
     List<AiReviewTaskSummaryResponse> items = reviewRepository
         .listAiReviewTaskSummaries(
+            reviewer.id(),
+            normalizedView,
             normalizedDecision,
             keyword,
             safePageSize,
@@ -134,7 +138,7 @@ public class ReviewService {
         items,
         safePage,
         safePageSize,
-        reviewRepository.countAiReviewTaskSummaries(normalizedDecision, keyword));
+        reviewRepository.countAiReviewTaskSummaries(reviewer.id(), normalizedView, normalizedDecision, keyword));
   }
 
   public ReviewerPageResponse<AnnotationToReviewResponse> listAiReviewAnnotations(
@@ -142,14 +146,18 @@ public class ReviewService {
       long taskId,
       String decision,
       String keyword,
+      String view,
       Integer page,
       Integer pageSize) {
-    requireReviewer(authentication);
+    AuthenticatedUser reviewer = requireReviewer(authentication);
     String normalizedDecision = normalizeAiDecisionFilter(decision);
+    String normalizedView = normalizeReviewerView(view);
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
     List<AnnotationToReviewResponse> items = reviewRepository
         .listAiReviewAnnotations(
+            reviewer.id(),
+            normalizedView,
             taskId,
             normalizedDecision,
             keyword,
@@ -162,7 +170,7 @@ public class ReviewService {
         items,
         safePage,
         safePageSize,
-        reviewRepository.countAiReviewAnnotations(taskId, normalizedDecision, keyword));
+        reviewRepository.countAiReviewAnnotations(reviewer.id(), normalizedView, taskId, normalizedDecision, keyword));
   }
 
   @Transactional
@@ -503,6 +511,7 @@ public class ReviewService {
         record.needHumanCount(),
         record.rejectCount(),
         record.pendingHuman(),
+        record.reviewedCount(),
         formatDateTime(record.updatedAt()));
   }
 
@@ -526,7 +535,10 @@ public class ReviewService {
         record.humanDecision() == null ? null : record.humanDecision().toUpperCase(Locale.ROOT),
         record.revisionNo(),
         record.dispute(),
-        buildReviewTimeline(record));
+        buildReviewTimeline(record),
+        record.humanReason(),
+        formatDateTime(record.humanReviewedAt()),
+        record.humanReviewerName());
   }
 
   private String effectiveReason(ReviewDecisionRequest request) {
@@ -694,6 +706,23 @@ public class ReviewService {
     }
     if (!List.of("PASS", "NEED_HUMAN_REVIEW", "REJECT").contains(normalized)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_DECISION", "unsupported ai review decision");
+    }
+    return normalized;
+  }
+
+  /**
+   * 归一化 Reviewer 视图参数,默认 pending。
+   * pending  - 仅未由当前 reviewer 审过的待审条目;
+   * reviewed - 仅当前 reviewer 已审过的条目;
+   * all      - 两者并集。
+   */
+  private String normalizeReviewerView(String view) {
+    if (view == null || view.isBlank()) {
+      return "pending";
+    }
+    String normalized = view.trim().toLowerCase(Locale.ROOT);
+    if (!List.of("pending", "reviewed", "all").contains(normalized)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REVIEW_VIEW", "unsupported review view");
     }
     return normalized;
   }

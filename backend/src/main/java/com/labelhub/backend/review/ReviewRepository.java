@@ -232,14 +232,21 @@ public class ReviewRepository {
   }
 
   public List<AiReviewTaskSummaryRecord> listAiReviewTaskSummaries(
+      long reviewerId,
+      String view,
       String decision,
       String keyword,
       int limit,
       int offset) {
     List<Object> args = new ArrayList<>();
-    String filters = buildAiReviewPendingFilters(decision, keyword, args);
+    String filters = buildAiReviewViewFilters(reviewerId, view, decision, keyword, args);
     args.add(limit);
     args.add(offset);
+    String pendingExpr = pendingHumanCountExpr(view);
+    String reviewedExpr = reviewedCountExpr(view);
+    String selectMetricsClause = ""
+        + "          " + pendingExpr + " AS pending_human,\n"
+        + "          " + reviewedExpr + " AS reviewed_count,\n";
     String sql = """
         SELECT
           t.id AS task_id,
@@ -249,7 +256,7 @@ public class ReviewRepository {
           SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END) AS pass_count,
           SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END) AS need_human_count,
           SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END) AS reject_count,
-          COUNT(*) AS pending_human,
+        """ + selectMetricsClause + """
           MAX(COALESCE(air.created_at, an.updated_at)) AS updated_at
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
@@ -273,9 +280,13 @@ public class ReviewRepository {
     return jdbcTemplate.query(sql, this::mapAiReviewTaskSummary, args.toArray());
   }
 
-  public long countAiReviewTaskSummaries(String decision, String keyword) {
+  public long countAiReviewTaskSummaries(
+      long reviewerId,
+      String view,
+      String decision,
+      String keyword) {
     List<Object> args = new ArrayList<>();
-    String filters = buildAiReviewPendingFilters(decision, keyword, args);
+    String filters = buildAiReviewViewFilters(reviewerId, view, decision, keyword, args);
     Long count = jdbcTemplate.queryForObject(
         """
         SELECT COUNT(*)
@@ -305,6 +316,8 @@ public class ReviewRepository {
   }
 
   public List<AnnotationReviewRecord> listAiReviewAnnotations(
+      long reviewerId,
+      String view,
       long taskId,
       String decision,
       String keyword,
@@ -312,9 +325,35 @@ public class ReviewRepository {
       int offset) {
     List<Object> args = new ArrayList<>();
     args.add(taskId);
-    String filters = buildAiReviewPendingFilters(decision, keyword, args);
+    String filters = buildAiReviewViewFilters(reviewerId, view, decision, keyword, args);
+    // 已完成视图需要回填当前 reviewer 的最近一轮人工裁决,在子查询里只取该 reviewer 自己的记录,
+    // 再 JOIN 出 reason / reviewed_at / reviewer_name,顺便用于 ORDER BY。
+    boolean reviewed = !"pending".equals(view);
     args.add(limit);
     args.add(offset);
+    String reviewerJoin = reviewed
+        ? "        LEFT JOIN human_reviews my_hr ON my_hr.id = (\n"
+            + "          SELECT latest_my_hr.id\n"
+            + "          FROM human_reviews latest_my_hr\n"
+            + "          WHERE latest_my_hr.annotation_id = an.id\n"
+            + "            AND latest_my_hr.reviewer_id = " + reviewerId + "\n"
+            + "          ORDER BY latest_my_hr.round_no DESC, latest_my_hr.id DESC\n"
+            + "          LIMIT 1\n"
+            + "        )\n"
+            + "        LEFT JOIN users my_reviewer ON my_reviewer.id = my_hr.reviewer_id\n"
+        : "";
+    String humanColumns = reviewed
+        ? "          my_hr.decision AS human_decision,\n"
+            + "          my_hr.reason AS human_reason,\n"
+            + "          my_hr.created_at AS human_reviewed_at,\n"
+            + "          my_reviewer.name AS human_reviewer_name,\n"
+        : "          NULL AS human_decision,\n"
+            + "          NULL AS human_reason,\n"
+            + "          NULL AS human_reviewed_at,\n"
+            + "          NULL AS human_reviewer_name,\n";
+    String orderBy = reviewed
+        ? "ORDER BY COALESCE(my_hr.created_at, an.updated_at) DESC, an.id DESC"
+        : "ORDER BY an.updated_at DESC, an.id DESC";
     String sql = """
         SELECT
           an.id AS annotation_id,
@@ -348,7 +387,7 @@ public class ReviewRepository {
           CAST(i.raw_payload AS CHAR) AS raw_payload_json,
           an.status AS annotation_status,
           an.revision_no,
-          NULL AS human_decision,
+        """ + humanColumns + """
           0 AS dispute_count,
           aj.id AS ai_job_id,
           aj.finished_at AS ai_finished_at,
@@ -361,10 +400,7 @@ public class ReviewRepository {
           CAST(air.response_json AS CHAR) AS ai_response_json,
           air.model_name AS ai_model_name,
           COALESCE(r.name, JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.name'))) AS ai_rule_name,
-          JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.version')) AS ai_rule_version,
-          NULL AS human_reason,
-          NULL AS human_reviewed_at,
-          NULL AS human_reviewer_name
+          JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.version')) AS ai_rule_version
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
@@ -381,19 +417,25 @@ public class ReviewRepository {
         )
         JOIN ai_review_results air ON air.job_id = aj.id
         LEFT JOIN ai_review_rules r ON r.id = aj.rule_id
+        """ + reviewerJoin + """
         WHERE a.task_id = ?
           AND
-        """ + filters + """
-        ORDER BY an.updated_at DESC, an.id DESC
+        """ + filters + "        " + orderBy + """
+
         LIMIT ? OFFSET ?
         """;
     return jdbcTemplate.query(sql, this::mapAnnotation, args.toArray());
   }
 
-  public long countAiReviewAnnotations(long taskId, String decision, String keyword) {
+  public long countAiReviewAnnotations(
+      long reviewerId,
+      String view,
+      long taskId,
+      String decision,
+      String keyword) {
     List<Object> args = new ArrayList<>();
     args.add(taskId);
-    String filters = buildAiReviewPendingFilters(decision, keyword, args);
+    String filters = buildAiReviewViewFilters(reviewerId, view, decision, keyword, args);
     Long count = jdbcTemplate.queryForObject(
         """
         SELECT COUNT(*)
@@ -842,6 +884,7 @@ public class ReviewRepository {
         rs.getLong("need_human_count"),
         rs.getLong("reject_count"),
         rs.getLong("pending_human"),
+        rs.getLong("reviewed_count"),
         toLocalDateTime(rs.getTimestamp("updated_at")));
   }
 
@@ -882,12 +925,28 @@ public class ReviewRepository {
         rs.getString("human_reviewer_name"));
   }
 
-  private String buildAiReviewPendingFilters(String decision, String keyword, List<Object> args) {
+  /**
+   * 构造 AI 预审查询的视图过滤条件。
+   *
+   * 三个视图共享:
+   *   - 任务未删除、assignment 未作废
+   *   - 仅取每条 assignment 的最新一版 annotation
+   *   - 可选 AI 决策 / 关键字过滤
+   *
+   * pending(默认):标注还在 reviewing 状态,且当前 reviewer 未审过(允许其他 reviewer 已审,这部分留给负载分配视图判断)。
+   * reviewed:当前 reviewer 已写过 human_reviews,不限 annotation 状态。
+   * all:pending 与 reviewed 的并集。
+   */
+  private String buildAiReviewViewFilters(
+      long reviewerId,
+      String view,
+      String decision,
+      String keyword,
+      List<Object> args) {
     StringBuilder filters = new StringBuilder(
         """
         t.deleted_at IS NULL
           AND a.status <> 'voided'
-          AND an.status = 'reviewing'
           AND an.id = (
             SELECT latest.id
             FROM annotations latest
@@ -896,12 +955,41 @@ public class ReviewRepository {
             ORDER BY latest.revision_no DESC, latest.id DESC
             LIMIT 1
           )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM human_reviews hr_pending
-            WHERE hr_pending.annotation_id = an.id
-          )
         """);
+    String safeView = view == null ? "pending" : view;
+    switch (safeView) {
+      case "reviewed" -> filters.append(
+          """
+            AND EXISTS (
+              SELECT 1 FROM human_reviews hr_done
+              WHERE hr_done.annotation_id = an.id
+                AND hr_done.reviewer_id = """ + reviewerId + """
+            )
+          """);
+      case "all" -> filters.append(
+          """
+            AND (
+              (an.status = 'reviewing' AND NOT EXISTS (
+                SELECT 1 FROM human_reviews hr_pending
+                WHERE hr_pending.annotation_id = an.id
+              ))
+              OR EXISTS (
+                SELECT 1 FROM human_reviews hr_done
+                WHERE hr_done.annotation_id = an.id
+                  AND hr_done.reviewer_id = """ + reviewerId + """
+              )
+            )
+          """);
+      default -> filters.append(
+          """
+            AND an.status = 'reviewing'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM human_reviews hr_pending
+              WHERE hr_pending.annotation_id = an.id
+            )
+          """);
+    }
     if (decision != null && !decision.isBlank()) {
       filters.append("  AND air.decision = ?\n");
       args.add(decision);
@@ -923,6 +1011,27 @@ public class ReviewRepository {
       args.add(like);
     }
     return filters.toString();
+  }
+
+  /** 任务摘要里的 pending_human 表达式:依据视图区分待审计数。 */
+  private String pendingHumanCountExpr(String view) {
+    return switch (view == null ? "pending" : view) {
+      case "reviewed" -> "0";
+      case "all" -> "SUM(CASE WHEN an.status = 'reviewing' "
+          + "AND NOT EXISTS (SELECT 1 FROM human_reviews hr_count "
+          + "WHERE hr_count.annotation_id = an.id) THEN 1 ELSE 0 END)";
+      default -> "COUNT(*)";
+    };
+  }
+
+  /** 任务摘要里的 reviewed_count 表达式:已被当前 reviewer 审过的条数。 */
+  private String reviewedCountExpr(String view) {
+    return switch (view == null ? "pending" : view) {
+      case "pending" -> "0";
+      default -> "SUM(CASE WHEN EXISTS ("
+          + "SELECT 1 FROM human_reviews hr_done "
+          + "WHERE hr_done.annotation_id = an.id) THEN 1 ELSE 0 END)";
+    };
   }
 
   private LocalDateTime toLocalDateTime(Timestamp timestamp) {
@@ -963,6 +1072,7 @@ public class ReviewRepository {
       long needHumanCount,
       long rejectCount,
       long pendingHuman,
+      long reviewedCount,
       LocalDateTime updatedAt) {}
 
   public record AnnotationReviewRecord(
