@@ -1515,6 +1515,97 @@ body {
   padding-top: 16px;
 }
 
+/**
+ * 右列「审核员当日负载 + 审计日志」与左列任务表等高 + 审计日志内部滚动:
+ *
+ * 关键技巧:antd Row align="stretch" 只是把短的列拉到最高列的高度,
+ *   不会反向"压短"高的列。要让右列高度由左列决定,必须让右列"自身不
+ *   贡献自然高度":
+ *
+ *   1. xl+ 视口下,给右 Col(.owner-review-side-col)设 position: relative;
+ *      内部的 Space 用 position: absolute; inset: 0 填充由左列拉出来的空间。
+ *   2. Space 内 flex column:第一项「审核员负载」flex:0 0 auto 按内容高;
+ *      末位项「审计日志卡」flex:1 1 0 + min-height:0 占满剩余,卡 body
+ *      `flex:1; min-height:0; height:0; overflow-y:auto` 触发局部滚动。
+ *   3. xl 以下视口走 antd 单列堆叠,绝对定位会破坏堆叠,所以用 @media 包裹。
+ *   4. 滚动条用最细 6px,亚透明灰,与系统其它细滚动条风格一致。
+ */
+.owner-review-side-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 1200px) {
+  .owner-review-side-col {
+    position: relative;
+  }
+
+  .owner-review-side-stack {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* 第一项:审核员负载,内容自适应,不拉伸 */
+  .owner-review-side-stack > .ant-space-item:first-child {
+    flex: 0 0 auto;
+  }
+
+  /* 末位项:审计日志容器,占满剩余高度 */
+  .owner-review-side-stack > .ant-space-item:last-child {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+  }
+
+  .owner-review-side-stack > .ant-space-item:last-child > .ant-card.owner-review-audit-card {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+  }
+
+  /* 卡片 head 自适应,body 占剩余并滚动 */
+  .owner-review-side-stack > .ant-space-item:last-child
+    > .ant-card.owner-review-audit-card
+    > .ant-card-body {
+    flex: 1 1 0;
+    min-height: 0;
+    height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* 审计日志滚动条:最细 6px,主题色亚透明,与系统其它细滚动条风格一致 */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+  }
+
+  .owner-review-side-stack > .ant-space-item:last-child
+    > .ant-card.owner-review-audit-card
+    > .ant-card-body::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .owner-review-side-stack > .ant-space-item:last-child
+    > .ant-card.owner-review-audit-card
+    > .ant-card-body::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .owner-review-side-stack > .ant-space-item:last-child
+    > .ant-card.owner-review-audit-card
+    > .ant-card-body::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.5);
+    border-radius: 3px;
+  }
+
+  .owner-review-side-stack > .ant-space-item:last-child
+    > .ant-card.owner-review-audit-card
+    > .ant-card-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 116, 139, 0.7);
+  }
+}
+
 .owner-task-row td {
   padding: 14px 16px !important;
 }

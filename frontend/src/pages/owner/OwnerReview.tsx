@@ -387,9 +387,11 @@ export default function OwnerReview() {
       {/* 顶部 KPI 概览 */}
       <OverviewKpi overview={overview} loading={loading} />
 
-      {/* 主区:左侧任务进度表(占比 16/24),右侧审核员负载 + 审计日志(8/24) */}
-      <Row gutter={16}>
-        <Col xs={24} xl={16}>
+      {/* 主区:左侧任务进度表 18/24(右边对齐 KPI 第 3 张「抽检覆盖率」右边),
+          右侧审核员负载 + 审计日志 6/24(左边对齐 KPI 第 4 张「双审一致率」左边)。
+          Row align="stretch" 让左右两列等高,审计日志卡 flex 撑满剩余高度。 */}
+      <Row gutter={16} align="stretch">
+        <Col xs={24} xl={18}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             {/* 工具条 */}
             <Card className="owner-toolbar">
@@ -437,8 +439,13 @@ export default function OwnerReview() {
           </Space>
         </Col>
 
-        <Col xs={24} xl={8}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Col xs={24} xl={6} className="owner-review-side-col">
+          <Space
+            direction="vertical"
+            size={16}
+            className="owner-review-side-stack"
+            style={{ width: '100%' }}
+          >
             <ReviewerWorkloadCard overview={overview} loading={loading} />
             <AuditLogCard
               entries={auditLog}
