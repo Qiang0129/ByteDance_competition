@@ -92,6 +92,8 @@ export interface DisputeStats {
   disputed: number;
   resolved: number;
   pending: number;
+  samplingRatio: number;
+  consistencyRate: number;
 }
 
 /** 通用分页结果 */

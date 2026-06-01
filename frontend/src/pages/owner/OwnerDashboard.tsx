@@ -32,12 +32,25 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 import { getApiErrorMessage } from '../../api/client';
 import { dashboardApi } from '../../api/dashboard';
 import { AiAssistantIcon } from '../../components/icons';
 import type {
   DashboardOverview,
+  DisputeStats,
   IssueFeedback,
   LabelerPerformance,
   RecentTaskActivity,
@@ -51,10 +64,10 @@ import type {
  * Owner 数据看板。
  * 对齐《项目实施计划书》4.6:
  *   - 任务进度 / AI 通过率 / 标注员效率 / 争议样本
- *   - 接口接入 dashboardApi(全部留好,后端未实现时回落到样例数据)
+ *   - 接口接入 dashboardApi,失败时展示真实错误态
  */
 
-interface FallbackDashboard {
+interface DashboardData {
   overview: DashboardOverview;
   taskProgress: TaskProgress[];
   review: ReviewDistribution;
@@ -62,82 +75,10 @@ interface FallbackDashboard {
   timeline: SubmissionTimelineMonth[];
   activities: RecentTaskActivity[];
   roles: RoleBreakdown[];
+  disputes7: DisputeStats;
+  disputes14: DisputeStats;
+  disputes30: DisputeStats;
 }
-
-const sampleDashboard: FallbackDashboard = {
-  overview: {
-    rangeStart: '2026-04-25',
-    rangeEnd: '2026-05-25',
-    kpis: {
-      activeTasks: 12,
-      activeLabelers: 38,
-      pendingReview: 126,
-      submittedToday: 776,
-      aiPassRate: 0.871,
-      avgDurationSec: 18,
-      deltas: {
-        activeTasks: 5,
-        activeLabelers: 3.2,
-        pendingReview: -2,
-        submittedToday: 8,
-        aiPassRate: 1.4,
-        avgDurationSec: -8,
-      },
-    },
-  },
-  taskProgress: [
-    { taskId: 'T-2041', title: '商品标题清洗 v3', total: 380, approved: 240, returned: 60, pending: 80 },
-    { taskId: 'T-2039', title: '短视频脚本对比', total: 260, approved: 180, returned: 30, pending: 50 },
-    { taskId: 'T-2055', title: '交通标志 V4', total: 300, approved: 200, returned: 40, pending: 60 },
-    { taskId: 'T-2058', title: '图文摘要质检', total: 240, approved: 160, returned: 20, pending: 60 },
-    { taskId: 'T-2061', title: '客服安全合规', total: 200, approved: 130, returned: 40, pending: 30 },
-    { taskId: 'T-2063', title: 'AIGC 图文打分', total: 350, approved: 220, returned: 60, pending: 70 },
-    { taskId: 'T-2066', title: '视频字幕对齐', total: 280, approved: 190, returned: 30, pending: 60 },
-    { taskId: 'T-2068', title: '电商问答评估', total: 320, approved: 220, returned: 40, pending: 60 },
-    { taskId: 'T-2070', title: '安全 Prompt 审核', total: 240, approved: 160, returned: 30, pending: 50 },
-  ],
-  review: {
-    aiPass: 64,
-    aiNeedHuman: 18,
-    aiReject: 6,
-    humanPass: 9,
-    humanReturned: 3,
-  },
-  performance: [
-    { labelerId: 'L-001', name: 'Olivia Clark', role: 'QA Quality 主力', score: 0.83, submitted: 320, approved: 268, returned: 12, avgDurationSec: 14 },
-    { labelerId: 'L-002', name: 'Michael Davis', role: 'Preference Compare', score: 0.37, submitted: 180, approved: 67, returned: 30, avgDurationSec: 22 },
-    { labelerId: 'L-003', name: 'Wei Lan', role: 'Image Classification', score: 0.46, submitted: 220, approved: 102, returned: 40, avgDurationSec: 19 },
-    { labelerId: 'L-004', name: 'David Wilson', role: 'Safety Tagging', score: 0.64, submitted: 280, approved: 180, returned: 28, avgDurationSec: 16 },
-  ],
-  timeline: [
-    { month: 'Jan', onTime: 60, late: 20, absent: 20 },
-    { month: 'Feb', onTime: 64, late: 18, absent: 18 },
-    { month: 'Mar', onTime: 68, late: 18, absent: 14 },
-    { month: 'Apr', onTime: 70, late: 16, absent: 14 },
-    { month: 'May', onTime: 72, late: 14, absent: 14 },
-    { month: 'Jun', onTime: 74, late: 14, absent: 12 },
-    { month: 'Jul', onTime: 78, late: 12, absent: 10 },
-    { month: 'Aug', onTime: 80, late: 10, absent: 10 },
-    { month: 'Sep', onTime: 82, late: 10, absent: 8 },
-    { month: 'Oct', onTime: 84, late: 8, absent: 8 },
-    { month: 'Nov', onTime: 86, late: 8, absent: 6 },
-    { month: 'Dec', onTime: 88, late: 6, absent: 6 },
-  ],
-  activities: [
-    { taskId: 'T-2041', taskTitle: '商品标题清洗 v3', ownerName: 'Sophia Hall', status: 'pending', updatedAt: '今天 14:32' },
-    { taskId: 'T-2039', taskTitle: '短视频脚本对齐评测', ownerName: 'Emma Smith', status: 'approved', updatedAt: '今天 11:08' },
-    { taskId: 'T-2055', taskTitle: '图像分类 · 交通标志 V4', ownerName: 'Olivia Clark', status: 'rejected', updatedAt: '昨天 18:01' },
-    { taskId: 'T-2058', taskTitle: '图文摘要质检', ownerName: 'Ava Lewis', status: 'pending', updatedAt: '昨天 16:42' },
-    { taskId: 'T-2063', taskTitle: 'AIGC 图文质量打分', ownerName: 'Isabella Walker', status: 'approved', updatedAt: '昨天 09:55' },
-  ],
-  roles: [
-    { role: 'QA Quality', memberCount: 14 },
-    { role: 'Preference', memberCount: 9 },
-    { role: 'Image Class.', memberCount: 7 },
-    { role: 'Safety Tagging', memberCount: 5 },
-    { role: 'AIGC 评估', memberCount: 3 },
-  ],
-};
 
 const reviewLabels: Array<{ key: keyof ReviewDistribution; label: string; color: string }> = [
   { key: 'aiPass', label: 'AI 通过', color: '#2f7bff' },
@@ -150,8 +91,9 @@ const reviewLabels: Array<{ key: keyof ReviewDistribution; label: string; color:
 const roleColors = ['#2f7bff', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
 
 export default function OwnerDashboard() {
-  const [data, setData] = useState<FallbackDashboard>(sampleDashboard);
-  const [usingFallback, setUsingFallback] = useState(true);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [issueFeedback, setIssueFeedback] = useState<IssueFeedback[]>([]);
@@ -179,39 +121,56 @@ export default function OwnerDashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [overview, taskProgress, review, performance, timeline, activities, roles] =
-          await Promise.all([
-            dashboardApi.getOverview(range),
-            dashboardApi.getTaskProgress(),
-            dashboardApi.getReviewDistribution(range),
-            dashboardApi.getLabelerPerformance(range),
-            dashboardApi.getSubmissionTimeline(),
-            dashboardApi.getRecentActivities(),
-            dashboardApi.getRoleBreakdown(),
-          ]);
-        if (cancelled) return;
-        setData({
-          overview,
-          taskProgress: taskProgress.items ?? [],
-          review,
-          performance: performance.items ?? [],
-          timeline: timeline.items ?? [],
-          activities: activities.items ?? [],
-          roles: roles.items ?? [],
-        });
-        setUsingFallback(false);
-      } catch {
-        if (!cancelled) setUsingFallback(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
+    setDashboardError(null);
+    try {
+      const [
+        overview,
+        taskProgress,
+        review,
+        performance,
+        timeline,
+        activities,
+        roles,
+        disputes7,
+        disputes14,
+        disputes30,
+      ] = await Promise.all([
+        dashboardApi.getOverview(range),
+        dashboardApi.getTaskProgress(),
+        dashboardApi.getReviewDistribution(range),
+        dashboardApi.getLabelerPerformance(range),
+        dashboardApi.getSubmissionTimeline(),
+        dashboardApi.getRecentActivities(),
+        dashboardApi.getRoleBreakdown(),
+        dashboardApi.getDisputes(7),
+        dashboardApi.getDisputes(14),
+        dashboardApi.getDisputes(30),
+      ]);
+      setData({
+        overview,
+        taskProgress: taskProgress.items ?? [],
+        review,
+        performance: performance.items ?? [],
+        timeline: timeline.items ?? [],
+        activities: activities.items ?? [],
+        roles: roles.items ?? [],
+        disputes7,
+        disputes14,
+        disputes30,
+      });
+    } catch (error) {
+      setData(null);
+      setDashboardError(getApiErrorMessage(error, '数据看板加载失败,请稍后重试'));
+    } finally {
+      setLoading(false);
+    }
   }, [range]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
 
   useEffect(() => {
     void loadIssueFeedback();
@@ -226,62 +185,85 @@ export default function OwnerDashboard() {
     <>
       <Space direction="vertical" size="large" className="page-stack dashboard-page">
         <DashboardHeader
-          overview={data.overview}
+          overview={data?.overview}
           range={range}
           onRangeChange={setRange}
-          usingFallback={usingFallback}
           issueTotal={issueTotal}
           onOpenFeedback={openIssueFeedback}
         />
 
-        <KpiRow
-          overview={data.overview}
-          issueTotal={issueTotal}
-          issueLoading={issueLoading}
-          onOpenFeedback={openIssueFeedback}
-        />
+        {dashboardError ? (
+          <Alert
+            type="error"
+            showIcon
+            message="数据看板加载失败"
+            description={dashboardError}
+            action={
+              <Button danger onClick={() => void loadDashboard()} loading={loading}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} xl={15}>
-            <TaskProgressCard items={data.taskProgress} />
-          </Col>
-          <Col xs={24} xl={9}>
-            <ReviewDistributionCard distribution={data.review} />
-          </Col>
-        </Row>
+        {loading && !data ? <DashboardSkeleton /> : null}
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} xl={9}>
-            <RecentActivitiesCard items={data.activities} />
-          </Col>
-          <Col xs={24} xl={15}>
-            <LeaveTableCard performance={data.performance} />
-          </Col>
-        </Row>
+        {data ? (
+          <>
+            <KpiRow
+              overview={data.overview}
+              issueTotal={issueTotal}
+              issueLoading={issueLoading}
+              onOpenFeedback={openIssueFeedback}
+            />
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} md={12} xl={6}>
-            <RoleDonutCard roles={data.roles} />
-          </Col>
-          <Col xs={24} md={12} xl={6}>
-            <DisputeStatsCard />
-          </Col>
-          <Col xs={24} md={12} xl={6}>
-            <TaskTimelineCard items={data.taskProgress} />
-          </Col>
-          <Col xs={24} md={12} xl={6}>
-            <DeadlineAlertCard items={data.taskProgress} />
-          </Col>
-        </Row>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} xl={15}>
+                <TaskProgressCard items={data.taskProgress} />
+              </Col>
+              <Col xs={24} xl={9}>
+                <ReviewDistributionCard distribution={data.review} />
+              </Col>
+            </Row>
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} xl={10}>
-            <PerformanceCard performance={data.performance} />
-          </Col>
-          <Col xs={24} xl={14}>
-            <SubmissionTimelineCard items={data.timeline} />
-          </Col>
-        </Row>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} xl={9}>
+                <RecentActivitiesCard items={data.activities} />
+              </Col>
+              <Col xs={24} xl={15}>
+                <LeaveTableCard performance={data.performance} />
+              </Col>
+            </Row>
+
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={12} xl={6}>
+                <RoleDonutCard roles={data.roles} />
+              </Col>
+              <Col xs={24} md={12} xl={6}>
+                <DisputeStatsCard
+                  disputes7={data.disputes7}
+                  disputes14={data.disputes14}
+                  disputes30={data.disputes30}
+                />
+              </Col>
+              <Col xs={24} md={12} xl={6}>
+                <TaskTimelineCard items={data.taskProgress} />
+              </Col>
+              <Col xs={24} md={12} xl={6}>
+                <DeadlineAlertCard items={data.taskProgress} />
+              </Col>
+            </Row>
+
+            <Row gutter={[16, 16]}>
+              <Col xs={24} xl={10}>
+                <PerformanceCard performance={data.performance} />
+              </Col>
+              <Col xs={24} xl={14}>
+                <SubmissionTimelineCard items={data.timeline} />
+              </Col>
+            </Row>
+          </>
+        ) : null}
       </Space>
       <IssueFeedbackDrawer
         open={feedbackOpen}
@@ -300,14 +282,12 @@ function DashboardHeader({
   overview,
   range,
   onRangeChange,
-  usingFallback,
   issueTotal,
   onOpenFeedback,
 }: {
-  overview: DashboardOverview;
+  overview?: DashboardOverview;
   range: '7d' | '30d' | '90d';
   onRangeChange: (v: '7d' | '30d' | '90d') => void;
-  usingFallback: boolean;
   issueTotal: number;
   onOpenFeedback: () => void;
 }) {
@@ -316,11 +296,10 @@ function DashboardHeader({
       <Space direction="vertical" size={4}>
         <Typography.Title level={3}>数据看板</Typography.Title>
         <Typography.Text type="secondary">
-          统计周期:{overview.rangeStart} ~ {overview.rangeEnd}
+          {overview ? `统计周期:${overview.rangeStart} ~ ${overview.rangeEnd}` : '正在加载真实数据'}
         </Typography.Text>
       </Space>
       <Space>
-        {usingFallback && <Tag color="gold">演示模式 · 接口未连接</Tag>}
         <Segmented
           options={[
             { label: '近 7 日', value: '7d' },
@@ -335,6 +314,46 @@ function DashboardHeader({
         </Button>
       </Space>
     </div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <>
+      <Row gutter={[16, 16]} className="dashboard-kpi-row">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <Col key={index} xs={12} md={8} xl={4}>
+            <Card className="dashboard-kpi">
+              <Skeleton active paragraph={{ rows: 3 }} title={false} />
+            </Card>
+          </Col>
+        ))}
+      </Row>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={15}>
+          <Card className="dashboard-card">
+            <Skeleton active paragraph={{ rows: 8 }} />
+          </Card>
+        </Col>
+        <Col xs={24} xl={9}>
+          <Card className="dashboard-card">
+            <Skeleton active paragraph={{ rows: 8 }} />
+          </Card>
+        </Col>
+      </Row>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={9}>
+          <Card className="dashboard-card">
+            <Skeleton active paragraph={{ rows: 6 }} />
+          </Card>
+        </Col>
+        <Col xs={24} xl={15}>
+          <Card className="dashboard-card">
+            <Skeleton active paragraph={{ rows: 6 }} />
+          </Card>
+        </Col>
+      </Row>
+    </>
   );
 }
 
@@ -536,9 +555,17 @@ function IssueFeedbackDrawer({
   );
 }
 
-/* ============ 任务进度柱状图 ============ */
+/* ============ 任务进度柱状图(recharts) ============ */
 function TaskProgressCard({ items }: { items: TaskProgress[] }) {
-  const maxBarValue = Math.max(...items.flatMap((it) => [it.approved, it.returned, it.pending]), 100);
+  // 整理成 recharts 数据:X 轴用任务编号(去掉 T- 前缀),三个系列 通过/打回/待处理
+  const chartData = items.map((it) => ({
+    name: it.taskId.replace('T-', ''),
+    title: it.title,
+    total: it.total,
+    通过: it.approved,
+    打回: it.returned,
+    待处理: it.pending,
+  }));
   return (
     <Card
       className="dashboard-card"
@@ -549,38 +576,24 @@ function TaskProgressCard({ items }: { items: TaskProgress[] }) {
         </Button>
       }
     >
-      <div className="bar-chart">
-        <div className="bar-chart-y">
-          {[100, 80, 60, 40, 20, 0].map((tick) => (
-            <span key={tick}>{Math.round((tick / 100) * maxBarValue)}</span>
-          ))}
-        </div>
-        <div className="bar-chart-area">
-          {items.map((it) => (
-            <div key={it.taskId} className="bar-group" title={`${it.title} · 共 ${it.total} 条`}>
-              <div className="bar-stack">
-                <div
-                  className="bar-seg approved"
-                  style={{ height: `${(it.approved / maxBarValue) * 100}%` }}
-                />
-              </div>
-              <div className="bar-stack">
-                <div
-                  className="bar-seg returned"
-                  style={{ height: `${(it.returned / maxBarValue) * 100}%` }}
-                />
-              </div>
-              <div className="bar-stack">
-                <div
-                  className="bar-seg pending"
-                  style={{ height: `${(it.pending / maxBarValue) * 100}%` }}
-                />
-              </div>
-              <div className="bar-label">{it.taskId.replace('T-', '')}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <ResponsiveContainer width="100%" height={280}>
+        <BarChart data={chartData} margin={{ top: 10, right: 12, left: -12, bottom: 0 }} barGap={2} barCategoryGap="24%">
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
+          <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+          <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+          <RechartsTooltip
+            cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
+            contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+            labelFormatter={(label) => {
+              const found = chartData.find((d) => d.name === label);
+              return found ? `${found.title} · 共 ${found.total} 条` : label;
+            }}
+          />
+          <Bar dataKey="通过" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={14} />
+          <Bar dataKey="打回" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={14} />
+          <Bar dataKey="待处理" fill="#94a3b8" radius={[3, 3, 0, 0]} maxBarSize={14} />
+        </BarChart>
+      </ResponsiveContainer>
       <div className="bar-legend">
         <span><i className="dot" style={{ background: '#22c55e' }} />通过</span>
         <span><i className="dot" style={{ background: '#f59e0b' }} />打回</span>
@@ -590,13 +603,16 @@ function TaskProgressCard({ items }: { items: TaskProgress[] }) {
   );
 }
 
-/* ============ AI 审核分布(环形图) ============ */
+/* ============ AI 审核分布(环形图 recharts) ============ */
 function ReviewDistributionCard({ distribution }: { distribution: ReviewDistribution }) {
   const total = reviewLabels.reduce((sum, item) => sum + (distribution[item.key] ?? 0), 0);
-  const strokeWidth = 14;
-  const radius = 64;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
+  // 整理成 recharts Pie 数据
+  const pieData = reviewLabels.map((seg) => ({
+    key: seg.key,
+    label: seg.label,
+    color: seg.color,
+    value: distribution[seg.key] ?? 0,
+  }));
   return (
     <Card
       className="dashboard-card"
@@ -613,40 +629,37 @@ function ReviewDistributionCard({ distribution }: { distribution: ReviewDistribu
         />
       }
     >
-      <Row gutter={[8, 8]} align="middle">
+      <Row gutter={[8, 8]} align="middle" style={{ paddingTop: 16, paddingBottom: 8 }}>
         <Col xs={24} md={12}>
-          <div className="donut-wrapper">
-            <svg viewBox="0 0 160 160" className="donut">
-              <circle cx="80" cy="80" r={radius} fill="none" stroke="#f1f5f9" strokeWidth={strokeWidth} />
-              {reviewLabels.map((seg) => {
-                const value = distribution[seg.key] ?? 0;
-                const length = (value / total) * circumference;
-                const dash = `${length} ${circumference - length}`;
-                const el = (
-                  <circle
-                    key={seg.key}
-                    cx="80"
-                    cy="80"
-                    r={radius}
-                    fill="none"
-                    stroke={seg.color}
-                    strokeWidth={strokeWidth}
-                    strokeDasharray={dash}
-                    strokeDashoffset={-offset}
-                    strokeLinecap="butt"
-                    transform="rotate(-90 80 80)"
-                  />
-                );
-                offset += length;
-                return el;
-              })}
-              <text x="80" y="78" textAnchor="middle" className="donut-total">
-                {total}
-              </text>
-              <text x="80" y="96" textAnchor="middle" className="donut-sub">
-                Total Reviews
-              </text>
-            </svg>
+          <div style={{ position: 'relative', width: '100%', height: 220 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  nameKey="label"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={58}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  stroke="none"
+                >
+                  {pieData.map((seg) => (
+                    <Cell key={seg.key} fill={seg.color} />
+                  ))}
+                </Pie>
+                <RechartsTooltip
+                  contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+                  formatter={(value, name) => [value as number, name as string]}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            {/* 中心文字:绝对定位覆盖在环形中央 */}
+            <div className="donut-center-text">
+              <div className="donut-center-total">{total}</div>
+              <div className="donut-center-sub">Total Reviews</div>
+            </div>
           </div>
         </Col>
         <Col xs={24} md={12}>
@@ -665,7 +678,7 @@ function ReviewDistributionCard({ distribution }: { distribution: ReviewDistribu
           </ul>
         </Col>
       </Row>
-      <div className="dashboard-card-foot">
+      <div className="dashboard-card-foot" style={{ marginTop: 28 }}>
         <Typography.Text type="secondary" className="dashboard-foot-tip">
           周期内合计 {total} 条审核结果
         </Typography.Text>
@@ -782,44 +795,44 @@ function LeaveTableCard({ performance }: { performance: LabelerPerformance[] }) 
   );
 }
 
-/* ============ 角色分布(环形) ============ */
+/* ============ 角色分布(环形 recharts) ============ */
 function RoleDonutCard({ roles }: { roles: RoleBreakdown[] }) {
   const total = roles.reduce((sum, r) => sum + r.memberCount, 0);
-  const radius = 50;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
+  const pieData = roles.map((role, idx) => ({
+    label: role.role,
+    value: role.memberCount,
+    color: roleColors[idx % roleColors.length],
+  }));
   return (
     <Card className="dashboard-card" title="标注员角色分布">
-      <div className="role-donut-wrap">
-        <svg viewBox="0 0 140 140" className="donut">
-          <circle cx="70" cy="70" r={radius} fill="none" stroke="#f1f5f9" strokeWidth={12} />
-          {roles.map((role, idx) => {
-            const length = (role.memberCount / total) * circumference;
-            const el = (
-              <circle
-                key={role.role}
-                cx="70"
-                cy="70"
-                r={radius}
-                fill="none"
-                stroke={roleColors[idx % roleColors.length]}
-                strokeWidth={12}
-                strokeDasharray={`${length} ${circumference - length}`}
-                strokeDashoffset={-offset}
-                strokeLinecap="butt"
-                transform="rotate(-90 70 70)"
-              />
-            );
-            offset += length;
-            return el;
-          })}
-          <text x="70" y="68" textAnchor="middle" className="donut-total small">
-            {total}
-          </text>
-          <text x="70" y="86" textAnchor="middle" className="donut-sub">
-            Active
-          </text>
-        </svg>
+      <div style={{ position: 'relative', width: '100%', height: 150 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={pieData}
+              dataKey="value"
+              nameKey="label"
+              cx="50%"
+              cy="50%"
+              innerRadius={44}
+              outerRadius={62}
+              paddingAngle={2}
+              stroke="none"
+            >
+              {pieData.map((seg) => (
+                <Cell key={seg.label} fill={seg.color} />
+              ))}
+            </Pie>
+            <RechartsTooltip
+              contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+              formatter={(value, name) => [value as number, name as string]}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="donut-center-text">
+          <div className="donut-center-total small">{total}</div>
+          <div className="donut-center-sub">Active</div>
+        </div>
       </div>
       <ul className="role-legend">
         {roles.map((role, idx) => (
@@ -836,14 +849,17 @@ function RoleDonutCard({ roles }: { roles: RoleBreakdown[] }) {
 }
 
 /* ============ 争议样本与抽检 ============ */
-function DisputeStatsCard() {
-  // 计划书 4.5 / 4.6:抽检比例 + 双审一致率 + 争议数
-  // 真实数据来自 GET /dashboard/disputes,演示数据展示 7/14/30 日趋势
-  const sampling = 0.12; // 抽检比例
-  const consistency = 0.94; // 双审一致率
-  const disputed7 = 14;
-  const disputed14 = 36;
-  const disputed30 = 78;
+function DisputeStatsCard({
+  disputes7,
+  disputes14,
+  disputes30,
+}: {
+  disputes7: DisputeStats;
+  disputes14: DisputeStats;
+  disputes30: DisputeStats;
+}) {
+  const sampling = Math.max(0, Math.min(1, disputes30.samplingRatio));
+  const consistency = Math.max(0, Math.min(1, disputes30.consistencyRate));
   return (
     <Card className="dashboard-card" title="争议样本 & 抽检">
       <div className="dispute-grid">
@@ -865,15 +881,15 @@ function DisputeStatsCard() {
       <div className="dispute-trend">
         <div className="dispute-trend-row">
           <span>近 7 日争议</span>
-          <strong>{disputed7}</strong>
+          <strong>{disputes7.disputed}</strong>
         </div>
         <div className="dispute-trend-row">
           <span>近 14 日</span>
-          <strong>{disputed14}</strong>
+          <strong>{disputes14.disputed}</strong>
         </div>
         <div className="dispute-trend-row">
           <span>近 30 日</span>
-          <strong>{disputed30}</strong>
+          <strong>{disputes30.disputed}</strong>
         </div>
       </div>
     </Card>
@@ -1017,8 +1033,18 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
-/* ============ 月度提交时段(堆叠柱) ============ */
+/* ============ 月度提交时段(堆叠柱 recharts) ============ */
 function SubmissionTimelineCard({ items }: { items: SubmissionTimelineMonth[] }) {
+  // 转成百分比堆叠数据,与原手写图一致(各月归一化到 100%)
+  const chartData = items.map((it) => {
+    const total = it.onTime + it.late + it.absent || 1;
+    return {
+      month: it.month,
+      准时: Math.round((it.onTime / total) * 100),
+      延迟: Math.round((it.late / total) * 100),
+      缺席: Math.round((it.absent / total) * 100),
+    };
+  });
   return (
     <Card
       className="dashboard-card"
@@ -1029,37 +1055,21 @@ function SubmissionTimelineCard({ items }: { items: SubmissionTimelineMonth[] })
         </Button>
       }
     >
-      <div className="bar-chart">
-        <div className="bar-chart-y">
-          {[100, 80, 60, 40, 20, 0].map((tick) => (
-            <span key={tick}>{tick}%</span>
-          ))}
-        </div>
-        <div className="bar-chart-area attendance">
-          {items.map((it) => {
-            const total = it.onTime + it.late + it.absent || 1;
-            return (
-              <div key={it.month} className="bar-group attendance-group">
-                <div className="bar-stack attendance-stack">
-                  <div
-                    className="bar-seg absent"
-                    style={{ height: `${(it.absent / total) * 100}%` }}
-                  />
-                  <div
-                    className="bar-seg late"
-                    style={{ height: `${(it.late / total) * 100}%` }}
-                  />
-                  <div
-                    className="bar-seg ontime"
-                    style={{ height: `${(it.onTime / total) * 100}%` }}
-                  />
-                </div>
-                <div className="bar-label">{it.month}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <ResponsiveContainer width="100%" height={280}>
+        <BarChart data={chartData} margin={{ top: 10, right: 12, left: -12, bottom: 0 }} barCategoryGap="28%">
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
+          <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+          <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+          <RechartsTooltip
+            cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
+            contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+            formatter={(value, name) => [`${value as number}%`, name as string]}
+          />
+          <Bar dataKey="准时" stackId="a" fill="var(--lh-primary)" maxBarSize={26} />
+          <Bar dataKey="延迟" stackId="a" fill="#f59e0b" maxBarSize={26} />
+          <Bar dataKey="缺席" stackId="a" fill="#94a3b8" maxBarSize={26} radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
       <div className="bar-legend">
         <span>
           <i className="dot" style={{ background: 'var(--lh-primary)' }} />准时

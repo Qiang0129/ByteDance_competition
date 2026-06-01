@@ -8020,6 +8020,37 @@ body {
   background: rgba(100, 116, 139, 0.7);
 }
 
+/* 统一:AI 工作台内所有滚动容器都用极细滚动条(4px),
+   覆盖中栏提交内容 JSON 框、中栏整体、右栏时间线等所有滚动区 */
+.ai-wb *::-webkit-scrollbar,
+.ai-wb::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.ai-wb *::-webkit-scrollbar-track,
+.ai-wb::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ai-wb *::-webkit-scrollbar-thumb,
+.ai-wb::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+}
+
+.ai-wb *::-webkit-scrollbar-thumb:hover,
+.ai-wb::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* Firefox:整个工作台内的滚动容器细滚动条 */
+.ai-wb,
+.ai-wb * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+
 /* 左栏列表项:checkbox + 主内容 */
 .ai-wb-item {
   display: flex;
@@ -9087,6 +9118,48 @@ body {
   overflow-y: auto;
 }
 
+/* 统一:AI 预审队列内所有滚动容器都用极细滚动条(4px),
+   覆盖左栏列表、中栏 JSON 框、Prompt 框、右栏详情等所有滚动区。
+   作用在 ai-queue-layout(三栏主体)与 JSON/Prompt 框上。 */
+.ai-queue-layout *::-webkit-scrollbar,
+.ai-queue-layout::-webkit-scrollbar,
+.ai-queue-json::-webkit-scrollbar,
+.ai-queue-prompt::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.ai-queue-layout *::-webkit-scrollbar-track,
+.ai-queue-layout::-webkit-scrollbar-track,
+.ai-queue-json::-webkit-scrollbar-track,
+.ai-queue-prompt::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ai-queue-layout *::-webkit-scrollbar-thumb,
+.ai-queue-layout::-webkit-scrollbar-thumb,
+.ai-queue-json::-webkit-scrollbar-thumb,
+.ai-queue-prompt::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+}
+
+.ai-queue-layout *::-webkit-scrollbar-thumb:hover,
+.ai-queue-layout::-webkit-scrollbar-thumb:hover,
+.ai-queue-json::-webkit-scrollbar-thumb:hover,
+.ai-queue-prompt::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* Firefox 细滚动条 */
+.ai-queue-layout,
+.ai-queue-layout *,
+.ai-queue-json,
+.ai-queue-prompt {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+
 /* 评分行 */
 .ai-queue-score-row {
   display: flex;
@@ -9263,4 +9336,37 @@ body {
 :root[data-color-mode='dark'] .model-config-avatar.is-active {
   background: var(--lh-primary-bg-10);
   color: var(--lh-primary);
+}
+
+
+/* ========== 数据看板 recharts 环形图中心文字 ========== */
+/* recharts Pie 无法像手写 SVG 那样内嵌 <text>,用绝对定位覆盖在环形中央 */
+.donut-center-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.donut-center-total {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2a44;
+  line-height: 1.1;
+}
+
+.donut-center-total.small {
+  font-size: 22px;
+}
+
+.donut-center-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+:root[data-color-mode='dark'] .donut-center-total {
+  color: #f5f7fb;
 }

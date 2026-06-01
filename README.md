@@ -203,7 +203,7 @@ Agent 处理模型配置的优先级：
 PowerShell 启动方式 A：已经在 Web 端保存过模型配置时,只需要后端连接和登录变量:
 
 ```powershell
-cd F:\研究生阶段\字节开发比赛\ByteDance_competition\agent
+cd agent
 
 $env:LABELHUB_BACKEND_BASE_URL="http://localhost:8080"
 $env:LABELHUB_AGENT_USERNAME="system_agent"

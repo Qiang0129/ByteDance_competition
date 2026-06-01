@@ -561,9 +561,9 @@ function AnnotationDetail({
       <div className="ai-wb-detail-head">
         <div className="ai-wb-detail-headmain">
           <div className="ai-wb-detail-title">
-            <span className="ai-wb-detail-id">第 {itemIndex} 题</span>
-            <span className="ai-wb-detail-dot">·</span>
             <span className="ai-wb-detail-name">{title}</span>
+            <span className="ai-wb-detail-dot">|</span>
+            <span className="ai-wb-detail-id">第 {itemIndex} 题</span>
           </div>
           <div className="ai-wb-detail-sub">
             任务 {item.taskTitle || item.taskId || '-'} · Item {item.itemId} · 模板 {item.schemaVersionId}

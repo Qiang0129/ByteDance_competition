@@ -23,6 +23,7 @@ import org.springframework.web.client.RestClientResponseException;
 public class AiModelConfigService {
 
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+  private static final List<String> SUPPORTED_REASONING_EFFORTS = List.of("low", "medium", "high", "xhigh");
 
   private final AiModelConfigRepository repository;
   private final AiModelConfigCrypto crypto;
@@ -39,6 +40,13 @@ public class AiModelConfigService {
     return repository.findActive()
         .map(this::toResponse)
         .orElse(null);
+  }
+
+  public List<AiModelConfigResponse> listConfigs(Authentication authentication) {
+    requireModelManager(authentication);
+    return repository.findAll().stream()
+        .map(this::toResponse)
+        .toList();
   }
 
   @Transactional
@@ -103,6 +111,119 @@ public class AiModelConfigService {
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI_MODEL_CONFIG_NOT_FOUND", "model config not found"));
   }
 
+  @Transactional
+  public AiModelConfigResponse createConfig(Authentication authentication, AiModelConfigRequest request) {
+    AuthenticatedUser operator = requireModelManager(authentication);
+    ValidConfig input = validateConfig(request);
+    if (input.apiKey() == null || input.apiKey().isBlank()) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "AI_MODEL_API_KEY_REQUIRED",
+          "api key is required for a new model config");
+    }
+    String encryptedApiKey = crypto.encrypt(input.apiKey());
+    String apiKeyMask = maskApiKey(input.apiKey());
+    String status = repository.findActive().isPresent() ? "inactive" : "active";
+    long configId = repository.insert(
+        input.providerName(),
+        input.notes(),
+        input.licenseUrl(),
+        input.apiBaseUrl(),
+        input.useFullUrl(),
+        input.modelName(),
+        input.reasoningEffort(),
+        input.wireApi(),
+        input.workerConcurrency(),
+        encryptedApiKey,
+        apiKeyMask,
+        status,
+        operator.id());
+    return repository.findById(configId)
+        .map(this::toResponse)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI_MODEL_CONFIG_NOT_FOUND", "model config not found"));
+  }
+
+  @Transactional
+  public AiModelConfigResponse updateConfig(Authentication authentication, long configId, AiModelConfigRequest request) {
+    AuthenticatedUser operator = requireModelManager(authentication);
+    ValidConfig input = validateConfig(request);
+    AiModelConfigRepository.AiModelConfigRecord existing = repository.findById(configId)
+        .orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "AI_MODEL_CONFIG_NOT_FOUND",
+            "model config not found"));
+    String encryptedApiKey;
+    String apiKeyMask;
+    if (input.apiKey() == null || input.apiKey().isBlank()) {
+      if (existing.encryptedApiKey() == null || existing.encryptedApiKey().isBlank()) {
+        throw new ApiException(
+            HttpStatus.BAD_REQUEST,
+            "AI_MODEL_API_KEY_REQUIRED",
+            "api key is required for this model config");
+      }
+      encryptedApiKey = existing.encryptedApiKey();
+      apiKeyMask = existing.apiKeyMask();
+    } else {
+      encryptedApiKey = crypto.encrypt(input.apiKey());
+      apiKeyMask = maskApiKey(input.apiKey());
+    }
+
+    int updated = repository.update(
+        existing.id(),
+        input.providerName(),
+        input.notes(),
+        input.licenseUrl(),
+        input.apiBaseUrl(),
+        input.useFullUrl(),
+        input.modelName(),
+        input.reasoningEffort(),
+        input.wireApi(),
+        input.workerConcurrency(),
+        encryptedApiKey,
+        apiKeyMask,
+        operator.id());
+    if (updated == 0) {
+      throw new ApiException(HttpStatus.CONFLICT, "AI_MODEL_CONFIG_CHANGED", "model config changed, please retry");
+    }
+    return repository.findById(configId)
+        .map(this::toResponse)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI_MODEL_CONFIG_NOT_FOUND", "model config not found"));
+  }
+
+  @Transactional
+  public void deleteConfig(Authentication authentication, long configId) {
+    requireModelManager(authentication);
+    AiModelConfigRepository.AiModelConfigRecord existing = repository.findById(configId)
+        .orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "AI_MODEL_CONFIG_NOT_FOUND",
+            "model config not found"));
+    if ("active".equalsIgnoreCase(existing.status())) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "AI_MODEL_CONFIG_ACTIVE",
+          "active model config cannot be deleted");
+    }
+    repository.delete(configId);
+  }
+
+  @Transactional
+  public AiModelConfigResponse activateConfig(Authentication authentication, long configId) {
+    AuthenticatedUser operator = requireModelManager(authentication);
+    repository.findById(configId)
+        .orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "AI_MODEL_CONFIG_NOT_FOUND",
+            "model config not found"));
+    int updated = repository.activate(configId, operator.id());
+    if (updated == 0) {
+      throw new ApiException(HttpStatus.CONFLICT, "AI_MODEL_CONFIG_CHANGED", "model config changed, please retry");
+    }
+    return repository.findById(configId)
+        .map(this::toResponse)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "AI_MODEL_CONFIG_NOT_FOUND", "model config not found"));
+  }
+
   public AiModelModelsResponse listModels(Authentication authentication, AiModelModelsRequest request) {
     requireModelManager(authentication);
     ModelConnection connection = resolveModelConnection(request);
@@ -139,7 +260,7 @@ public class AiModelConfigService {
         config.apiBaseUrl(),
         config.useFullUrl(),
         config.modelName(),
-        config.reasoningEffort(),
+        normalizeReasoningEffortForRead(config.reasoningEffort()),
         config.wireApi(),
         config.workerConcurrency(),
         crypto.decrypt(config.encryptedApiKey()));
@@ -242,13 +363,28 @@ public class AiModelConfigService {
 
   private String normalizeReasoningEffort(String value) {
     String normalized = value == null || value.isBlank() ? "high" : value.trim().toLowerCase(Locale.ROOT);
-    if (!List.of("minimal", "low", "medium", "high").contains(normalized)) {
+    if (!SUPPORTED_REASONING_EFFORTS.contains(normalized)) {
       throw new ApiException(
           HttpStatus.BAD_REQUEST,
           "INVALID_AI_MODEL_REASONING_EFFORT",
           "unsupported reasoning effort");
     }
     return normalized;
+  }
+
+  private String normalizeReasoningEffortForRead(String value) {
+    String normalized = trimToNull(value);
+    if (normalized == null) {
+      return "high";
+    }
+    String lower = normalized.toLowerCase(Locale.ROOT);
+    if ("minimal".equals(lower)) {
+      return "low";
+    }
+    if (SUPPORTED_REASONING_EFFORTS.contains(lower)) {
+      return lower;
+    }
+    return "high";
   }
 
   private String normalizeWireApi(String value) {
@@ -305,7 +441,7 @@ public class AiModelConfigService {
         record.apiBaseUrl(),
         record.useFullUrl(),
         record.modelName(),
-        record.reasoningEffort(),
+        normalizeReasoningEffortForRead(record.reasoningEffort()),
         record.wireApi(),
         record.workerConcurrency(),
         record.apiKeyMask(),

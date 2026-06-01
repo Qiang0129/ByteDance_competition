@@ -141,7 +141,7 @@ export interface AiModelConfig {
   apiBaseUrl: string;
   useFullUrl: boolean;
   modelName: string;
-  reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
+  reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh';
   wireApi: 'responses';
   workerConcurrency?: number;
   apiKeyMask?: string;
@@ -159,7 +159,7 @@ export interface AiModelConfigRequest {
   apiBaseUrl: string;
   useFullUrl: boolean;
   modelName: string;
-  reasoningEffort: 'minimal' | 'low' | 'medium' | 'high';
+  reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh';
   wireApi: 'responses';
   workerConcurrency?: number;
   apiKey?: string;

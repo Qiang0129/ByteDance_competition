@@ -39,6 +39,7 @@ import type { AiModelConfig, AiModelConfigRequest } from '../../types/aiReview';
 import { AiAssistantIcon } from '../../components/icons';
 
 const { Paragraph, Text, Title } = Typography;
+type ReasoningEffort = AiModelConfigRequest['reasoningEffort'];
 
 /**
  * 模型配置页:支持多配置管理。
@@ -66,7 +67,7 @@ interface ConfigFormValues {
   apiBaseUrl: string;
   useFullUrl: boolean;
   modelName: string;
-  reasoningEffort: AiModelConfigRequest['reasoningEffort'];
+  reasoningEffort: ReasoningEffort;
   workerConcurrency: number;
   apiKeyMask?: string;
 }
@@ -83,6 +84,16 @@ const DEFAULT_FORM: ConfigFormValues = {
   workerConcurrency: 3,
 };
 
+function normalizeReasoningEffort(value?: string): ReasoningEffort {
+  if (value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
+    return value;
+  }
+  if (value === 'minimal') {
+    return 'low';
+  }
+  return 'high';
+}
+
 function configToForm(config: AiModelConfig): ConfigFormValues {
   return {
     providerName: config.providerName ?? '',
@@ -92,7 +103,7 @@ function configToForm(config: AiModelConfig): ConfigFormValues {
     apiBaseUrl: config.apiBaseUrl ?? '',
     useFullUrl: config.useFullUrl ?? false,
     modelName: config.modelName ?? '',
-    reasoningEffort: config.reasoningEffort ?? 'high',
+    reasoningEffort: normalizeReasoningEffort(config.reasoningEffort),
     workerConcurrency: config.workerConcurrency ?? 3,
     apiKeyMask: config.apiKeyMask,
   };
@@ -494,10 +505,10 @@ export default function ModelSettings() {
                 <Select
                   value={form.reasoningEffort}
                   options={[
-                    { label: 'minimal', value: 'minimal' },
                     { label: 'low', value: 'low' },
                     { label: 'medium', value: 'medium' },
                     { label: 'high', value: 'high' },
+                    { label: 'xhigh', value: 'xhigh' },
                   ]}
                   onChange={(value) => update({ reasoningEffort: value })}
                 />
