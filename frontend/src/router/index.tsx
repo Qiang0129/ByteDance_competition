@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import AppLayout from '../layouts/AppLayout';
 
-import { Login, NotFound } from '../pages';
+import { AboutPlaceholder, DocsPlaceholder, Landing, Login, NotFound } from '../pages';
 import {
   AnswerPage,
   Drafts,
@@ -32,22 +32,13 @@ import { AppearanceSettings } from '../pages/settings';
 import ModelSettings from '../pages/aiReviewer/ModelSettings';
 import AiReviewerDashboard from '../pages/aiReviewer/AiReviewerDashboard';
 import AiPreReviewQueue from '../pages/aiReviewer/AiPreReviewQueue';
-import { getStoredAuthUser } from '../api/auth';
-import { getAuthToken } from '../api/client';
-import { resolveLandingPath } from '../utils/authNavigation';
-
-function RootRedirect() {
-  const storedUser = getStoredAuthUser();
-  if (getAuthToken() && storedUser) {
-    return <Navigate to={resolveLandingPath(storedUser.roles)} replace />;
-  }
-  return <Navigate to="/login" replace />;
-}
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<RootRedirect />} />
+      <Route path="/" element={<Landing />} />
+      <Route path="/docs" element={<DocsPlaceholder />} />
+      <Route path="/about" element={<AboutPlaceholder />} />
       <Route path="/login" element={<Login />} />
 
       <Route element={<AppLayout />}>

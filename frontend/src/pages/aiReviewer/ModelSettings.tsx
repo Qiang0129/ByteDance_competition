@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiOutlined,
+  ArrowLeftOutlined,
   CheckCircleFilled,
   CopyOutlined,
   DeleteOutlined,
@@ -32,6 +33,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { aiReviewApi } from '../../api/aiReview';
 import { getApiErrorMessage } from '../../api/client';
@@ -40,6 +42,10 @@ import { AiAssistantIcon } from '../../components/icons';
 
 const { Paragraph, Text, Title } = Typography;
 type ReasoningEffort = AiModelConfigRequest['reasoningEffort'];
+
+interface ModelSettingsLocationState {
+  from?: string;
+}
 
 /**
  * 模型配置页:支持多配置管理。
@@ -111,6 +117,8 @@ function configToForm(config: AiModelConfig): ConfigFormValues {
 
 export default function ModelSettings() {
   const { message } = AntdApp.useApp();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [configs, setConfigs] = useState<AiModelConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
@@ -158,6 +166,25 @@ export default function ModelSettings() {
     () => configs.find((c) => c.status === 'active'),
     [configs],
   );
+
+  function handleBack() {
+    const state = location.state as ModelSettingsLocationState | null;
+    const from = state?.from;
+    if (from && from !== location.pathname) {
+      navigate(from);
+      return;
+    }
+
+    const historyState = window.history.state as { idx?: number } | null;
+    const canReturnWithinApp =
+      typeof historyState?.idx === 'number' ? historyState.idx > 0 : window.history.length > 1;
+    if (canReturnWithinApp) {
+      navigate(-1);
+      return;
+    }
+
+    navigate(location.pathname.startsWith('/ai-reviewer') ? '/ai-reviewer' : '/owner/tasks');
+  }
 
   /** 打开新建 Drawer */
   function openCreate() {
@@ -324,12 +351,21 @@ export default function ModelSettings() {
     <Space direction="vertical" size="large" className="page-stack">
       {/* 标题 */}
       <div className="page-title-row">
-        <Space direction="vertical" size={4}>
-          <Title level={3}>模型配置</Title>
-          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            管理 AI 预审 Agent 使用的模型配置,支持多配置切换,点击「启用」激活目标配置。
-          </Paragraph>
-        </Space>
+        <div className="model-settings-title">
+          <Button
+            type="text"
+            icon={<ArrowLeftOutlined />}
+            onClick={handleBack}
+            className="model-settings-back"
+            aria-label="返回上一页"
+          />
+          <Space direction="vertical" size={4}>
+            <Title level={3}>模型配置</Title>
+            <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              管理 AI 预审 Agent 使用的模型配置,支持多配置切换,点击「启用」激活目标配置。
+            </Paragraph>
+          </Space>
+        </div>
         <Space>
           {usingFallback && <Tag color="gold">兼容模式 · 旧接口</Tag>}
           <Button icon={<ReloadOutlined />} onClick={() => void loadConfigs()} loading={loading}>

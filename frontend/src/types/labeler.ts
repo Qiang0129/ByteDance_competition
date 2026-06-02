@@ -145,9 +145,17 @@ export interface LabelerDraft {
   editable: boolean;
 }
 
-export type ReturnedItemSource = 'all' | 'human_return' | 'ai_pre_reject';
+export type ReturnedItemSource = 'all' | 'human_return' | 'reworked' | 'reviewed' | 'ai_pre_reject';
 
 export type ReturnedItemSourceCode = 'HUMAN_REVIEW_RETURN' | 'AI_PRE_REJECT';
+
+export type ReturnedItemReworkStatus =
+  | 'RETURNED'
+  | 'REWORK_SUBMITTED'
+  | 'REVIEW_APPROVED'
+  | 'REVIEW_REVISED'
+  | 'REVIEW_ESCALATED'
+  | 'AI_PRE_REJECT';
 
 /** Labeler 打回项/AI 预打回列表项 */
 export interface LabelerReturnedItem {
@@ -166,6 +174,8 @@ export interface LabelerReturnedItem {
   updatedAt: string;
   reviewerName: string;
   reviewRoundNo?: number | null;
+  reviewStageNo?: number | null;
+  reviewStageLabel?: string;
   humanReason: string;
   aiDecision: string;
   aiComment: string;
@@ -177,6 +187,13 @@ export interface LabelerReturnedItem {
   expiredReason: string;
   actionable: boolean;
   actionText: string;
+  reworkStatus: ReturnedItemReworkStatus;
+  reworkStatusLabel: string;
+  reviewDecision: string;
+  reviewResultLabel: string;
+  reviewResultReason: string;
+  reviewedAt: string;
+  reworkSubmittedAt: string;
 }
 
 /** 提交答卷请求体 */

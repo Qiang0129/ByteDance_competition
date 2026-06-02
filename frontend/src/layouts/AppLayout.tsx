@@ -110,7 +110,6 @@ const ownerMenuItems: MenuProps['items'] = [
     label: '审核与质检',
     children: [
       { key: '/owner/ai-review', icon: <AiAssistantIcon />, label: 'AI 预审规则' },
-      { key: '/owner/settings/model', icon: <ApiOutlined />, label: '模型配置' },
       { key: '/owner/review', icon: <AuditOutlined />, label: '人工审核' },
     ],
   },
@@ -213,7 +212,6 @@ function resolveSelectedKey(section: RoleSection, pathname: string): string {
       '/owner/templates',
       '/owner/datasets',
       '/owner/ai-review',
-      '/owner/settings/model',
       '/owner/review',
       '/owner/dashboard',
       '/owner/export',
@@ -401,9 +399,9 @@ export default function AppLayout() {
 
     if (key === 'profile') {
       if (section === 'ai_reviewer') {
-        navigate('/ai-reviewer/settings/model');
+        navigate('/ai-reviewer/settings/model', { state: { from: location.pathname } });
       } else if (section === 'owner') {
-        navigate('/owner/settings/model');
+        navigate('/owner/settings/model', { state: { from: location.pathname } });
       } else {
         message.info('个人资料将在后续用户中心阶段开放。');
       }

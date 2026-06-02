@@ -768,7 +768,7 @@ public class ReviewService {
         timeline.add(new ReviewTimelineStageResponse(
             event.revisionNo(),
             "ai_review",
-            "第 " + event.revisionNo() + " 轮 AI预审",
+            "AI预审（Revision " + event.revisionNo() + "）",
             aiResult == null ? "pending" : "completed",
             "AI Agent",
             aiResult == null ? null : aiResult.decision(),
@@ -783,14 +783,14 @@ public class ReviewService {
         timeline.add(new ReviewTimelineStageResponse(
             event.revisionNo(),
             "human_review",
-            "第 " + event.revisionNo() + " 轮人工复审",
+            resolveReviewStageLabel(event.revisionNo()),
             humanDecision == null ? "pending" : "completed",
             event.humanReviewerName() == null || event.humanReviewerName().isBlank()
                 ? "Reviewer"
                 : event.humanReviewerName(),
             humanDecision,
             null,
-            humanDecision == null ? "等待 Reviewer 人工复审" : null,
+            humanDecision == null ? "等待 Reviewer 人工审核" : null,
             event.humanReason(),
             formatDateTime(event.humanReviewedAt())));
       }
@@ -799,9 +799,9 @@ public class ReviewService {
 
     AiReviewResultResponse aiResult = toAiResult(record);
     ReviewTimelineStageResponse aiStage = new ReviewTimelineStageResponse(
-        1,
+        record.revisionNo(),
         "ai_review",
-        "第一轮审核（AI预审）",
+        "AI预审（Revision " + record.revisionNo() + "）",
         aiResult == null ? "pending" : "completed",
         "AI Agent",
         aiResult == null ? null : aiResult.decision(),
@@ -814,19 +814,29 @@ public class ReviewService {
         ? null
         : record.humanDecision().toUpperCase(Locale.ROOT);
     ReviewTimelineStageResponse humanStage = new ReviewTimelineStageResponse(
-        2,
+        record.revisionNo(),
         "human_review",
-        "第二轮审核（人工复审）",
+        resolveReviewStageLabel(record.revisionNo()),
         humanDecision == null ? "pending" : "completed",
         record.humanReviewerName() == null || record.humanReviewerName().isBlank()
             ? "Reviewer"
             : record.humanReviewerName(),
         humanDecision,
         null,
-        humanDecision == null ? "等待 Reviewer 人工复审" : null,
+        humanDecision == null ? "等待 Reviewer 人工审核" : null,
         record.humanReason(),
         formatDateTime(record.humanReviewedAt()));
     return List.of(aiStage, humanStage);
+  }
+
+  private String resolveReviewStageLabel(int revisionNo) {
+    if (revisionNo <= 1) {
+      return "初审";
+    }
+    if (revisionNo == 2) {
+      return "复审";
+    }
+    return "终审";
   }
 
   private AiReviewResultResponse toAiResult(ReviewRepository.ReviewTimelineEventRecord record) {

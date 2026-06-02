@@ -70,7 +70,7 @@ export interface AnnotationToReview {
   revisionNo: number;
   /** 是否被标为争议样本 */
   isDispute?: boolean;
-  /** 审核阶段时间线:按 assignment 聚合的多轮 AI 预审与人工复审 */
+  /** 审核阶段时间线:按 assignment 聚合的多轮 AI 预审与人工审核 */
   reviewTimeline?: ReviewTimelineStage[];
   /** 已完成视图回填:最后一轮人工裁决理由 */
   humanReason?: string;

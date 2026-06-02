@@ -5,7 +5,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { App, Button, Form, Input, Select } from 'antd';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { authApi, clearStoredAuthUser, getStoredAuthUser } from '../api/auth';
 import { clearAuthToken, getAuthToken } from '../api/client';
@@ -40,14 +40,35 @@ const demoAccounts: Array<{
   { source: 'ai_reviewer', role: 'ai_reviewer', label: 'AI 审核员', username: 'ai_reviewer', password: 'ai_reviewer123' },
 ];
 
+const SIGNUP_HASH = '#signup';
+const LOGIN_HASH = '#login';
+
+function resolveModeFromHash(hash: string): AuthMode {
+  return hash === SIGNUP_HASH ? 'signup' : 'login';
+}
+
+function replaceAuthHash(mode: AuthMode) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const hash = mode === 'signup' ? SIGNUP_HASH : LOGIN_HASH;
+  const nextUrl = `${window.location.pathname}${window.location.search}${hash}`;
+  window.history.replaceState(window.history.state, '', nextUrl);
+}
+
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { message } = App.useApp();
   // 登录/注册模式:仅控制翻转动画与左侧标题文案
-  const [mode, setMode] = useState<AuthMode>('login');
+  const [mode, setMode] = useState<AuthMode>(() => resolveModeFromHash(window.location.hash));
   // 登录成功后的离场动画状态:开启后页面淡出,过渡结束再跳转
   const [leaving, setLeaving] = useState(false);
   const [signingIn, setSigningIn] = useState<LoginSource | null>(null);
+
+  useEffect(() => {
+    setMode(resolveModeFromHash(location.hash));
+  }, [location.hash]);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +121,7 @@ export default function Login() {
   const handleSignupFinish = async (values: SignupFormValues) => {
     try {
       await authApi.register({ ...values, role: 'labeler' });
+      replaceAuthHash('login');
       message.success('账号创建成功，请登录');
       setMode('login');
     } catch (error) {
@@ -247,6 +269,7 @@ export default function Login() {
                   href="#signup"
                   onClick={(event) => {
                     event.preventDefault();
+                    replaceAuthHash('signup');
                     setMode('signup');
                   }}
                 >
@@ -311,6 +334,7 @@ export default function Login() {
                   href="#login"
                   onClick={(event) => {
                     event.preventDefault();
+                    replaceAuthHash('login');
                     setMode('login');
                   }}
                 >

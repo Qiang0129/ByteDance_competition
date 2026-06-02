@@ -9,7 +9,6 @@ import {
   EyeOutlined,
   FileTextOutlined,
   ReloadOutlined,
-  SearchOutlined,
 } from '@ant-design/icons';
 import {
   Alert,
@@ -171,7 +170,6 @@ export default function OwnerExport() {
   const [overview, setOverview] = useState<ExportOverview>(emptyOverview);
   const [tasks, setTasks] = useState<OwnerTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [keyword, setKeyword] = useState('');
   const [taskFilter, setTaskFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<ExportJobStatus | 'all'>('all');
   const [createOpen, setCreateOpen] = useState(false);
@@ -205,28 +203,12 @@ export default function OwnerExport() {
   }, [load]);
 
   const visibleJobs = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
     return jobs.filter((job) => {
       if (taskFilter !== 'all' && job.taskId !== taskFilter) return false;
       if (statusFilter !== 'all' && job.status !== statusFilter) return false;
-
-      if (!kw) return true;
-      const taskTitle = job.taskTitle ?? taskTitleMap.get(job.taskId) ?? '';
-      const searchable = [
-        job.exportId,
-        job.taskId,
-        taskTitle,
-        job.format,
-        job.status,
-        job.createdBy,
-        job.errorSummary,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return searchable.includes(kw);
+      return true;
     });
-  }, [jobs, keyword, statusFilter, taskFilter, taskTitleMap]);
+  }, [jobs, statusFilter, taskFilter]);
 
   const successRate =
     overview.totalJobs > 0 ? Math.round((overview.succeededJobs / overview.totalJobs) * 100) : null;
@@ -468,14 +450,6 @@ export default function OwnerExport() {
               { label: '已创建/已下载', value: 'succeeded' },
               { label: '失败', value: 'failed' },
             ]}
-          />
-          <Input
-            allowClear
-            prefix={<SearchOutlined />}
-            placeholder="搜索任务名 / 导出 ID"
-            style={{ width: 240 }}
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
           />
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>
             刷新

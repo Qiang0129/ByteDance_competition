@@ -28,7 +28,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
@@ -88,7 +88,6 @@ function saveSplitPercent(percent: number) {
 export default function AnswerPage() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
   const { message } = AntdApp.useApp();
 
   const [item, setItem] = useState<AssignmentItem | null>(null);
@@ -159,12 +158,8 @@ export default function AnswerPage() {
   const currentInvalidItem = item
     ? batchInvalidItems.find((invalidItem) => invalidItem.index === item.position.index)
     : undefined;
-  const routeState = location.state as { entry?: unknown; assignmentId?: unknown } | null;
   const isReturnedAssignment = item?.status === 'returned' && !!item.resubmitDeadline;
-  const showReworkSubmit =
-    isReturnedAssignment &&
-    routeState?.entry === 'returned-rework' &&
-    routeState.assignmentId === item?.assignmentId;
+  const showReworkSubmit = isReturnedAssignment && canEdit;
   const rawAnswerFallback = useMemo(() => {
     const submittedAnswer = item?.latestAnnotation?.answerJson;
     if (!item || !submittedAnswer || typeof submittedAnswer !== 'object') {
@@ -467,7 +462,7 @@ export default function AnswerPage() {
           answerJson: filterVisibleAnswer(renderFields, answer),
         });
         setBatchInvalidItems([]);
-        message.success('返修已提交,等待 AI 预审与人工复审');
+        message.success('返修已提交,等待 AI 预审与人工审核');
         navigate('/labeler/returned');
         return;
       }
@@ -777,12 +772,10 @@ export default function AnswerPage() {
         <Alert
           type={canEdit ? 'info' : 'warning'}
           showIcon
-          message={canEdit ? '人工复审打回返修中' : '返修已锁定'}
+          message={canEdit ? '人工审核打回返修中' : '返修已锁定'}
           description={
             canEdit
-              ? showReworkSubmit
-                ? `请在 ${item.resubmitDeadline} 前完成修改并重新提交。`
-                : `该题处于人工复审返修窗口内,请从“打回项”点击“立即修改”进入后提交返修。`
+              ? `请在 ${item.resubmitDeadline} 前完成修改并重新提交。`
               : lockReasonText(item.lockReason)
           }
         />

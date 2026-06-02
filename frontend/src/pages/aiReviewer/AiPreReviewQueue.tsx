@@ -14,6 +14,7 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
   Empty,
   Input,
   Progress,
@@ -41,7 +42,7 @@ import type {
  *
  * 对齐《项目实施计划书》4.4:
  *   - 左栏:待审 Job 列表(按状态分组 Tab + 搜索 + 统计)
- *   - 中栏:选中 Job 的提交内容(answerJson)+ AI 维度评分可视化
+ *   - 中栏:选中 Job 的 AI 审核依据(evidence)+ AI 维度评分可视化
  *   - 右栏:AI 评语 + Prompt 模板 + 处理日志/审计时间线
  *
  * 数据来源:
@@ -53,6 +54,7 @@ import type {
 const { Text, Title, Paragraph } = Typography;
 
 type StatusFilter = AiReviewJobStatus | 'all';
+type EvidenceKind = 'relevance' | 'accuracy' | 'format' | 'safety' | 'evidence';
 
 const statusMeta: Record<AiReviewJobStatus, { label: string; color: string }> = {
   pending: { label: '待审核', color: 'default' },
@@ -65,6 +67,14 @@ const decisionMeta: Record<AiDecision, { label: string; color: string }> = {
   PASS: { label: '建议通过', color: '#16a34a' },
   NEED_HUMAN_REVIEW: { label: '转人工', color: '#f59e0b' },
   REJECT: { label: '建议打回', color: '#dc2626' },
+};
+
+const evidenceKindMeta: Record<EvidenceKind, { label: string; color: string }> = {
+  relevance: { label: '相关性', color: 'blue' },
+  accuracy: { label: '准确性', color: 'red' },
+  format: { label: '格式合规', color: 'orange' },
+  safety: { label: '安全', color: 'green' },
+  evidence: { label: '依据', color: 'default' },
 };
 
 export default function AiPreReviewQueue() {
@@ -455,14 +465,10 @@ function JobDetailPanel({
         </div>
 
         <Row gutter={16} style={{ marginTop: 16 }}>
-          {/* 中栏:提交内容 + 维度评分 */}
+          {/* 中栏:AI 审核依据 + 维度评分 */}
           <Col xs={24} lg={12}>
-            <Card size="small" title="提交内容" bordered={false} className="ai-queue-card">
-              <pre className="ai-queue-json">
-                {result
-                  ? JSON.stringify(result.evidence?.length ? { evidence: result.evidence } : { annotationId: job.annotationId }, null, 2)
-                  : `{ "annotationId": "${job.annotationId}" }`}
-              </pre>
+            <Card size="small" title="AI 审核依据" bordered={false} className="ai-queue-card">
+              <EvidencePanel result={result} />
             </Card>
 
             {result && (
@@ -588,6 +594,89 @@ function JobDetailPanel({
 }
 
 /* ============ 工具函数 ============ */
+
+function EvidencePanel({ result }: { result: AiReviewResult | null }) {
+  const evidenceItems = normalizeEvidence(result?.evidence);
+  const rawJson = JSON.stringify({ evidence: result?.evidence ?? [] }, null, 2);
+
+  if (!result) {
+    return (
+      <div className="ai-queue-evidence-empty">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="AI 结果未生成" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="ai-queue-evidence">
+      {evidenceItems.length > 0 ? (
+        <div className="ai-queue-evidence-list">
+          {evidenceItems.map((item, index) => {
+            const kind = classifyEvidence(item);
+            const meta = evidenceKindMeta[kind];
+            return (
+              <div key={`${index}-${item}`} className={`ai-queue-evidence-item is-${kind}`}>
+                <span className="ai-queue-evidence-index">{index + 1}</span>
+                <div className="ai-queue-evidence-main">
+                  <div className="ai-queue-evidence-meta">
+                    <Tag color={meta.color} className={`ai-queue-evidence-tag is-${kind}`}>
+                      {meta.label}
+                    </Tag>
+                  </div>
+                  <div className="ai-queue-evidence-text">{item}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="ai-queue-evidence-empty">
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 AI 审核依据" />
+        </div>
+      )}
+
+      <Collapse
+        ghost
+        size="small"
+        className="ai-queue-evidence-raw"
+        items={[
+          {
+            key: 'raw-evidence',
+            label: '查看原始 evidence JSON',
+            children: (
+              <pre className="ai-queue-json ai-queue-evidence-json">
+                {rawJson}
+              </pre>
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+function normalizeEvidence(evidence?: string[]): string[] {
+  return (evidence ?? [])
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function classifyEvidence(text: string): EvidenceKind {
+  const normalized = text.toLowerCase();
+  if (/(安全|敏感|风险|违规|禁用|safety|risk|unsafe|violation)/i.test(normalized)) {
+    return 'safety';
+  }
+  if (/(格式|字段|模板|结构|schema|format|field|required)/i.test(normalized)) {
+    return 'format';
+  }
+  if (/(准确|正确|错误|不一致|事实|accuracy|correct|wrong|incorrect)/i.test(normalized)) {
+    return 'accuracy';
+  }
+  if (/(相关|匹配|对齐|无关|relevance|relevant|align|match)/i.test(normalized)) {
+    return 'relevance';
+  }
+  return 'evidence';
+}
 
 function scoreColor(score: number): string {
   if (score >= 80) return '#16a34a';

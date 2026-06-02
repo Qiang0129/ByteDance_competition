@@ -256,7 +256,7 @@ export default function ReviewerAiWorkbench() {
       content: (
         <Input.TextArea
           rows={4}
-          placeholder="请输入统一打回原因,将写入每条人工复审记录"
+          placeholder="请输入统一打回原因,将写入每条人工审核记录"
           onChange={(event) => {
             reason = event.target.value;
           }}
@@ -540,7 +540,8 @@ function AnnotationListItem({
   const ai = item.aiResult;
   const meta = ai ? decisionMeta[ai.decision] : null;
   const primaryTitle = pickTitle(item);
-  const roundTagColor = item.revisionNo > 1 ? 'orange' : 'default';
+  const stageLabel = reviewStageLabel(item.revisionNo);
+  const stageColor = reviewStageColor(item.revisionNo);
   /** 已完成视图额外展示最终人工裁决 Tag,与 AI 决策并列 */
   const humanMeta = humanDecisionMeta(item.decision);
 
@@ -562,7 +563,7 @@ function AnnotationListItem({
         <div className="ai-wb-item-title">{primaryTitle}</div>
         <div className="ai-wb-item-tags">
           {ai && <Tag className="ai-wb-item-score">AI {ai.total_score}</Tag>}
-          <Tag color={roundTagColor} className="ai-wb-item-round">第 {item.revisionNo} 轮</Tag>
+          <Tag color={stageColor} className="ai-wb-item-round">{stageLabel}</Tag>
           {meta && <Tag color={meta.color} className="ai-wb-item-decision">{meta.label}</Tag>}
           {readOnly && humanMeta && (
             <Tag color={humanMeta.color} className="ai-wb-item-human-decision">
@@ -602,6 +603,8 @@ function AnnotationDetail({
   const title = pickTitle(item);
   const itemIndex = displayItemIndex(item);
   const humanMeta = humanDecisionMeta(item.decision);
+  const stageLabel = reviewStageLabel(item.revisionNo);
+  const stageColor = reviewStageColor(item.revisionNo);
 
   return (
     <>
@@ -614,12 +617,12 @@ function AnnotationDetail({
           </div>
           <div className="ai-wb-detail-sub">
             任务 {item.taskTitle || item.taskId || '-'} · Item {item.itemId} · 模板 {item.schemaVersionId}
-            {item.revisionNo > 1 ? ` · 第 ${item.revisionNo} 轮审核(上一轮标注员修改后重审)` : ''}
+            {item.revisionNo > 1 ? ` · Revision ${item.revisionNo}(上一版打回后重提)` : ''}
           </div>
         </div>
         <div className="ai-wb-detail-badges">
-          {item.revisionNo > 1 && <Tag color="orange">第 {item.revisionNo} 轮</Tag>}
-          <Tag color="processing">{item.revisionNo > 1 ? '复审中' : '待审'}</Tag>
+          <Tag color={stageColor}>{stageLabel}</Tag>
+          <Tag color="processing">{stageLabel}中</Tag>
         </div>
       </div>
 
@@ -628,7 +631,7 @@ function AnnotationDetail({
         <div className="ai-wb-compare">
           <div className="ai-wb-compare-col">
             <div className="ai-wb-compare-title is-prev">
-              第 {item.revisionNo - 1} 轮提交(已打回)
+              Revision {item.revisionNo - 1} 提交(已打回)
             </div>
             <div className="ai-wb-answer-fields">
               {Object.entries(prev!).map(([key, value]) => (
@@ -641,7 +644,7 @@ function AnnotationDetail({
           </div>
           <div className="ai-wb-compare-col">
             <div className="ai-wb-compare-title is-curr">
-              第 {item.revisionNo} 轮提交(本轮 · 修改后)
+              Revision {item.revisionNo} 提交(本版 · 修改后)
             </div>
             <div className="ai-wb-answer-fields">
               {answerEntries.map(([key, value]) => {
@@ -766,7 +769,7 @@ function AnnotationDetail({
             </button>
             <button type="button" className="ai-wb-action is-approve" onClick={onApprove} disabled={committing}>
               <span className="ai-wb-action-main">✓ 通过 · 入库</span>
-              <span className="ai-wb-action-sub">本条进入终审 / 可导出</span>
+              <span className="ai-wb-action-sub">通过后可导出</span>
             </button>
           </div>
         </>
@@ -795,8 +798,8 @@ function ReviewTimeline({ item }: { item: AnnotationToReview }) {
             stage.stage === 'ai_review'
               ? `${stage.decision ?? '等待预审'}${stage.score == null ? '' : ` · ${stage.score} 分`}${stage.comment ? ` · ${stage.comment}` : ''}`
               : stage.status === 'completed'
-                ? `${stage.decision ?? '已复审'}${stage.reason ? ` · ${stage.reason}` : ''}`
-                : (stage.comment ?? '等待 Reviewer 人工复审');
+                ? `${stage.decision ?? '已审核'}${stage.reason ? ` · ${stage.reason}` : ''}`
+                : (stage.comment ?? `等待 Reviewer ${stage.title || '人工审核'}`);
           return (
             <li key={`${stage.stage}-${stage.roundNo}-${stage.occurredAt ?? stage.status}`} className="ai-wb-timeline-item">
               <span className="ai-wb-timeline-dot" style={{ background: color }} />
@@ -854,7 +857,7 @@ function ReviewTimeline({ item }: { item: AnnotationToReview }) {
               <CheckCircleFilled /> 待裁决
             </span>
           </div>
-          <div className="ai-wb-timeline-text">本次裁决结果将写入终审</div>
+          <div className="ai-wb-timeline-text">本次裁决结果将写入{reviewStageLabel(item.revisionNo)}记录</div>
         </div>
       </li>
     </ul>
@@ -864,6 +867,26 @@ function ReviewTimeline({ item }: { item: AnnotationToReview }) {
 /* ============ 工具函数 ============ */
 function pickTitle(item: AnnotationToReview): string {
   return item.taskTitle || item.taskId || '标注任务';
+}
+
+function reviewStageLabel(revisionNo: number): string {
+  if (revisionNo <= 1) {
+    return '初审';
+  }
+  if (revisionNo === 2) {
+    return '复审';
+  }
+  return '终审';
+}
+
+function reviewStageColor(revisionNo: number): string {
+  if (revisionNo <= 1) {
+    return 'default';
+  }
+  if (revisionNo === 2) {
+    return 'orange';
+  }
+  return 'purple';
 }
 
 function displayItemIndex(item: AnnotationToReview): number | string {

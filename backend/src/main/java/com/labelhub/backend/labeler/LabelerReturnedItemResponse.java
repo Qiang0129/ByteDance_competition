@@ -18,6 +18,8 @@ public record LabelerReturnedItemResponse(
     String updatedAt,
     String reviewerName,
     Integer reviewRoundNo,
+    Integer reviewStageNo,
+    String reviewStageLabel,
     String humanReason,
     String aiDecision,
     String aiComment,
@@ -28,4 +30,11 @@ public record LabelerReturnedItemResponse(
     boolean editable,
     String expiredReason,
     boolean actionable,
-    String actionText) {}
+    String actionText,
+    String reworkStatus,
+    String reworkStatusLabel,
+    String reviewDecision,
+    String reviewResultLabel,
+    String reviewResultReason,
+    String reviewedAt,
+    String reworkSubmittedAt) {}

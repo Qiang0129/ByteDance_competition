@@ -19,7 +19,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { getApiErrorMessage } from '../../api/client';
+import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
 import type { LabelerReturnedItem, ReturnedItemSource } from '../../types/labeler';
 
@@ -27,7 +27,9 @@ const PAGE_SIZE = 20;
 
 const sourceOptions: Array<{ label: string; value: ReturnedItemSource }> = [
   { label: '全部', value: 'all' },
-  { label: '人工复审打回', value: 'human_return' },
+  { label: '待修改', value: 'human_return' },
+  { label: '已修改', value: 'reworked' },
+  { label: '已审核', value: 'reviewed' },
   { label: 'AI预打回', value: 'ai_pre_reject' },
 ];
 
@@ -54,6 +56,10 @@ export default function ReturnedItems() {
     } catch (requestError) {
       setItems([]);
       setTotal(0);
+      if (requestError instanceof ApiError && requestError.code === 'INVALID_RETURNED_ITEM_SOURCE') {
+        setError('');
+        return;
+      }
       setError(getApiErrorMessage(requestError, '打回项接口暂不可用'));
     } finally {
       setLoading(false);
@@ -69,13 +75,22 @@ export default function ReturnedItems() {
     setPage(1);
   };
 
+  const openReturnedItem = (item: LabelerReturnedItem) => {
+    navigate(`/labeler/answer/${item.assignmentId}`, {
+      state: {
+        entry: item.reworkStatus === 'RETURNED' ? 'returned-rework' : 'returned-result',
+        assignmentId: item.assignmentId,
+      },
+    });
+  };
+
   return (
     <Space direction="vertical" size="large" className="page-stack">
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
           <Typography.Title level={3}>打回项</Typography.Title>
           <Typography.Text type="secondary">
-            人工复审打回是正式返修,可修改并重提;AI预打回只是预审建议,需等待人工复审裁决。
+            跟踪人工审核打回、返修重提和最终审核结果；AI预打回仍需等待人工审核裁决。
           </Typography.Text>
         </Space>
         <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void loadItems()}>
@@ -87,13 +102,14 @@ export default function ReturnedItems() {
         type="warning"
         showIcon
         icon={<ExclamationCircleOutlined />}
-        message="人工复审打回才会开放修改并重提;AI预打回不代表已正式退回,请等待 Reviewer 人工复审。"
+        message="人工审核打回才会开放修改并重提；已修改和已审核记录会继续保留，便于追踪返修闭环。"
       />
 
       <Card>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Space size={12} wrap>
+          <Space size={12} wrap className="returned-filter-row">
             <Segmented
+              className="returned-source-segmented"
               options={sourceOptions}
               value={source}
               onChange={(value) => handleSourceChange(value as ReturnedItemSource)}
@@ -129,7 +145,7 @@ export default function ReturnedItems() {
                 onChange: setPage,
               } : false}
               locale={{
-                emptyText: <Empty description="暂无打回项或 AI 预打回记录。" />,
+                emptyText: <Empty description={resolveEmptyDescription(source)} />,
               }}
               renderItem={(item) => (
                 <List.Item
@@ -138,12 +154,7 @@ export default function ReturnedItems() {
                       key="action"
                       type={item.actionable ? 'link' : 'default'}
                       disabled={!item.actionable}
-                      onClick={() => navigate(`/labeler/answer/${item.assignmentId}`, {
-                        state: {
-                          entry: 'returned-rework',
-                          assignmentId: item.assignmentId,
-                        },
-                      })}
+                      onClick={() => openReturnedItem(item)}
                     >
                       {item.actionText}
                     </Button>,
@@ -171,6 +182,9 @@ function ReturnedItemTitle({ item }: { item: LabelerReturnedItem }) {
       <Tag color={isHumanReturn ? 'red' : 'orange'} icon={isHumanReturn ? <UserOutlined /> : <RobotOutlined />}>
         {item.sourceLabel}
       </Tag>
+      <Tag color={resolveReworkStatusColor(item.reworkStatus)}>
+        {item.reworkStatusLabel || item.sourceLabel}
+      </Tag>
       <Tag color="blue">{item.taskType || 'Annotation Task'}</Tag>
       <Tag color="default">Revision {item.revisionNo}</Tag>
     </Space>
@@ -193,23 +207,58 @@ function ReturnedItemDescription({ item }: { item: LabelerReturnedItem }) {
 }
 
 function HumanReturnDetail({ item }: { item: LabelerReturnedItem }) {
+  const returned = item.reworkStatus === 'RETURNED';
+  const reworked = item.reworkStatus === 'REWORK_SUBMITTED';
+  const reviewed = isReviewedStatus(item.reworkStatus);
+  const showAgainReturned = returned && item.reviewResultLabel === '再次打回';
+  const stageLabel = resolveReviewStageLabel(item);
   return (
     <Space direction="vertical" size={4}>
       <Space size={[8, 4]} wrap>
         <Typography.Text>
           Reviewer:{item.reviewerName || '未记录'}
         </Typography.Text>
-        {item.reviewRoundNo ? (
-          <Tag color="red">第 {item.reviewRoundNo} 轮人工复审</Tag>
+        {stageLabel ? (
+          <Tag color="red">{stageLabel}</Tag>
+        ) : null}
+        {reviewed && item.reviewResultLabel ? (
+          <Tag color={resolveReviewResultColor(item.reviewDecision)}>
+            {item.reviewResultLabel}
+          </Tag>
+        ) : null}
+        {showAgainReturned ? (
+          <Tag color="red">{stageLabel || '人工审核'}结果:{item.reviewResultLabel}</Tag>
         ) : null}
       </Space>
       <Typography.Text type="secondary">
-        人工复审打回原因:{item.humanReason || '未填写原因'}
+        {returned ? '打回原因' : '原打回原因'}:{item.humanReason || '未填写原因'}
       </Typography.Text>
-      {item.resubmitDeadline ? (
+      {reworked ? (
+        <Typography.Text type="secondary">
+          已修改并重新提交，等待 Reviewer 人工审核。
+          {item.reworkSubmittedAt ? ` 重提时间:${item.reworkSubmittedAt}` : ''}
+        </Typography.Text>
+      ) : null}
+      {reviewed ? (
+        <>
+          <Typography.Text type="secondary">
+            {stageLabel || '人工审核'}结果:{item.reviewResultLabel || '已审核'}
+            {item.reviewedAt ? `，${stageLabel || '人工审核'}时间:${item.reviewedAt}` : ''}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {stageLabel || '人工审核'}意见:{item.reviewResultReason || '未填写意见'}
+          </Typography.Text>
+        </>
+      ) : null}
+      {returned && item.resubmitDeadline ? (
         <Typography.Text type={item.editable ? 'secondary' : 'danger'}>
           返修截止:{item.resubmitDeadline}
           {!item.editable && item.expiredReason === 'RETURN_REWORK_EXPIRED' ? '，已过期' : ''}
+        </Typography.Text>
+      ) : null}
+      {returned && item.reworkSubmittedAt ? (
+        <Typography.Text type="secondary">
+          上次重提时间:{item.reworkSubmittedAt}
         </Typography.Text>
       ) : null}
       {item.aiDecision ? (
@@ -229,7 +278,7 @@ function AiPreRejectDetail({ item }: { item: LabelerReturnedItem }) {
         {typeof item.aiTotalScore === 'number' ? (
           <Tag color="gold">评分 {formatScore(item.aiTotalScore)}</Tag>
         ) : null}
-        <Tag color="default">待人工复审</Tag>
+        <Tag color="default">待人工审核</Tag>
       </Space>
       <Typography.Text type="secondary">
         AI 评语:{item.aiComment || '暂无评语'}
@@ -253,4 +302,64 @@ function AiPreRejectDetail({ item }: { item: LabelerReturnedItem }) {
 
 function formatScore(score: number) {
   return Number.isInteger(score) ? score.toString() : score.toFixed(2);
+}
+
+function resolveEmptyDescription(source: ReturnedItemSource) {
+  if (source === 'reworked' || source === 'reviewed') {
+    return '暂无记录；如果刚升级前端，请重启后端以启用该筛选。';
+  }
+  return '暂无打回项或 AI 预打回记录。';
+}
+
+function isReviewedStatus(status?: string) {
+  return status === 'REVIEW_APPROVED' || status === 'REVIEW_REVISED' || status === 'REVIEW_ESCALATED';
+}
+
+function resolveReviewStageLabel(item: LabelerReturnedItem) {
+  if (item.reviewStageLabel) {
+    return item.reviewStageLabel;
+  }
+  const stageNo = item.reviewStageNo ?? item.revisionNo;
+  if (!stageNo || stageNo < 1) {
+    return '';
+  }
+  if (stageNo === 1) {
+    return '初审';
+  }
+  if (stageNo === 2) {
+    return '复审';
+  }
+  return '终审';
+}
+
+function resolveReworkStatusColor(status?: string) {
+  switch (status) {
+    case 'RETURNED':
+      return 'red';
+    case 'REWORK_SUBMITTED':
+      return 'blue';
+    case 'REVIEW_APPROVED':
+    case 'REVIEW_REVISED':
+      return 'green';
+    case 'REVIEW_ESCALATED':
+      return 'purple';
+    case 'AI_PRE_REJECT':
+      return 'orange';
+    default:
+      return 'default';
+  }
+}
+
+function resolveReviewResultColor(decision?: string) {
+  const normalized = decision?.trim().toLowerCase();
+  if (normalized === 'approve' || normalized === 'approved' || normalized === 'revise' || normalized === 'revised') {
+    return 'green';
+  }
+  if (normalized === 'escalate') {
+    return 'purple';
+  }
+  if (normalized === 'return' || normalized === 'returned' || normalized === 'reject' || normalized === 'rejected') {
+    return 'red';
+  }
+  return 'default';
 }

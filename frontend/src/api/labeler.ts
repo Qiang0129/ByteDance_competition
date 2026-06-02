@@ -125,7 +125,7 @@ export const labelerApi = {
     });
   },
 
-  /** 打回项:区分人工复审正式打回与 AI 预打回建议 */
+  /** 打回项:区分人工审核正式打回与 AI 预打回建议 */
   listReturnedItems(query?: {
     source?: ReturnedItemSource;
     page?: number;
