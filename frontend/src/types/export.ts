@@ -27,6 +27,7 @@ export interface ExportJob {
   errorSummary?: string;
   createdAt: string;
   updatedAt: string;
+  downloadedAt?: string;
   createdBy?: string;
 }
 

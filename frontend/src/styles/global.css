@@ -1637,6 +1637,25 @@ body {
   padding: 4px 8px;
 }
 
+.owner-export-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 112px;
+  max-width: 100%;
+}
+
+.owner-export-progress-bar.ant-progress {
+  flex: 1 1 0;
+  min-width: 46px;
+  margin: 0;
+  line-height: 1;
+}
+
+.owner-export-progress-bar .ant-progress-inner {
+  background-color: rgba(148, 163, 184, 0.22);
+}
+
 .owner-review-task-table-card.ant-card {
   min-height: 430px;
 }

@@ -145,26 +145,20 @@ public class ExportService {
         defaultFieldOptions(task.taskId(), rows));
   }
 
+  @Transactional
   public ResponseEntity<Resource> download(Authentication authentication, long exportId) {
     AuthenticatedUser owner = requireOwner(authentication);
     ExportRepository.ExportJobRecord job = exportRepository.findOwnerExportJob(owner.id(), exportId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EXPORT_JOB_NOT_FOUND", "export job not found"));
-    if (!"succeeded".equals(job.status()) || job.storageKey() == null || job.storageKey().isBlank()) {
-      throw new ApiException(HttpStatus.NOT_FOUND, "EXPORT_FILE_NOT_FOUND", "export file not found");
-    }
-
-    Path root = storageRoot();
-    Path file = root.resolve(job.storageKey()).normalize();
-    if (!file.startsWith(root) || !Files.isRegularFile(file)) {
-      throw new ApiException(HttpStatus.NOT_FOUND, "EXPORT_FILE_NOT_FOUND", "export file not found");
-    }
+    Path file = resolveDownloadableFile(job);
 
     String filename = blankToDefault(job.filename(), "export-" + job.id() + "." + job.format());
     Resource resource = new FileSystemResource(file);
     try {
+      long fileSize = Files.size(file);
       return ResponseEntity.ok()
           .contentType(MediaType.parseMediaType(blankToDefault(job.mimeType(), MediaType.APPLICATION_OCTET_STREAM_VALUE)))
-          .contentLength(Files.size(file))
+          .contentLength(fileSize)
           .header(
               HttpHeaders.CONTENT_DISPOSITION,
               ContentDisposition.attachment()
@@ -175,6 +169,15 @@ public class ExportService {
     } catch (IOException exception) {
       throw new ApiException(HttpStatus.NOT_FOUND, "EXPORT_FILE_NOT_FOUND", "export file not found");
     }
+  }
+
+  @Transactional
+  public ExportJobResponse confirmDownload(Authentication authentication, long exportId) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    ExportRepository.ExportJobRecord job = lockJob(owner.id(), exportId);
+    resolveDownloadableFile(job);
+    exportRepository.markDownloaded(job.id());
+    return exportRepository.findOwnerExportJob(owner.id(), job.id()).map(this::toResponse).orElseThrow();
   }
 
   @Transactional
@@ -770,6 +773,19 @@ public class ExportService {
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EXPORT_JOB_NOT_FOUND", "export job not found"));
   }
 
+  private Path resolveDownloadableFile(ExportRepository.ExportJobRecord job) {
+    if (!"succeeded".equals(job.status()) || job.storageKey() == null || job.storageKey().isBlank()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "EXPORT_FILE_NOT_FOUND", "export file not found");
+    }
+
+    Path root = storageRoot();
+    Path file = root.resolve(job.storageKey()).normalize();
+    if (!file.startsWith(root) || !Files.isRegularFile(file)) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "EXPORT_FILE_NOT_FOUND", "export file not found");
+    }
+    return file;
+  }
+
   private String normalizeFormat(String format) {
     String normalized = format == null || format.isBlank()
         ? "json"
@@ -864,6 +880,7 @@ public class ExportService {
         record.errorSummary(),
         formatDateTime(record.createdAt()),
         formatDateTime(record.updatedAt()),
+        formatDateTime(record.downloadedAt()),
         record.createdByName());
   }
 

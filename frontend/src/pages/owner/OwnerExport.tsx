@@ -61,7 +61,7 @@ const emptyOverview: ExportOverview = {
 const statusMeta: Record<ExportJobStatus, { color: string; label: string; icon?: ReactNode }> = {
   pending: { color: 'default', label: '待执行' },
   running: { color: 'processing', label: '导出中' },
-  succeeded: { color: 'success', label: '已完成', icon: <CheckCircleOutlined /> },
+  succeeded: { color: 'success', label: '已创建', icon: <CheckCircleOutlined /> },
   failed: { color: 'error', label: '失败', icon: <CloseCircleOutlined /> },
 };
 
@@ -111,6 +111,58 @@ function extractMappingColumns(mappingJson?: ExportJob['mappingJson']): ExportCo
       && typeof candidate.source === 'string'
       && typeof candidate.path === 'string';
   });
+}
+
+function isExportDownloaded(job: Pick<ExportJob, 'status' | 'downloadedAt'>) {
+  return job.status === 'succeeded' && !!job.downloadedAt;
+}
+
+function exportStatusLabel(job: ExportJob) {
+  if (job.status === 'succeeded') {
+    return isExportDownloaded(job) ? '已下载' : '已创建';
+  }
+  return statusMeta[job.status].label;
+}
+
+function exportStepOnePercent(job: ExportJob) {
+  if (job.status === 'pending') return 0;
+  if (job.status === 'running') return Math.min(Math.max(job.progress, 0), 99);
+  if (job.status === 'failed') return Math.min(Math.max(job.progress, 0), 100);
+  return 100;
+}
+
+function exportStepOneStatus(job: ExportJob) {
+  if (job.status === 'failed') return 'exception' as const;
+  if (job.status === 'running') return 'active' as const;
+  if (job.status === 'succeeded') return 'success' as const;
+  return 'normal' as const;
+}
+
+function exportStepTwoStatus(job: ExportJob) {
+  return isExportDownloaded(job) ? ('success' as const) : ('normal' as const);
+}
+
+function ExportStepProgress({ job }: { job: ExportJob }) {
+  return (
+    <div className="owner-export-progress" aria-label="导出进度">
+      <Progress
+        percent={exportStepOnePercent(job)}
+        size="small"
+        showInfo={false}
+        strokeWidth={4}
+        status={exportStepOneStatus(job)}
+        className="owner-export-progress-bar"
+      />
+      <Progress
+        percent={isExportDownloaded(job) ? 100 : 0}
+        size="small"
+        showInfo={false}
+        strokeWidth={4}
+        status={exportStepTwoStatus(job)}
+        className="owner-export-progress-bar"
+      />
+    </div>
+  );
 }
 
 export default function OwnerExport() {
@@ -183,16 +235,36 @@ export default function OwnerExport() {
     return job.taskTitle ?? taskTitleMap.get(job.taskId) ?? `任务 ${job.taskId}`;
   }
 
+  function updateExportJob(updated: ExportJob) {
+    setJobs((current) =>
+      current.map((job) => (job.exportId === updated.exportId ? updated : job)),
+    );
+    setDetailJob((current) =>
+      current && current.exportId === updated.exportId ? updated : current,
+    );
+  }
+
   async function handleDownload(job: ExportJob) {
     if (job.status !== 'succeeded') {
-      message.warning('只有已完成的导出可以下载');
+      message.warning('只有已创建或已下载的导出可以下载');
       return;
     }
 
     setDownloadingId(job.exportId);
     try {
-      await exportApi.downloadExport(job.exportId, buildDownloadName(job, resolveTaskTitle(job)));
-      message.success('下载已开始');
+      const currentStateLabel = isExportDownloaded(job) ? '已下载' : '已创建';
+      const result = await exportApi.downloadExport(
+        job.exportId,
+        buildDownloadName(job, resolveTaskTitle(job)),
+      );
+      if (result.kind === 'confirmed') {
+        updateExportJob(result.job);
+        message.success('文件已保存，状态已更新为已下载');
+      } else if (result.kind === 'cancelled') {
+        message.info(`已取消保存，状态保持${currentStateLabel}`);
+      } else {
+        message.info(`下载已触发，当前浏览器无法确认保存完成，状态保持${currentStateLabel}`);
+      }
     } catch (error) {
       message.error(getApiErrorMessage(error, '下载导出文件失败'));
     } finally {
@@ -234,11 +306,11 @@ export default function OwnerExport() {
       title: '状态',
       dataIndex: 'status',
       width: 120,
-      render: (value: ExportJobStatus) => {
+      render: (value: ExportJobStatus, record) => {
         const meta = statusMeta[value];
         return (
           <Tag color={meta.color} icon={meta.icon}>
-            {meta.label}
+            {exportStatusLabel(record)}
           </Tag>
         );
       },
@@ -246,20 +318,8 @@ export default function OwnerExport() {
     {
       title: '进度',
       dataIndex: 'progress',
-      width: 130,
-      render: (value: number, record) => (
-        <Progress
-          percent={record.status === 'succeeded' ? 100 : value}
-          size="small"
-          status={
-            record.status === 'succeeded'
-              ? 'success'
-              : record.status === 'failed'
-                ? 'exception'
-                : 'active'
-          }
-        />
-      ),
+      width: 150,
+      render: (_, record) => <ExportStepProgress job={record} />,
     },
     {
       title: '条目 / 大小',
@@ -350,7 +410,7 @@ export default function OwnerExport() {
             </div>
             <div className="owner-stat-value">{successRate == null ? '-' : `${successRate}%`}</div>
             <Tag color="success" className="owner-stat-trend">
-              已完成导出占比
+              创建成功导出占比
             </Tag>
           </Card>
         </Col>
@@ -405,7 +465,7 @@ export default function OwnerExport() {
               { label: '全部', value: 'all' },
               { label: '待执行', value: 'pending' },
               { label: '导出中', value: 'running' },
-              { label: '已完成', value: 'succeeded' },
+              { label: '已创建/已下载', value: 'succeeded' },
               { label: '失败', value: 'failed' },
             ]}
           />
@@ -429,7 +489,7 @@ export default function OwnerExport() {
           columns={columns}
           dataSource={visibleJobs}
           locale={{ emptyText: <Empty description="暂无导出记录" /> }}
-          scroll={{ x: 1120 }}
+          scroll={{ x: 1160 }}
           pagination={{
             defaultPageSize: 10,
             showSizeChanger: true,
@@ -734,7 +794,7 @@ function ExportDetailDrawer({
         <Space>
           <ExportOutlined />
           <span>导出详情</span>
-          <Tag color={meta.color}>{meta.label}</Tag>
+          <Tag color={meta.color}>{exportStatusLabel(job)}</Tag>
         </Space>
       }
       open={!!job}
@@ -772,21 +832,11 @@ function ExportDetailDrawer({
           </Descriptions.Item>
           <Descriptions.Item label="状态">
             <Tag color={meta.color} icon={meta.icon}>
-              {meta.label}
+              {exportStatusLabel(job)}
             </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="进度">
-            <Progress
-              percent={job.status === 'succeeded' ? 100 : job.progress}
-              size="small"
-              status={
-                job.status === 'succeeded'
-                  ? 'success'
-                  : job.status === 'failed'
-                    ? 'exception'
-                    : 'active'
-              }
-            />
+            <ExportStepProgress job={job} />
           </Descriptions.Item>
           {job.exportedCount != null && (
             <Descriptions.Item label="导出条目">{job.exportedCount} 条</Descriptions.Item>
@@ -797,6 +847,9 @@ function ExportDetailDrawer({
           <Descriptions.Item label="创建时间">{job.createdAt || '-'}</Descriptions.Item>
           <Descriptions.Item label="更新时间">{job.updatedAt || '-'}</Descriptions.Item>
           {job.createdBy && <Descriptions.Item label="创建人">{job.createdBy}</Descriptions.Item>}
+          {job.status === 'succeeded' && (
+            <Descriptions.Item label="下载确认时间">{job.downloadedAt || '-'}</Descriptions.Item>
+          )}
         </Descriptions>
 
         {job.errorSummary && (

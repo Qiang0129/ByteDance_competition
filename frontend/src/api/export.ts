@@ -6,6 +6,33 @@ import type {
   ExportTaskOptions,
 } from '../types/export';
 
+type SaveFilePickerAcceptType = {
+  description?: string;
+  accept: Record<string, string[]>;
+};
+
+type SaveFilePickerOptions = {
+  suggestedName?: string;
+  types?: SaveFilePickerAcceptType[];
+  excludeAcceptAllOption?: boolean;
+};
+
+type SaveFilePickerWritable = {
+  write(data: Blob | BufferSource | string): Promise<void>;
+  close(): Promise<void>;
+};
+
+type SaveFilePickerHandle = {
+  createWritable(): Promise<SaveFilePickerWritable>;
+};
+
+type SaveFilePickerFn = (options?: SaveFilePickerOptions) => Promise<SaveFilePickerHandle>;
+
+export type DownloadExportResult =
+  | { kind: 'confirmed'; job: ExportJob }
+  | { kind: 'browser-download-started' }
+  | { kind: 'cancelled' };
+
 function parseFilename(contentDisposition: string | null) {
   if (!contentDisposition) return null;
 
@@ -39,6 +66,46 @@ function triggerBrowserDownload(blob: Blob, filename: string) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function getSaveFilePicker(): SaveFilePickerFn | null {
+  if (typeof window === 'undefined') return null;
+  const candidate = (window as Window & { showSaveFilePicker?: SaveFilePickerFn }).showSaveFilePicker;
+  return typeof candidate === 'function' ? candidate.bind(window) : null;
+}
+
+function isSavePickerCancelled(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+async function saveBlobWithPicker(blob: Blob, filename: string): Promise<boolean> {
+  const picker = getSaveFilePicker();
+  if (!picker) return false;
+
+  const handle = await picker({
+    suggestedName: filename,
+    types: blob.type
+      ? [
+          {
+            description: '导出文件',
+            accept: { [blob.type]: [filename.includes('.xlsx') ? '.xlsx' : `.${filename.split('.').pop() || 'json'}`] },
+          },
+        ]
+      : undefined,
+  });
+  const writable = await handle.createWritable();
+  try {
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  } catch (error) {
+    try {
+      await writable.close();
+    } catch {
+      // ignore close errors after a failed write attempt
+    }
+    throw error;
+  }
 }
 
 export const exportApi = {
@@ -80,7 +147,7 @@ export const exportApi = {
     });
   },
 
-  async downloadExport(exportId: string, suggestedFilename?: string): Promise<void> {
+  async downloadExport(exportId: string, suggestedFilename?: string): Promise<DownloadExportResult> {
     const headers = new Headers();
     const token = getAuthToken();
     if (token) {
@@ -97,6 +164,22 @@ export const exportApi = {
       parseFilename(response.headers.get('content-disposition')) ??
       suggestedFilename ??
       `export-${exportId}`;
+    try {
+      const saved = await saveBlobWithPicker(blob, filename);
+      if (saved) {
+        const job = await apiRequest<ExportJob>(`/exports/${exportId}/download/confirm`, {
+          method: 'POST',
+        });
+        return { kind: 'confirmed', job };
+      }
+    } catch (error) {
+      if (isSavePickerCancelled(error)) {
+        return { kind: 'cancelled' };
+      }
+      throw error;
+    }
+
     triggerBrowserDownload(blob, filename);
+    return { kind: 'browser-download-started' };
   },
 };

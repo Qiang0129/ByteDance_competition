@@ -257,7 +257,19 @@ public class ExportRepository {
   }
 
   public void markAcceptedAnnotationsExported(List<Long> annotationIds) {
-    // 导出已改为非破坏性操作；保留该方法仅兼容旧调用方，避免再次消费 accepted 状态。
+    // 瀵煎嚭宸叉敼涓洪潪鐮村潖鎬ф搷浣滐紝淇濈暀鍏煎鍏ュ彛銆?
+  }
+
+  public void markDownloaded(long exportId) {
+    jdbcTemplate.update(
+        """
+        UPDATE export_jobs
+        SET downloaded_at = COALESCE(downloaded_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND status = 'succeeded'
+        """,
+        exportId);
   }
 
   public List<ExportRowRecord> listExportableRows(long taskId) {
@@ -368,6 +380,7 @@ public class ExportRepository {
           CAST(ej.mapping_json AS CHAR) AS mapping_json,
           ej.started_at,
           ej.completed_at,
+          ej.downloaded_at,
           ej.created_at,
           ej.updated_at,
           creator.name AS created_by_name,
@@ -396,6 +409,7 @@ public class ExportRepository {
         rs.getString("mapping_json"),
         toLocalDateTime(rs.getTimestamp("started_at")),
         toLocalDateTime(rs.getTimestamp("completed_at")),
+        toLocalDateTime(rs.getTimestamp("downloaded_at")),
         toLocalDateTime(rs.getTimestamp("created_at")),
         toLocalDateTime(rs.getTimestamp("updated_at")),
         rs.getString("created_by_name"),
@@ -473,6 +487,7 @@ public class ExportRepository {
       String mappingJson,
       LocalDateTime startedAt,
       LocalDateTime completedAt,
+      LocalDateTime downloadedAt,
       LocalDateTime createdAt,
       LocalDateTime updatedAt,
       String createdByName,

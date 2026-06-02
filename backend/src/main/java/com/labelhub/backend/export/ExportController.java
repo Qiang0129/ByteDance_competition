@@ -48,6 +48,11 @@ public class ExportController {
     return exportService.download(authentication, exportId);
   }
 
+  @PostMapping("/{exportId}/download/confirm")
+  public ExportJobResponse confirmDownload(Authentication authentication, @PathVariable long exportId) {
+    return exportService.confirmDownload(authentication, exportId);
+  }
+
   @PostMapping("/{exportId}/start")
   public ExportJobResponse start(Authentication authentication, @PathVariable long exportId) {
     return exportService.start(authentication, exportId);

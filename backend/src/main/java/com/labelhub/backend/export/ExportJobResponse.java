@@ -14,4 +14,5 @@ public record ExportJobResponse(
     String errorSummary,
     String createdAt,
     String updatedAt,
+    String downloadedAt,
     String createdBy) {}
