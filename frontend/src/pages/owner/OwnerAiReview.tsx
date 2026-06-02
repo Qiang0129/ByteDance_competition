@@ -69,6 +69,16 @@ const decisionMeta: Record<AiDecision, { label: string; color: string }> = {
   REJECT: { label: 'REJECT', color: 'error' },
 };
 
+const decisionScoreColor: Record<AiDecision, string> = {
+  PASS: '#16a34a',
+  NEED_HUMAN_REVIEW: '#f59e0b',
+  REJECT: '#dc2626',
+};
+
+function getDecisionScoreColor(decision?: AiDecision) {
+  return decision ? decisionScoreColor[decision] : undefined;
+}
+
 const jobStatusMeta: Record<AiReviewJobStatus, { label: string; color: string }> = {
   pending: { label: '排队中', color: 'default' },
   running: { label: '执行中', color: 'processing' },
@@ -881,8 +891,14 @@ export function JobsPanel() {
       title: '总分',
       dataIndex: 'totalScore',
       width: 80,
-      render: (score?: number | null) =>
-        score == null ? <Text type="secondary">-</Text> : <Text strong>{score.toFixed(2)}</Text>,
+      render: (score: number | null | undefined, job: AiReviewJob) =>
+        score == null ? (
+          <Text type="secondary">-</Text>
+        ) : (
+          <Text strong style={{ color: getDecisionScoreColor(job.decision) }}>
+            {score.toFixed(2)}
+          </Text>
+        ),
     },
     {
       title: '尝试',
@@ -1138,7 +1154,7 @@ function JobResultDrawer({
               <Col span={12}>
                 <Text type="secondary">总分</Text>
                 <div style={{ marginTop: 4 }}>
-                  <Text strong style={{ fontSize: 22 }}>
+                  <Text strong style={{ fontSize: 22, color: getDecisionScoreColor(result.decision) }}>
                     {result.total_score == null ? '-' : result.total_score.toFixed(2)}
                   </Text>
                 </div>
