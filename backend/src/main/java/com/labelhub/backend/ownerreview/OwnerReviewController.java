@@ -71,4 +71,11 @@ public class OwnerReviewController {
         page,
         pageSize);
   }
+
+  @GetMapping("/audit-log/{logId}/item-timeline")
+  public OwnerReviewAuditItemTimelineResponse getAuditLogItemTimeline(
+      Authentication authentication,
+      @PathVariable long logId) {
+    return ownerReviewService.getAuditLogItemTimeline(authentication, logId);
+  }
 }

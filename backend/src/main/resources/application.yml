@@ -33,3 +33,5 @@ labelhub:
       all-roles-password: ${LABELHUB_DEMO_ALL_ROLES_PASSWORD:demo123}
   model-config:
     secret: ${LABELHUB_MODEL_CONFIG_SECRET:}
+  export:
+    storage-dir: ${LABELHUB_EXPORT_STORAGE_DIR:data/exports}

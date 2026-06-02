@@ -1,0 +1,152 @@
+[ {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "reject_reason" : "翻译错误，需要成语翻译",
+    "quality_result" : "option_b"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "# 海洋探索周报\n\n本周收集了若干海洋相关素材，供标注参考。\n\n下面是一张夜景示例图：\n\n![夜间公路与极光](https://www.w3schools.com/w3css/img_lights.jpg)\n\n配套的海洋纪录短片如下：\n\n<video src=\"http://vjs.zencdn.net/v/oceans.mp4\" controls width=\"600\"></video>\n\n请结合图文判断内容是否合规。",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "## 媒体资源校验\n\n测试占位图：\n\n![测试占位图](https://dummyimage.com/600x400/4CAF50/fff&text=test)\n\n风景实拍图：\n\n![极光公路](https://www.w3schools.com/w3css/img_lights.jpg)\n\n演示视频：\n\n<video src=\"http://vjs.zencdn.net/v/oceans.mp4\" controls></video>",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+}, {
+  "原题内容" : "### 产品介绍：极光之旅\n\n极光之旅带你领略夜空下的绚丽风光与深邃海洋。\n\n![极光](https://www.w3schools.com/w3css/img_lights.jpg)\n\n观看宣传片：\n\n[海洋宣传片](http://vjs.zencdn.net/v/oceans.mp4)\n\n立即开启你的旅程！",
+  "答案 JSON" : {
+    "quality_result" : "option_a"
+  }
+} ]

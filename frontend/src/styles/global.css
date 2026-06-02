@@ -9173,6 +9173,16 @@ body {
   padding: 4px 8px;
 }
 
+.owner-review-audit-drawer-card.ant-card,
+.owner-review-audit-drawer-card.ant-card .ant-card-body {
+  height: auto;
+  min-height: 0;
+}
+
+.owner-review-audit-drawer-card .ant-timeline {
+  margin-bottom: 0;
+}
+
 .owner-review-audit-drawer-card .ant-timeline-item-content {
   margin-inline-start: 16px;
 }
@@ -9180,7 +9190,7 @@ body {
 .owner-review-audit-drawer-pagination {
   display: flex;
   justify-content: flex-end;
-  padding: 0 4px 8px;
+  padding: 4px 4px 8px;
 }
 
 .owner-review-audit-row {
@@ -9188,10 +9198,19 @@ body {
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
+  cursor: pointer;
+}
+
+.owner-review-audit-row--drawer {
+  width: fit-content;
+  max-width: 100%;
 }
 
 .owner-review-audit-row .ant-typography {
   margin-bottom: 0 !important;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .owner-review-audit-action {
@@ -9212,6 +9231,52 @@ body {
   border-radius: 6px;
   border-left: 3px solid #f59e0b;
   margin-top: 4px;
+}
+
+.owner-review-audit-popover .ant-popover-inner {
+  width: max-content;
+  max-width: min(320px, calc(100vw - 48px));
+}
+
+.owner-review-audit-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 80px));
+}
+
+.owner-review-audit-preview:has(.ant-spin),
+.owner-review-audit-preview:has(.ant-alert),
+.owner-review-audit-preview:has(.ant-empty) {
+  min-width: 180px;
+}
+
+.owner-review-audit-preview .ant-typography {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.owner-review-audit-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.owner-review-audit-preview-item,
+.owner-review-audit-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.035);
+}
+
+.owner-review-audit-preview-item .ant-typography,
+.owner-review-audit-detail-item .ant-typography {
+  margin-bottom: 0 !important;
 }
 
 /* 暗色模式适配:沿用现有 dark 规则的色彩语义,避免新增暗色 token */

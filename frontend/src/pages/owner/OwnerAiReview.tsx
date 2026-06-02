@@ -61,35 +61,7 @@ const RUNNING_STUCK_MINUTES = 10;
 const DEFAULT_DIMENSION_MAX_SCORE = 100;
 const DEFAULT_PASS_THRESHOLD = 80;
 const DEFAULT_NEED_HUMAN_THRESHOLD = 70;
-const DEFAULT_AI_REVIEW_PROMPT = `你是 LabelHub 的 AI 预审员。你的任务是审核“标注员提交的标注答案”是否正确、完整、合规，而不是单独评价原始数据或模型回答本身的质量。
-
-请基于以下输入进行质量审核：
-- 题目原始数据：{{rawPayload}}
-- 标注员提交的答案：{{answer}}
-- 表单 schema：{{schema}}
-- AI 审核规则与阈值：{{rule}}
-
-评分对象必须是“标注员提交的答案质量”：
-1. relevance：标注答案是否紧扣题目要求、原始数据和参考语义。
-2. accuracy：标注结论、分类、判断理由是否准确。
-3. format_compliance：标注答案是否符合表单字段、枚举值和必填要求。
-4. safety：标注答案是否存在敏感、违规、明显不当或安全风险。
-
-请为每个维度给出 0~100 分，并按 rule.dimensions[].weight 计算 totalScore。
-
-最终 decision 必须严格根据阈值决定：
-- totalScore >= rule.passThreshold：decision 必须为 PASS。
-- rule.needHumanThreshold <= totalScore < rule.passThreshold：decision 必须为 NEED_HUMAN_REVIEW。
-- totalScore < rule.needHumanThreshold：decision 必须为 REJECT。
-
-如果你认为标注员误判、漏标、错选、不符合题意或理由不足，应降低 accuracy / relevance 分数，使 totalScore 与 REJECT 或 NEED_HUMAN_REVIEW 保持一致。
-禁止出现“高分但 REJECT”或“低分但 PASS”的矛盾输出。
-
-comment 需要说明标注答案的主要问题或通过原因。
-riskFlags 只写真实风险标签，没有则返回空数组。
-evidence 需要给出支持评分和 decision 的简短证据。
-
-只输出符合 JSON Schema 的 JSON，不要输出 Markdown。`;
+const DEFAULT_AI_REVIEW_PROMPT = `![1780232335079](image/OwnerAiReview/1780232335079.png)`;
 
 const decisionMeta: Record<AiDecision, { label: string; color: string }> = {
   PASS: { label: 'PASS', color: 'success' },
@@ -1206,13 +1178,9 @@ function JobResultDrawer({
           {/* Evidence */}
           {(result.evidence?.length ?? 0) > 0 && (
             <Card title="证据 / 引用字段">
-              <Space wrap size={[8, 8]} style={{ width: '100%' }}>
-                {result.evidence.map((ev, idx) => (
-                  <Tag
-                    key={`${ev}-${idx}`}
-                    color="processing"
-                    style={{ whiteSpace: 'normal', wordBreak: 'break-all', maxWidth: '100%' }}
-                  >
+              <Space wrap>
+                {result.evidence.map((ev) => (
+                  <Tag key={ev} color="processing">
                     {ev}
                   </Tag>
                 ))}

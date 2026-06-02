@@ -34,7 +34,7 @@ public class StateMachineService {
           "reviewing", Set.of("reviewing", "returned", "accepted", "revised", "submitted", "voided"),
           "returned", Set.of("submitted", "voided"),
           "revised", Set.of("voided"),
-          "accepted", Set.of("exported", "voided"),
+          "accepted", Set.of("voided"),
           "exported", Set.of("voided"),
           "voided", Set.of()),
       WorkflowEntityType.AI_REVIEW_JOB, Map.of(
@@ -202,9 +202,6 @@ public class StateMachineService {
       }
       if ("ai_reviewing".equals(from) && List.of("reviewing", "accepted").contains(to)) {
         return Set.of("system_agent", "ai_reviewer", "reviewer", "owner");
-      }
-      if ("accepted".equals(from) && "exported".equals(to)) {
-        return Set.of("owner");
       }
       return Set.of("reviewer", "owner");
     }

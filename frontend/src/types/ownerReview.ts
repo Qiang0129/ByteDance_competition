@@ -82,6 +82,8 @@ export interface OwnerReviewTaskRow {
 export interface OwnerReviewAnnotation {
   annotationId: string;
   itemId: string;
+  /** 当前标注员在该任务有效作业中的 1-based 题序,与 Reviewer 工作台 itemIndex 口径一致 */
+  itemIndex: number;
   labelerName: string;
   submittedAt: string;
   /** 当前审核结果状态 */
@@ -106,6 +108,12 @@ export interface ReviewAuditLogEntry {
   entityId: string;
   taskId?: string;
   taskTitle?: string;
+  assignmentId?: string;
+  annotationId?: string;
+  itemId?: string;
+  itemIndex?: number;
+  labelerName?: string;
+  itemTitle?: string;
   /** 操作者 */
   operatorName: string;
   operatorRole: 'owner' | 'labeler' | 'reviewer' | 'system_agent';
@@ -118,6 +126,18 @@ export interface ReviewAuditLogEntry {
   /** 打回 / 争议原因 */
   reason?: string;
   occurredAt: string;
+}
+
+export interface ReviewAuditItemTimeline {
+  assignmentId: string;
+  taskId: string;
+  taskTitle: string;
+  annotationId?: string;
+  itemId?: string;
+  itemIndex?: number;
+  labelerName?: string;
+  itemTitle: string;
+  items: ReviewAuditLogEntry[];
 }
 
 /** 通用分页 */

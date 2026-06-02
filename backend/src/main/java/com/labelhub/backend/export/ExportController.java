@@ -1,6 +1,8 @@
 package com.labelhub.backend.export;
 
 import java.util.List;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,6 +31,21 @@ public class ExportController {
   @GetMapping
   public List<ExportJobResponse> listExports(Authentication authentication) {
     return exportService.listExports(authentication);
+  }
+
+  @GetMapping("/overview")
+  public ExportOverviewResponse overview(Authentication authentication) {
+    return exportService.overview(authentication);
+  }
+
+  @GetMapping("/tasks/{taskId}/options")
+  public ExportTaskOptionsResponse taskOptions(Authentication authentication, @PathVariable long taskId) {
+    return exportService.taskOptions(authentication, taskId);
+  }
+
+  @GetMapping("/{exportId}/download")
+  public ResponseEntity<Resource> download(Authentication authentication, @PathVariable long exportId) {
+    return exportService.download(authentication, exportId);
   }
 
   @PostMapping("/{exportId}/start")

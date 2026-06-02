@@ -1,25 +1,57 @@
-import { apiRequest } from './client';
-import type { CreateExportRequest, ExportJob, ExportOverview } from '../types/export';
+import { ApiError, apiRequest, buildApiUrl, getAuthToken } from './client';
+import type {
+  CreateExportRequest,
+  ExportJob,
+  ExportOverview,
+  ExportTaskOptions,
+} from '../types/export';
 
-/**
- * 导出中心 API。
- * 对齐计划书 4.6 / 5.2:
- *   - GET    /exports              导出任务列表
- *   - GET    /exports/overview     导出 KPI 概览
- *   - POST   /exports              创建导出任务
- *   - POST   /exports/{id}/start   开始执行
- *   - POST   /exports/{id}/complete 标记完成
- *   - POST   /exports/{id}/fail    标记失败
- *   - GET    /exports/{id}/download 下载导出文件(后端返回文件流或重定向)
- */
+function parseFilename(contentDisposition: string | null) {
+  if (!contentDisposition) return null;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ''));
+    } catch {
+      return utf8Match[1].replace(/"/g, '');
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ?? null;
+}
+
+async function throwDownloadError(response: Response): Promise<never> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const payload = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
+  throw new ApiError(response.status, response.statusText, payload);
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const exportApi = {
   listExports(): Promise<ExportJob[]> {
     return apiRequest<ExportJob[]>('/exports');
   },
 
-  /** 导出 KPI 概览(后端待实现,前端先回落到本地计算) */
   getOverview(): Promise<ExportOverview> {
     return apiRequest<ExportOverview>('/exports/overview');
+  },
+
+  getTaskOptions(taskId: string): Promise<ExportTaskOptions> {
+    return apiRequest<ExportTaskOptions>(`/exports/tasks/${taskId}/options`);
   },
 
   createExport(payload: CreateExportRequest): Promise<ExportJob> {
@@ -48,9 +80,23 @@ export const exportApi = {
     });
   },
 
-  /** 下载导出文件(后端返回文件流,前端用 window.open 触发浏览器下载) */
-  getDownloadUrl(exportId: string): string {
-    const base = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
-    return `${base}/exports/${exportId}/download`;
+  async downloadExport(exportId: string, suggestedFilename?: string): Promise<void> {
+    const headers = new Headers();
+    const token = getAuthToken();
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    const response = await fetch(buildApiUrl(`/exports/${exportId}/download`), { headers });
+    if (!response.ok) {
+      await throwDownloadError(response);
+    }
+
+    const blob = await response.blob();
+    const filename =
+      parseFilename(response.headers.get('content-disposition')) ??
+      suggestedFilename ??
+      `export-${exportId}`;
+    triggerBrowserDownload(blob, filename);
   },
 };

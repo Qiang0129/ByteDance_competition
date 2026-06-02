@@ -189,6 +189,39 @@ public class OwnerReviewService {
             blankToNull(action)));
   }
 
+  public OwnerReviewAuditItemTimelineResponse getAuditLogItemTimeline(
+      Authentication authentication,
+      long logId) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    settleExpiredTasks();
+    OwnerReviewRepository.AuditLogRecord root = repository.findAuditLog(owner.id(), logId)
+        .orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "REVIEW_AUDIT_LOG_NOT_FOUND",
+            "audit log not found"));
+    if (root.assignmentId() == null) {
+      throw new ApiException(
+          HttpStatus.NOT_FOUND,
+          "REVIEW_AUDIT_ITEM_NOT_FOUND",
+          "audit log item context not found");
+    }
+    List<OwnerReviewAuditLogEntryResponse> items = repository
+        .listAuditLogItemTimeline(owner.id(), root.assignmentId())
+        .stream()
+        .map(this::toAuditLogResponse)
+        .toList();
+    return new OwnerReviewAuditItemTimelineResponse(
+        Long.toString(root.assignmentId()),
+        Long.toString(root.taskId()),
+        blankToDefault(root.taskTitle(), "标注任务"),
+        root.annotationId() == null ? null : Long.toString(root.annotationId()),
+        root.itemId() == null ? null : Long.toString(root.itemId()),
+        root.itemIndex(),
+        blankToDefault(root.labelerName(), "Labeler"),
+        itemTitle(root),
+        items);
+  }
+
   private OwnerReviewTaskResponse toTaskResponse(long ownerId, OwnerReviewRepository.TaskRecord record) {
     double samplingRatio = record.totalAnnotations() == 0
         ? 0D
@@ -216,6 +249,7 @@ public class OwnerReviewService {
     return new OwnerReviewAnnotationResponse(
         Long.toString(record.annotationId()),
         Long.toString(record.itemId()),
+        record.itemIndex(),
         blankToDefault(record.labelerName(), "Labeler"),
         formatDateTime(record.submittedAt()),
         status,
@@ -233,6 +267,12 @@ public class OwnerReviewService {
         Long.toString(record.entityId()),
         Long.toString(record.taskId()),
         record.taskTitle(),
+        record.assignmentId() == null ? null : Long.toString(record.assignmentId()),
+        record.annotationId() == null ? null : Long.toString(record.annotationId()),
+        record.itemId() == null ? null : Long.toString(record.itemId()),
+        record.itemIndex(),
+        blankToDefault(record.labelerName(), "Labeler"),
+        itemTitle(record),
         blankToDefault(record.operatorName(), "system"),
         normalizeRoleForUi(record.operatorRole()),
         record.action(),
@@ -240,6 +280,13 @@ public class OwnerReviewService {
         record.toState(),
         record.reason(),
         formatDateTime(record.occurredAt()));
+  }
+
+  private String itemTitle(OwnerReviewRepository.AuditLogRecord record) {
+    String taskTitle = blankToDefault(record.taskTitle(), "标注任务");
+    return record.itemIndex() == null || record.itemIndex() < 1
+        ? taskTitle + " · 题号缺失"
+        : taskTitle + " · 第 " + record.itemIndex() + " 题";
   }
 
   private String annotationStatus(OwnerReviewRepository.AnnotationRecord record) {

@@ -7,11 +7,80 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class OwnerReviewRepository {
+
+  private static final String AUDIT_LOG_SELECT_FROM = """
+        SELECT DISTINCT
+          al.id AS log_id,
+          al.entity_type,
+          al.entity_id,
+          t.id AS task_id,
+          t.title AS task_title,
+          context_assignment.id AS assignment_id,
+          context_annotation.id AS annotation_id,
+          context_assignment.item_id AS item_id,
+          CASE
+            WHEN context_assignment.id IS NULL THEN NULL
+            ELSE (
+              SELECT COUNT(*)
+              FROM assignments ranked
+              WHERE ranked.task_id = context_assignment.task_id
+                AND ranked.labeler_id = context_assignment.labeler_id
+                AND ranked.status <> 'voided'
+                AND ranked.id <= context_assignment.id
+            )
+          END AS item_index,
+          labeler.name AS labeler_name,
+          COALESCE(operator_user.name, 'system') AS operator_name,
+          COALESCE(al.operator_role, 'system_agent') AS operator_role,
+          al.action,
+          al.from_state,
+          al.to_state,
+          al.reason,
+          al.created_at
+        FROM audit_logs al
+        LEFT JOIN assignments assignment_entity ON al.entity_type = 'assignment'
+          AND assignment_entity.id = al.entity_id
+        LEFT JOIN annotations annotation_entity ON al.entity_type = 'annotation'
+          AND annotation_entity.id = al.entity_id
+        LEFT JOIN ai_review_jobs job_entity ON al.entity_type = 'ai_review_job'
+          AND job_entity.id = al.entity_id
+        LEFT JOIN annotations job_annotation ON job_annotation.id = job_entity.annotation_id
+        LEFT JOIN human_reviews human_entity ON al.entity_type = 'human_review'
+          AND human_entity.id = al.entity_id
+        LEFT JOIN annotations human_annotation ON human_annotation.id = human_entity.annotation_id
+        LEFT JOIN assignments context_assignment ON context_assignment.id = COALESCE(
+          assignment_entity.id,
+          annotation_entity.assignment_id,
+          job_annotation.assignment_id,
+          human_annotation.assignment_id
+        )
+        LEFT JOIN annotations latest_context_annotation ON latest_context_annotation.id = (
+          SELECT latest.id
+          FROM annotations latest
+          WHERE latest.assignment_id = context_assignment.id
+            AND latest.status <> 'voided'
+          ORDER BY latest.revision_no DESC, latest.id DESC
+          LIMIT 1
+        )
+        LEFT JOIN annotations context_annotation ON context_annotation.id = COALESCE(
+          annotation_entity.id,
+          job_annotation.id,
+          human_annotation.id,
+          latest_context_annotation.id
+        )
+        JOIN tasks t ON (
+          (al.entity_type = 'task' AND al.entity_id = t.id)
+          OR context_assignment.task_id = t.id
+        )
+        LEFT JOIN users labeler ON labeler.id = context_assignment.labeler_id
+        LEFT JOIN users operator_user ON operator_user.id = al.operator_id
+        """;
 
   private final JdbcTemplate jdbcTemplate;
 
@@ -431,6 +500,14 @@ public class OwnerReviewRepository {
           SELECT
             an.id AS annotation_id,
             a.item_id,
+            (
+              SELECT COUNT(*)
+              FROM assignments ranked
+              WHERE ranked.task_id = a.task_id
+                AND ranked.labeler_id = a.labeler_id
+                AND ranked.status <> 'voided'
+                AND ranked.id <= a.id
+            ) AS item_index,
             labeler.name AS labeler_name,
             COALESCE(an.submitted_at, an.created_at) AS submitted_at,
             an.status AS annotation_status,
@@ -491,7 +568,7 @@ public class OwnerReviewRepository {
         ) annotation_rows
         WHERE 1 = 1
         """ + statusFilter + """
-        ORDER BY annotation_rows.updated_at DESC, annotation_rows.annotation_id DESC
+        ORDER BY annotation_rows.item_index ASC, annotation_rows.annotation_id ASC
         LIMIT ? OFFSET ?
         """,
         this::mapAnnotation,
@@ -539,66 +616,7 @@ public class OwnerReviewRepository {
     args.add(limit);
     args.add(offset);
     return jdbcTemplate.query(
-        """
-        SELECT DISTINCT
-          al.id AS log_id,
-          al.entity_type,
-          al.entity_id,
-          t.id AS task_id,
-          t.title AS task_title,
-          COALESCE(operator_user.name, 'system') AS operator_name,
-          COALESCE(al.operator_role, 'system_agent') AS operator_role,
-          al.action,
-          al.from_state,
-          al.to_state,
-          al.reason,
-          al.created_at
-        FROM audit_logs al
-        JOIN tasks t ON (
-          (al.entity_type = 'task' AND al.entity_id = t.id)
-          OR (
-            al.entity_type = 'assignment'
-            AND EXISTS (
-              SELECT 1
-              FROM assignments a
-              WHERE a.id = al.entity_id
-                AND a.task_id = t.id
-            )
-          )
-          OR (
-            al.entity_type = 'annotation'
-            AND EXISTS (
-              SELECT 1
-              FROM annotations an
-              JOIN assignments a ON a.id = an.assignment_id
-              WHERE an.id = al.entity_id
-                AND a.task_id = t.id
-            )
-          )
-          OR (
-            al.entity_type = 'ai_review_job'
-            AND EXISTS (
-              SELECT 1
-              FROM ai_review_jobs aj
-              JOIN annotations an ON an.id = aj.annotation_id
-              JOIN assignments a ON a.id = an.assignment_id
-              WHERE aj.id = al.entity_id
-                AND a.task_id = t.id
-            )
-          )
-          OR (
-            al.entity_type = 'human_review'
-            AND EXISTS (
-              SELECT 1
-              FROM human_reviews hr
-              JOIN annotations an ON an.id = hr.annotation_id
-              JOIN assignments a ON a.id = an.assignment_id
-              WHERE hr.id = al.entity_id
-                AND a.task_id = t.id
-            )
-          )
-        )
-        LEFT JOIN users operator_user ON operator_user.id = al.operator_id
+        AUDIT_LOG_SELECT_FROM + """
         WHERE t.owner_id = ?
           AND t.deleted_at IS NULL
           AND al.created_at >= ?
@@ -610,6 +628,33 @@ public class OwnerReviewRepository {
         """,
         this::mapAuditLog,
         args.toArray());
+  }
+
+  public Optional<AuditLogRecord> findAuditLog(long ownerId, long logId) {
+    return jdbcTemplate.query(
+        AUDIT_LOG_SELECT_FROM + """
+        WHERE t.owner_id = ?
+          AND t.deleted_at IS NULL
+          AND al.id = ?
+        """,
+        this::mapAuditLog,
+        ownerId,
+        logId)
+        .stream()
+        .findFirst();
+  }
+
+  public List<AuditLogRecord> listAuditLogItemTimeline(long ownerId, long assignmentId) {
+    return jdbcTemplate.query(
+        AUDIT_LOG_SELECT_FROM + """
+        WHERE t.owner_id = ?
+          AND t.deleted_at IS NULL
+          AND context_assignment.id = ?
+        ORDER BY al.created_at DESC, al.id DESC
+        """,
+        this::mapAuditLog,
+        ownerId,
+        assignmentId);
   }
 
   public long countAuditLog(
@@ -677,6 +722,7 @@ public class OwnerReviewRepository {
     return new AnnotationRecord(
         rs.getLong("annotation_id"),
         rs.getLong("item_id"),
+        rs.getInt("item_index"),
         rs.getString("labeler_name"),
         toLocalDateTime(rs.getTimestamp("submitted_at")),
         rs.getString("annotation_status"),
@@ -697,6 +743,11 @@ public class OwnerReviewRepository {
         rs.getLong("entity_id"),
         rs.getLong("task_id"),
         rs.getString("task_title"),
+        toLong(rs.getObject("assignment_id")),
+        toLong(rs.getObject("annotation_id")),
+        toLong(rs.getObject("item_id")),
+        toInteger(rs.getObject("item_index")),
+        rs.getString("labeler_name"),
         rs.getString("operator_name"),
         rs.getString("operator_role"),
         rs.getString("action"),
@@ -717,6 +768,14 @@ public class OwnerReviewRepository {
 
   private LocalDateTime toLocalDateTime(Timestamp timestamp) {
     return timestamp == null ? null : timestamp.toLocalDateTime();
+  }
+
+  private Long toLong(Object value) {
+    return value instanceof Number number ? number.longValue() : null;
+  }
+
+  private Integer toInteger(Object value) {
+    return value instanceof Number number ? number.intValue() : null;
   }
 
   public record ConsistencyCounts(long matched, long total) {}
@@ -750,6 +809,7 @@ public class OwnerReviewRepository {
   public record AnnotationRecord(
       long annotationId,
       long itemId,
+      int itemIndex,
       String labelerName,
       LocalDateTime submittedAt,
       String annotationStatus,
@@ -768,6 +828,11 @@ public class OwnerReviewRepository {
       long entityId,
       long taskId,
       String taskTitle,
+      Long assignmentId,
+      Long annotationId,
+      Long itemId,
+      Integer itemIndex,
+      String labelerName,
       String operatorName,
       String operatorRole,
       String action,

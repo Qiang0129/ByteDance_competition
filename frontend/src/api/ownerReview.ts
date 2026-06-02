@@ -27,6 +27,7 @@ import type {
   OwnerReviewReviewer,
   OwnerReviewTaskRow,
   OwnerReviewTasksQuery,
+  ReviewAuditItemTimeline,
   ReviewAuditLogEntry,
 } from '../types/ownerReview';
 
@@ -77,6 +78,13 @@ export const ownerReviewApi = {
   ): Promise<OwnerReviewPageResult<ReviewAuditLogEntry>> {
     return apiRequest<OwnerReviewPageResult<ReviewAuditLogEntry>>(
       `/reviews/audit-log${buildQuery(query as Record<string, unknown>)}`,
+    );
+  },
+
+  /** 单条审计日志对应题目的全链路日志 */
+  getAuditLogItemTimeline(logId: string): Promise<ReviewAuditItemTimeline> {
+    return apiRequest<ReviewAuditItemTimeline>(
+      `/reviews/audit-log/${logId}/item-timeline`,
     );
   },
 

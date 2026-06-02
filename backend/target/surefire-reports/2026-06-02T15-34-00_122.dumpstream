@@ -1,0 +1,5 @@
+# Created at 2026-06-02T15:34:00.946
+Boot Manifest-JAR contains absolute paths in classpath 'F:\研究生阶段\字节开发比赛\ByteDance_competition\backend\target\test-classes'
+Hint: <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+'other' has different root
+

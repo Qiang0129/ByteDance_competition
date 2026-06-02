@@ -23,10 +23,12 @@ import {
   Empty,
   Input,
   Pagination,
+  Popover,
   Progress,
   Row,
   Select,
   Space,
+  Spin,
   Table,
   Tag,
   Timeline,
@@ -43,6 +45,7 @@ import type {
   OwnerReviewOverview,
   OwnerReviewReviewer,
   OwnerReviewTaskRow,
+  ReviewAuditItemTimeline,
   ReviewAuditLogEntry,
 } from '../../types/ownerReview';
 
@@ -112,6 +115,18 @@ export default function OwnerReview() {
   const [auditDrawerTotal, setAuditDrawerTotal] = useState(0);
   const [auditDrawerLoading, setAuditDrawerLoading] = useState(false);
   const [auditDrawerError, setAuditDrawerError] = useState<string | null>(null);
+  const [auditItemTimelineCache, setAuditItemTimelineCache] = useState<
+    Record<string, ReviewAuditItemTimeline>
+  >({});
+  const [auditItemTimelineLoading, setAuditItemTimelineLoading] = useState<
+    Record<string, boolean>
+  >({});
+  const [auditItemTimelineErrors, setAuditItemTimelineErrors] = useState<
+    Record<string, string>
+  >({});
+  const [auditItemDrawerOpen, setAuditItemDrawerOpen] = useState(false);
+  const [activeAuditItemTimeline, setActiveAuditItemTimeline] =
+    useState<ReviewAuditItemTimeline | null>(null);
   const taskTableCardMeasureRef = useRef<HTMLDivElement | null>(null);
   const reviewerWorkloadMeasureRef = useRef<HTMLDivElement | null>(null);
   const auditLogMeasureRef = useRef<HTMLDivElement | null>(null);
@@ -253,6 +268,42 @@ export default function OwnerReview() {
 
   const handleAuditDrawerPageChange: PaginationProps['onChange'] = (page) => {
     void loadAuditDrawer(page);
+  };
+
+  const loadAuditItemTimeline = useCallback(
+    async (entry: ReviewAuditLogEntry, force = false) => {
+      if (!force && (auditItemTimelineCache[entry.logId] || auditItemTimelineLoading[entry.logId])) return;
+      setAuditItemTimelineLoading((prev) => ({ ...prev, [entry.logId]: true }));
+      setAuditItemTimelineErrors((prev) => {
+        const next = { ...prev };
+        delete next[entry.logId];
+        return next;
+      });
+      try {
+        const res = await ownerReviewApi.getAuditLogItemTimeline(entry.logId);
+        setAuditItemTimelineCache((prev) => ({ ...prev, [entry.logId]: res }));
+      } catch (error) {
+        setAuditItemTimelineErrors((prev) => ({
+          ...prev,
+          [entry.logId]: getApiErrorMessage(error, '加载同题日志失败'),
+        }));
+      } finally {
+        setAuditItemTimelineLoading((prev) => ({
+          ...prev,
+          [entry.logId]: false,
+        }));
+      }
+    },
+    [auditItemTimelineCache, auditItemTimelineLoading],
+  );
+
+  const openAuditItemDrawer = (timeline: ReviewAuditItemTimeline) => {
+    setActiveAuditItemTimeline(timeline);
+    setAuditItemDrawerOpen(true);
+  };
+
+  const closeAuditItemDrawer = () => {
+    setAuditItemDrawerOpen(false);
   };
 
   /** 任务表筛选(本地) */
@@ -518,6 +569,12 @@ export default function OwnerReview() {
                 reviewerId={auditReviewerId}
                 onReviewerChange={setAuditReviewerId}
                 onOpenAll={openAuditDrawer}
+                timelineCache={auditItemTimelineCache}
+                timelineLoading={auditItemTimelineLoading}
+                timelineErrors={auditItemTimelineErrors}
+                onPreviewTimeline={loadAuditItemTimeline}
+                onRetryTimeline={(entry) => void loadAuditItemTimeline(entry, true)}
+                onOpenTimeline={openAuditItemDrawer}
               />
             </div>
           </Space>
@@ -545,6 +602,18 @@ export default function OwnerReview() {
         onPageChange={handleAuditDrawerPageChange}
         onRetry={() => void loadAuditDrawer(auditDrawerPage)}
         onClose={closeAuditDrawer}
+        timelineCache={auditItemTimelineCache}
+        timelineLoading={auditItemTimelineLoading}
+        timelineErrors={auditItemTimelineErrors}
+        onPreviewTimeline={loadAuditItemTimeline}
+        onRetryTimeline={(entry) => void loadAuditItemTimeline(entry, true)}
+        onOpenTimeline={openAuditItemDrawer}
+      />
+
+      <AuditItemTimelineDrawer
+        open={auditItemDrawerOpen}
+        timeline={activeAuditItemTimeline}
+        onClose={closeAuditItemDrawer}
       />
     </Space>
   );
@@ -685,6 +754,15 @@ function ReviewerWorkloadCard({
 
 /* =============== 审计日志侧栏 =============== */
 
+type AuditTimelineControls = {
+  timelineCache: Record<string, ReviewAuditItemTimeline>;
+  timelineLoading: Record<string, boolean>;
+  timelineErrors: Record<string, string>;
+  onPreviewTimeline: (entry: ReviewAuditLogEntry) => void | Promise<void>;
+  onRetryTimeline: (entry: ReviewAuditLogEntry) => void;
+  onOpenTimeline: (timeline: ReviewAuditItemTimeline) => void;
+};
+
 function AuditLogCard({
   entries,
   loading,
@@ -692,6 +770,12 @@ function AuditLogCard({
   reviewerId,
   onReviewerChange,
   onOpenAll,
+  timelineCache,
+  timelineLoading,
+  timelineErrors,
+  onPreviewTimeline,
+  onRetryTimeline,
+  onOpenTimeline,
 }: {
   entries: ReviewAuditLogEntry[];
   loading: boolean;
@@ -699,7 +783,7 @@ function AuditLogCard({
   reviewerId: string;
   onReviewerChange: (v: string) => void;
   onOpenAll: () => void;
-}) {
+} & AuditTimelineControls) {
   return (
     <Card
       className="owner-review-audit-card"
@@ -742,7 +826,17 @@ function AuditLogCard({
           mode="left"
           items={entries.slice(0, 12).map((entry) => ({
             color: timelineColorOf(entry),
-            children: <AuditEntryLine entry={entry} />,
+            children: (
+              <AuditEntryLineWithTimeline
+                entry={entry}
+                timeline={timelineCache[entry.logId]}
+                loading={!!timelineLoading[entry.logId]}
+                error={timelineErrors[entry.logId]}
+                onPreview={() => void onPreviewTimeline(entry)}
+                onRetry={() => onRetryTimeline(entry)}
+                onOpenTimeline={onOpenTimeline}
+              />
+            ),
           }))}
         />
       )}
@@ -761,6 +855,12 @@ function AuditLogDrawer({
   onPageChange,
   onRetry,
   onClose,
+  timelineCache,
+  timelineLoading,
+  timelineErrors,
+  onPreviewTimeline,
+  onRetryTimeline,
+  onOpenTimeline,
 }: {
   open: boolean;
   reviewerName: string;
@@ -772,7 +872,7 @@ function AuditLogDrawer({
   onPageChange: PaginationProps['onChange'];
   onRetry: () => void;
   onClose: () => void;
-}) {
+} & AuditTimelineControls) {
   return (
     <Drawer
       open={open}
@@ -817,7 +917,18 @@ function AuditLogDrawer({
               mode="left"
               items={entries.map((entry) => ({
                 color: timelineColorOf(entry),
-                children: <AuditEntryLine entry={entry} />,
+                children: (
+                  <AuditEntryLineWithTimeline
+                    entry={entry}
+                    timeline={timelineCache[entry.logId]}
+                    loading={!!timelineLoading[entry.logId]}
+                    error={timelineErrors[entry.logId]}
+                    rowClassName="owner-review-audit-row--drawer"
+                    onPreview={() => void onPreviewTimeline(entry)}
+                    onRetry={() => onRetryTimeline(entry)}
+                    onOpenTimeline={onOpenTimeline}
+                  />
+                ),
               }))}
             />
           )}
@@ -844,6 +955,344 @@ function timelineColorOf(entry: ReviewAuditLogEntry) {
   if (action.includes('escalate') || action.includes('dispute')) return 'purple';
   if (entry.operatorRole === 'system_agent') return 'gray';
   return 'blue';
+}
+
+function fallbackAuditItemTitle(entry: ReviewAuditLogEntry) {
+  const taskTitle = entry.taskTitle || '标注任务';
+  return entry.itemIndex && entry.itemIndex > 0
+    ? `${taskTitle} · 第 ${entry.itemIndex} 题`
+    : `${taskTitle} · 题号缺失`;
+}
+
+type AuditPreviewGroup = {
+  key: string;
+  collapseKey?: string;
+  primary: ReviewAuditLogEntry;
+  items: ReviewAuditLogEntry[];
+};
+
+function buildAuditPreviewGroups(items: ReviewAuditLogEntry[]): AuditPreviewGroup[] {
+  const groups: AuditPreviewGroup[] = [];
+  items.forEach((item) => {
+    const collapseKey = auditPreviewCollapseKey(item);
+    const latestGroup = groups[groups.length - 1];
+    if (
+      collapseKey
+      && latestGroup?.collapseKey === collapseKey
+      && canMergeAuditPreviewItem(latestGroup, item)
+    ) {
+      latestGroup.items.push(item);
+      return;
+    }
+    groups.push({ key: item.logId, collapseKey: collapseKey ?? undefined, primary: item, items: [item] });
+  });
+  return groups;
+}
+
+function auditPreviewCollapseKey(item: ReviewAuditLogEntry) {
+  const phase = auditPreviewBusinessPhase(item);
+  if (!phase) {
+    return null;
+  }
+  return [
+    item.assignmentId || '',
+    phase,
+    auditPreviewOperatorKey(item, phase),
+    item.occurredAt,
+  ].join('|');
+}
+
+function auditPreviewBusinessPhase(item: ReviewAuditLogEntry) {
+  const entityType = item.entityType.toLowerCase();
+  if (['annotation', 'assignment'].includes(entityType)) {
+    if (['human_review.approve', 'human_review.return', 'human_review.revise.accept'].includes(item.action)) {
+      return item.action;
+    }
+  }
+  if (['annotation', 'ai_review_job'].includes(entityType)) {
+    if (item.action === 'ai_review.start') {
+      return aiReviewStartPhase(item);
+    }
+    if ([
+      'ai_review.complete',
+      'ai_review.fail',
+      'ai_review.retry',
+      'ai_review.fallback_to_human',
+    ].includes(item.action)) {
+      return item.action;
+    }
+  }
+  return null;
+}
+
+function aiReviewStartPhase(item: ReviewAuditLogEntry) {
+  const entityType = item.entityType.toLowerCase();
+  const fromState = item.fromState?.toLowerCase();
+  const toState = item.toState?.toLowerCase();
+  if (entityType === 'ai_review_job' && fromState === 'pending' && toState === 'running') {
+    return 'ai_review.start.running';
+  }
+  return 'ai_review.start.queued';
+}
+
+function auditPreviewOperatorKey(item: ReviewAuditLogEntry, phase: string) {
+  if (phase === 'ai_review.start.queued') {
+    return item.operatorName;
+  }
+  return `${item.operatorRole}|${item.operatorName}`;
+}
+
+function canMergeAuditPreviewItem(group: AuditPreviewGroup, item: ReviewAuditLogEntry) {
+  return !group.items.some((existing) => (
+    existing.logId === item.logId
+    || (existing.entityType === item.entityType && existing.entityId === item.entityId)
+  ));
+}
+
+function auditPreviewEntitySummary(items: ReviewAuditLogEntry[]) {
+  return `底层实体: ${items.map((item) => `${item.entityType} ${item.entityId}`).join('、')}`;
+}
+
+function prettifyAuditPreviewAction(group: AuditPreviewGroup) {
+  const phase = group.collapseKey?.split('|')[1];
+  if (phase === 'ai_review.start.queued') {
+    return 'AI 预审排队';
+  }
+  if (phase === 'ai_review.start.running') {
+    return 'AI 预审开始运行';
+  }
+  return prettifyAction(group.primary.action);
+}
+
+function AuditEntryLineWithTimeline({
+  entry,
+  timeline,
+  loading,
+  error,
+  rowClassName,
+  onPreview,
+  onRetry,
+  onOpenTimeline,
+}: {
+  entry: ReviewAuditLogEntry;
+  timeline?: ReviewAuditItemTimeline;
+  loading: boolean;
+  error?: string;
+  rowClassName?: string;
+  onPreview: () => void;
+  onRetry: () => void;
+  onOpenTimeline: (timeline: ReviewAuditItemTimeline) => void;
+}) {
+  const title = entry.itemTitle || fallbackAuditItemTitle(entry);
+  return (
+    <Popover
+      trigger="hover"
+      placement="rightTop"
+      overlayClassName="owner-review-audit-popover"
+      onOpenChange={(open) => {
+        if (open) onPreview();
+      }}
+      content={
+        <AuditItemTimelinePreview
+          entry={entry}
+          timeline={timeline}
+          loading={loading}
+          error={error}
+          onRetry={onRetry}
+          onOpenTimeline={onOpenTimeline}
+        />
+      }
+    >
+      <div
+        className={`owner-review-audit-row${rowClassName ? ` ${rowClassName}` : ''}`}
+        tabIndex={0}
+      >
+        <span className="owner-review-audit-action">
+          {prettifyAction(entry.action)}
+        </span>
+        <Text type="secondary" className="owner-review-audit-meta">
+          {entry.operatorName}
+          <Text type="secondary" style={{ margin: '0 4px' }}>
+            ·
+          </Text>
+          {title}
+        </Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {entry.fromState && entry.toState && (
+            <>
+              {entry.fromState} → {entry.toState}
+              <Text type="secondary" style={{ margin: '0 4px' }}>
+                ·
+              </Text>
+            </>
+          )}
+          {entry.occurredAt}
+        </Text>
+        {entry.reason && (
+          <div className="owner-review-audit-reason">原因:{entry.reason}</div>
+        )}
+      </div>
+    </Popover>
+  );
+}
+
+function AuditItemTimelinePreview({
+  entry,
+  timeline,
+  loading,
+  error,
+  onRetry,
+  onOpenTimeline,
+}: {
+  entry: ReviewAuditLogEntry;
+  timeline?: ReviewAuditItemTimeline;
+  loading: boolean;
+  error?: string;
+  onRetry: () => void;
+  onOpenTimeline: (timeline: ReviewAuditItemTimeline) => void;
+}) {
+  if (loading && !timeline) {
+    return (
+      <div className="owner-review-audit-preview">
+        <Spin size="small" />
+        <Text type="secondary">加载同题日志...</Text>
+      </div>
+    );
+  }
+  if (error && !timeline) {
+    return (
+      <div className="owner-review-audit-preview">
+        <Alert
+          type="error"
+          showIcon
+          message="同题日志加载失败"
+          description={error}
+          action={<Button size="small" onClick={onRetry}>重试</Button>}
+        />
+      </div>
+    );
+  }
+  const previewGroups = buildAuditPreviewGroups(timeline?.items ?? []).slice(0, 5);
+  return (
+    <div className="owner-review-audit-preview">
+      <Space direction="vertical" size={2}>
+        <Text strong>{timeline?.itemTitle || entry.itemTitle || '同题日志'}</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          标注员 {timeline?.labelerName || entry.labelerName || '-'}
+        </Text>
+      </Space>
+      {previewGroups.length === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无同题日志" />
+      ) : (
+        <div className="owner-review-audit-preview-list">
+          {previewGroups.map((group) => (
+            <div key={group.key} className="owner-review-audit-preview-item">
+              <Space size={4} wrap>
+                <Text strong>{prettifyAuditPreviewAction(group)}</Text>
+                {group.items.length > 1 && (
+                  <Tag style={{ marginInlineEnd: 0 }}>底层 {group.items.length} 条</Tag>
+                )}
+              </Space>
+              <Text type="secondary">
+                {group.primary.operatorName} · {group.primary.occurredAt}
+              </Text>
+              {group.items.length > 1 && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {auditPreviewEntitySummary(group.items)}
+                </Text>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {timeline && (
+        <Button
+          size="small"
+          type="link"
+          icon={<FileSearchOutlined />}
+          onClick={() => onOpenTimeline(timeline)}
+        >
+          查看详情
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function AuditItemTimelineDrawer({
+  open,
+  timeline,
+  onClose,
+}: {
+  open: boolean;
+  timeline: ReviewAuditItemTimeline | null;
+  onClose: () => void;
+}) {
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      width={Math.min(720, window.innerWidth * 0.9)}
+      title={
+        <Space direction="vertical" size={2}>
+          <Text strong>{timeline?.itemTitle ?? '同题日志详情'}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            标注员 {timeline?.labelerName ?? '-'}
+            {timeline?.assignmentId && (
+              <>
+                <Text type="secondary" style={{ margin: '0 4px' }}>
+                  ·
+                </Text>
+                Assignment {timeline.assignmentId}
+              </>
+            )}
+          </Text>
+        </Space>
+      }
+      destroyOnClose
+    >
+      {!timeline || timeline.items.length === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无同题日志" />
+      ) : (
+        <Timeline
+          mode="left"
+          items={timeline.items.map((item) => ({
+            color: timelineColorOf(item),
+            children: <AuditTimelineDetailItem entry={item} />,
+          }))}
+        />
+      )}
+    </Drawer>
+  );
+}
+
+function AuditTimelineDetailItem({ entry }: { entry: ReviewAuditLogEntry }) {
+  return (
+    <div className="owner-review-audit-detail-item">
+      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+        <Space size={8} wrap>
+          <Text strong>{prettifyAction(entry.action)}</Text>
+          <Tag style={{ marginInlineEnd: 0 }}>{entry.operatorName}</Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {entry.occurredAt}
+          </Text>
+        </Space>
+        {entry.fromState && entry.toState && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {entry.fromState} → {entry.toState}
+          </Text>
+        )}
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {entry.entityType} · {entry.entityId}
+          {entry.annotationId && <> · Annotation {entry.annotationId}</>}
+          {entry.itemId && <> · Item {entry.itemId}</>}
+        </Text>
+        {entry.reason && (
+          <div className="owner-review-audit-reason">原因:{entry.reason}</div>
+        )}
+      </Space>
+    </div>
+  );
 }
 
 function AuditEntryLine({ entry }: { entry: ReviewAuditLogEntry }) {
@@ -892,8 +1341,20 @@ function prettifyAction(action: string): string {
     'annotation.review.revise': '重新提交',
     'annotation.review.escalate': '升级到争议样本',
     'annotation.submit': '标注员提交答案',
+    'human_review.start': '开始人工审核',
+    'human_review.approve': '审核通过',
+    'human_review.return': '审核打回',
+    'human_review.revise': '人工改写',
+    'human_review.revise.accept': '改写后通过',
+    'human_review.escalate': '升级到争议样本',
+    'ai_review.start': 'AI 预审开始',
     'ai_review.complete': 'AI 预审完成',
     'ai_review.fail': 'AI 预审失败',
+    'ai_review.retry': 'AI 预审重试',
+    'ai_review.fallback_to_human': '转人工审核',
+    'ai_review.delete': '删除 AI 预审任务',
+    'ai_review.cancel': '取消 AI 预审任务',
+    'ai_review.stale_writeback_rejected': '拒绝过期 AI 回写',
     'export.complete': '导出完成',
   };
   return map[action] ?? action;
@@ -919,22 +1380,29 @@ function TaskDetailDrawer({
   // 只读条目表
   const columns: ColumnsType<OwnerReviewAnnotation> = [
     {
-      title: 'Annotation',
-      dataIndex: 'annotationId',
+      title: '题号',
+      dataIndex: 'itemIndex',
       width: 130,
-      render: (text: string) => <Text code>{text}</Text>,
+      defaultSortOrder: 'ascend',
+      sorter: (a, b) => (a.itemIndex || 0) - (b.itemIndex || 0),
+      render: (value: number | undefined, row) => {
+        const text = row.annotationId;
+        const itemIndex = Number(value);
+        const label = Number.isFinite(itemIndex) && itemIndex > 0
+          ? `第 ${itemIndex} 题`
+          : '题号缺失';
+        return (
+          <Tooltip title={`Annotation ${text} · Item ${row.itemId}`}>
+            <Text strong>{label}</Text>
+          </Tooltip>
+        );
+      },
     },
     {
-      title: 'Item / 标注员',
-      width: 180,
-      render: (_, row) => (
-        <Space direction="vertical" size={2}>
-          <Text>{row.itemId}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {row.labelerName}
-          </Text>
-        </Space>
-      ),
+      title: '标注员',
+      dataIndex: 'labelerName',
+      width: 150,
+      render: (text: string) => <Text>{text || '-'}</Text>,
     },
     {
       title: '状态',
@@ -1058,7 +1526,7 @@ function TaskDetailDrawer({
             title="条目明细"
             extra={
               <Text type="secondary" style={{ fontSize: 12 }}>
-                共 {annotations.length} 条 · 仅展示最近 50 条
+                共 {annotations.length} 条 · 按题号升序展示前 50 条
               </Text>
             }
             bordered={false}
