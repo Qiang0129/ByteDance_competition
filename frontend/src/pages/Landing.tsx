@@ -1,20 +1,22 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  CaretRightOutlined,
   CopyOutlined,
-  FileTextOutlined,
   InfoCircleOutlined,
-  PictureOutlined,
   ReadOutlined,
-  VideoCameraOutlined,
 } from '@ant-design/icons';
 import { App, Button } from 'antd';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import imageIconUrl from '../../images/图片.svg';
+import loginIconUrl from '../../images/登陆账号.svg';
+import signupIconUrl from '../../images/注册账号.svg';
+import textIconUrl from '../../images/文本.svg';
+import videoIconUrl from '../../images/视频.svg';
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.6';
 const LOGIN_BASE_URL = 'http://localhost:5173';
-const LOGIN_ENDPOINT = '/login';
-const LOGIN_URL = `${LOGIN_BASE_URL}${LOGIN_ENDPOINT}`;
+const LOGIN_ENDPOINTS = ['/login', '/login#signup'] as const;
+const LOGIN_ENDPOINT_CYCLE = [...LOGIN_ENDPOINTS, LOGIN_ENDPOINTS[0]];
+const ENDPOINT_SWITCH_INTERVAL = 4000;
 
 type PublicNavKey = 'home' | 'docs' | 'about';
 
@@ -81,10 +83,48 @@ export default function Landing() {
   usePublicPageClass();
   const navigate = useNavigate();
   const { message } = App.useApp();
+  const resetFrameRef = useRef<number | null>(null);
+  const resetReleaseFrameRef = useRef<number | null>(null);
+  const [endpointStep, setEndpointStep] = useState(0);
+  const [isEndpointResetting, setIsEndpointResetting] = useState(false);
+  const currentEndpoint = LOGIN_ENDPOINTS[endpointStep % LOGIN_ENDPOINTS.length];
+  const currentLoginUrl = `${LOGIN_BASE_URL}${currentEndpoint}`;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setEndpointStep((previousStep) => previousStep + 1);
+    }, ENDPOINT_SWITCH_INTERVAL);
+
+    return () => {
+      window.clearInterval(timer);
+      if (resetFrameRef.current !== null) {
+        window.cancelAnimationFrame(resetFrameRef.current);
+      }
+      if (resetReleaseFrameRef.current !== null) {
+        window.cancelAnimationFrame(resetReleaseFrameRef.current);
+      }
+    };
+  }, []);
+
+  const handleEndpointTransitionEnd = () => {
+    if (endpointStep !== LOGIN_ENDPOINTS.length) {
+      return;
+    }
+
+    setIsEndpointResetting(true);
+    setEndpointStep(0);
+    resetFrameRef.current = window.requestAnimationFrame(() => {
+      resetReleaseFrameRef.current = window.requestAnimationFrame(() => {
+        setIsEndpointResetting(false);
+        resetFrameRef.current = null;
+        resetReleaseFrameRef.current = null;
+      });
+    });
+  };
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(LOGIN_URL);
+      await navigator.clipboard.writeText(currentLoginUrl);
       message.success('访问地址已复制');
     } catch {
       message.warning('当前浏览器不支持自动复制，请手动复制地址');
@@ -111,12 +151,29 @@ export default function Landing() {
 
           <div className="landing-url-pill" role="group" aria-label="登录访问地址">
             <span className="landing-url-text">{LOGIN_BASE_URL}</span>
-            <span className="landing-url-endpoint">{LOGIN_ENDPOINT}</span>
+            <span
+              className="landing-url-endpoint"
+              aria-live="polite"
+              aria-label={`当前入口路径 ${currentEndpoint}`}
+            >
+              <span
+                className={`landing-url-endpoint-track${isEndpointResetting ? ' is-resetting' : ''}`}
+                style={{ transform: `translateY(calc(-${endpointStep} * var(--landing-url-row-height)))` }}
+                onTransitionEnd={handleEndpointTransitionEnd}
+                aria-hidden="true"
+              >
+                {LOGIN_ENDPOINT_CYCLE.map((endpoint, index) => (
+                  <span className="landing-url-endpoint-item" key={`${endpoint}-${index}`}>
+                    {endpoint}
+                  </span>
+                ))}
+              </span>
+            </span>
             <button
               type="button"
               className="landing-copy-button"
               onClick={() => void handleCopy()}
-              aria-label="复制登录访问地址"
+              aria-label={`复制访问地址 ${currentLoginUrl}`}
             >
               <CopyOutlined />
             </button>
@@ -127,7 +184,7 @@ export default function Landing() {
               type="primary"
               size="large"
               className="landing-action-button landing-action-primary"
-              icon={<CaretRightOutlined />}
+              icon={<img className="landing-action-icon" src={loginIconUrl} alt="" aria-hidden="true" />}
               onClick={() => navigate('/login')}
             >
               登录
@@ -135,7 +192,7 @@ export default function Landing() {
             <Button
               size="large"
               className="landing-action-button landing-action-secondary"
-              icon={<FileTextOutlined />}
+              icon={<img className="landing-action-icon" src={signupIconUrl} alt="" aria-hidden="true" />}
               onClick={() => navigate('/login#signup')}
             >
               注册
@@ -146,15 +203,15 @@ export default function Landing() {
             <h2 id="landing-support-title">支持主流数据标注</h2>
             <div className="landing-support-icons">
               <div className="landing-support-item">
-                <FileTextOutlined />
+                <img className="landing-support-icon" src={textIconUrl} alt="" aria-hidden="true" />
                 <span>文本</span>
               </div>
               <div className="landing-support-item">
-                <PictureOutlined />
+                <img className="landing-support-icon" src={imageIconUrl} alt="" aria-hidden="true" />
                 <span>图片</span>
               </div>
               <div className="landing-support-item">
-                <VideoCameraOutlined />
+                <img className="landing-support-icon" src={videoIconUrl} alt="" aria-hidden="true" />
                 <span>视频</span>
               </div>
             </div>
