@@ -17,7 +17,7 @@ public class ReviewRepository {
     this.jdbcTemplate = jdbcTemplate;
   }
 
-  public long countPendingBatches() {
+  public long countPendingBatches(long reviewerId) {
     Long count = jdbcTemplate.queryForObject(
         """
         SELECT COUNT(*)
@@ -28,6 +28,7 @@ public class ReviewRepository {
           JOIN tasks t ON t.id = a.task_id
           WHERE an.status IN ('ai_reviewing', 'reviewing')
             AND t.deleted_at IS NULL
+            AND """ + reviewerAssignmentFilter(reviewerId) + """
           GROUP BY a.task_id
         ) pending_tasks
         """,
@@ -56,7 +57,7 @@ public class ReviewRepository {
     return count == null ? 0 : count;
   }
 
-  public List<ReviewBatchRecord> listBatches(String status, String keyword, int limit, int offset) {
+  public List<ReviewBatchRecord> listBatches(long reviewerId, String status, String keyword, int limit, int offset) {
     String having = "";
     if (status != null && !status.isBlank()) {
       having = switch (status) {
@@ -87,6 +88,7 @@ public class ReviewRepository {
         WHERE t.deleted_at IS NULL
           AND an.status <> 'voided'
           AND a.status <> 'voided'
+          AND """ + reviewerAssignmentFilter(reviewerId) + """
           AND an.id = (
           SELECT latest.id
           FROM annotations latest
@@ -107,17 +109,17 @@ public class ReviewRepository {
     return jdbcTemplate.query(sql, this::mapBatch, like, like, limit, offset);
   }
 
-  public long countBatches(String status, String keyword) {
-    return listBatches(status, keyword, Integer.MAX_VALUE, 0).size();
+  public long countBatches(long reviewerId, String status, String keyword) {
+    return listBatches(reviewerId, status, keyword, Integer.MAX_VALUE, 0).size();
   }
 
-  public Optional<ReviewBatchRecord> findBatch(long taskId) {
-    return listBatches(null, Long.toString(taskId), 1, 0).stream()
+  public Optional<ReviewBatchRecord> findBatch(long reviewerId, long taskId) {
+    return listBatches(reviewerId, null, Long.toString(taskId), 1, 0).stream()
         .filter(batch -> batch.taskId() == taskId)
         .findFirst();
   }
 
-  public List<AnnotationReviewRecord> listAnnotations(long taskId, String decision, int limit, int offset) {
+  public List<AnnotationReviewRecord> listAnnotations(long reviewerId, long taskId, String decision, int limit, int offset) {
     String taskFilter = taskId > 0 ? "AND a.task_id = ?" : "";
     String decisionFilter = decision == null || decision.isBlank()
         ? ""
@@ -203,6 +205,7 @@ public class ReviewRepository {
         WHERE t.deleted_at IS NULL
           AND an.status <> 'voided'
           AND a.status <> 'voided'
+          AND """ + reviewerAssignmentFilter(reviewerId) + """
           AND an.id = (
           SELECT latest.id
           FROM annotations latest
@@ -227,8 +230,8 @@ public class ReviewRepository {
     return jdbcTemplate.query(sql, this::mapAnnotation, limit, offset);
   }
 
-  public long countAnnotations(long taskId, String decision) {
-    return listAnnotations(taskId, decision, Integer.MAX_VALUE, 0).size();
+  public long countAnnotations(long reviewerId, long taskId, String decision) {
+    return listAnnotations(reviewerId, taskId, decision, Integer.MAX_VALUE, 0).size();
   }
 
   public List<AiReviewTaskSummaryRecord> listAiReviewTaskSummaries(
@@ -947,6 +950,7 @@ public class ReviewRepository {
         """
         t.deleted_at IS NULL
           AND a.status <> 'voided'
+          AND """ + reviewerAssignmentFilter(reviewerId) + """
           AND an.id = (
             SELECT latest.id
             FROM annotations latest
@@ -1011,6 +1015,42 @@ public class ReviewRepository {
       args.add(like);
     }
     return filters.toString();
+  }
+
+  private String reviewerAssignmentFilter(long reviewerId) {
+    return """
+        (
+          NOT EXISTS (
+            SELECT 1
+            FROM task_review_items tri_any
+            WHERE tri_any.task_id = a.task_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM task_review_items tri
+            WHERE tri.task_id = a.task_id
+              AND tri.item_id = a.item_id
+              AND tri.reviewer_id = """ + reviewerId + """
+          )
+        )
+        """;
+  }
+
+  public boolean canReviewerAccessAnnotation(long reviewerId, long annotationId) {
+    Integer count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE an.id = ?
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+          AND """ + reviewerAssignmentFilter(reviewerId),
+        Integer.class,
+        annotationId);
+    return count != null && count > 0;
   }
 
   /** 任务摘要里的 pending_human 表达式:依据视图区分待审计数。 */

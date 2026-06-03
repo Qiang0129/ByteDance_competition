@@ -2,6 +2,7 @@ import { apiRequest } from './client';
 import type {
   AssignableLabeler,
   CreateOwnerTaskRequest,
+  OwnerTaskDetail,
   OwnerTask,
   OwnerTaskState,
   PageResult,
@@ -17,6 +18,10 @@ export const ownerApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+
+  getTaskDetail(taskId: string): Promise<OwnerTaskDetail> {
+    return apiRequest<OwnerTaskDetail>(`/tasks/${taskId}`);
   },
 
   updateTask(taskId: string, payload: CreateOwnerTaskRequest): Promise<OwnerTask> {
@@ -42,5 +47,9 @@ export const ownerApi = {
 
   listAssignableLabelers(): Promise<AssignableLabeler[]> {
     return apiRequest<AssignableLabeler[]>('/tasks/assignable-labelers');
+  },
+
+  listAssignableReviewers(): Promise<AssignableLabeler[]> {
+    return apiRequest<AssignableLabeler[]>('/tasks/assignable-reviewers');
   },
 };

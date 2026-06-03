@@ -19,8 +19,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
@@ -75,22 +77,29 @@ public class TaskService {
     AuthenticatedUser owner = requireOwner(authentication);
     String state = normalizeState(request.status(), "published", CREATE_STATES);
     DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
+    List<Long> taskItemIds = resolveTaskItemScope(owner.id(), dataset, request, state, null);
+    Integer taskQuota = resolveTaskQuota(request.quota(), taskItemIds);
     TaskMetadata metadata = buildTaskMetadata(owner.id(), request, dataset, state, null);
+    List<TaskRepository.UserAllocationRecord> labelerAllocations =
+        resolveLabelerAllocations(request, metadata, taskItemIds.size(), null);
+    List<TaskRepository.UserAllocationRecord> reviewerAllocations =
+        resolveReviewerAllocations(request, taskItemIds.size(), null);
     validatePublishedSchemaConfiguration(owner.id(), metadata, state, null);
-    validateStrategyConfiguration(metadata, state);
+    validateStrategyConfiguration(metadata, state, taskItemIds.size(), labelerAllocations, reviewerAllocations);
 
     long taskId = taskRepository.createTask(
         owner.id(),
         request.title().trim(),
         resolveDescription(request.description()),
         state,
-        request.quota(),
+        taskQuota,
         parseDeadline(request.deadline()),
         metadata,
         parseSchemaVersion(request.schema()));
     bindDatasetToTask(dataset, taskId);
+    syncTaskScopeAndAllocations(taskId, taskItemIds, labelerAllocations, reviewerAllocations);
     auditTaskCreation(taskId, owner, state);
-    ensureStrategyAssignments(taskId, metadata, request.quota(), state, owner);
+    ensureStrategyAssignments(taskId, metadata, taskQuota, state, owner);
 
     return taskRepository.findTask(taskId)
         .map(this::toOwnerResponse)
@@ -117,6 +126,8 @@ public class TaskService {
     stateMachineService.validate(WorkflowEntityType.TASK, existing.status(), state, "owner");
     DatasetRecord dataset = resolveSelectedDataset(owner.id(), request.datasetId());
     boolean renewingEndedTask = "ended".equals(existing.status()) && "published".equals(state);
+    List<Long> taskItemIds = resolveTaskItemScope(owner.id(), dataset, request, state, existing);
+    Integer taskQuota = resolveTaskQuota(request.quota(), taskItemIds);
     TaskMetadata metadata = buildTaskMetadata(
         owner.id(),
         request,
@@ -124,8 +135,13 @@ public class TaskService {
         state,
         readMetadata(existing.rewardRuleJson()),
         renewingEndedTask);
+    List<TaskRepository.UserAllocationRecord> labelerAllocations =
+        resolveLabelerAllocations(request, metadata, taskItemIds.size(), taskRepository.listLabelerAllocations(taskId));
+    List<TaskRepository.UserAllocationRecord> reviewerAllocations =
+        resolveReviewerAllocations(request, taskItemIds.size(), taskRepository.listReviewerAllocations(taskId));
+    ensureConfigMutable(existing, taskItemIds, labelerAllocations, reviewerAllocations);
     validatePublishedSchemaConfiguration(owner.id(), metadata, state, existing, existing.status());
-    validateStrategyConfiguration(metadata, state);
+    validateStrategyConfiguration(metadata, state, taskItemIds.size(), labelerAllocations, reviewerAllocations);
 
     int updated = taskRepository.updateTask(
         owner.id(),
@@ -133,7 +149,7 @@ public class TaskService {
         request.title().trim(),
         resolveDescription(request.description()),
         state,
-        request.quota(),
+        taskQuota,
         deadline,
         metadata);
     if (updated == 0) {
@@ -141,8 +157,9 @@ public class TaskService {
     }
     taskRepository.updateLatestSchemaState(taskId, state);
     bindDatasetToTask(dataset, taskId);
+    syncTaskScopeAndAllocations(taskId, taskItemIds, labelerAllocations, reviewerAllocations);
     auditTaskTransition(existing, owner, state);
-    ensureStrategyAssignments(taskId, metadata, request.quota(), state, owner);
+    ensureStrategyAssignments(taskId, metadata, taskQuota, state, owner);
 
     return taskRepository.findTask(taskId)
         .map(this::toOwnerResponse)
@@ -156,6 +173,31 @@ public class TaskService {
         .map(this::toOwnerResponse)
         .toList();
     return new PageResponse<>(items, 1, items.size(), items.size());
+  }
+
+  public OwnerTaskDetailResponse getTaskDetail(Authentication authentication, long taskId) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    TaskRecord task = taskRepository.findTask(taskId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found"));
+    if (task.ownerId() != owner.id()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "TASK_NOT_FOUND", "task not found");
+    }
+    TaskMetadata metadata = readMetadata(task.rewardRuleJson());
+    List<Long> taskItemIds = taskRepository.listTaskItemIds(taskId);
+    List<TaskRepository.UserAllocationRecord> labelerAllocations = taskRepository.listLabelerAllocations(taskId);
+    if (labelerAllocations.isEmpty() && "assigned".equals(metadata.resolvedStrategy())) {
+      labelerAllocations = splitEvenly(metadata.resolvedAssignedLabelerIds(), taskItemIds.size());
+    }
+    return new OwnerTaskDetailResponse(
+        toOwnerResponse(task),
+        metadata.resolvedItemSelectionMode(),
+        taskItemIds.stream().map(String::valueOf).toList(),
+        labelerAllocations.stream()
+            .map(this::toTaskUserAllocationResponse)
+            .toList(),
+        taskRepository.listReviewerAllocations(taskId).stream()
+            .map(this::toTaskUserAllocationResponse)
+            .toList());
   }
 
   @Transactional
@@ -188,6 +230,16 @@ public class TaskService {
   public List<AssignableLabelerResponse> listAssignableLabelers(Authentication authentication) {
     requireOwner(authentication);
     return authRepository.listUsersByRoleCode("labeler").stream()
+        .map(user -> new AssignableLabelerResponse(
+            Long.toString(user.id()),
+            user.username(),
+            user.name()))
+        .toList();
+  }
+
+  public List<AssignableLabelerResponse> listAssignableReviewers(Authentication authentication) {
+    requireOwner(authentication);
+    return authRepository.listUsersByRoleCode("reviewer").stream()
         .map(user -> new AssignableLabelerResponse(
             Long.toString(user.id()),
             user.username(),
@@ -370,6 +422,13 @@ public class TaskService {
         request.aiReviewRuleId(),
         "published".equals(state),
         fallbackMetadata);
+    List<Long> assignedLabelerIds = resolveAssignedLabelerIds(request);
+    if (assignedLabelerIds.isEmpty()
+        && fallbackMetadata != null
+        && request.assignedLabelerIds() == null
+        && request.labelerAllocations() == null) {
+      assignedLabelerIds = fallbackMetadata.resolvedAssignedLabelerIds();
+    }
 
     return new TaskMetadata(
         normalizeTags(request.tags()),
@@ -377,7 +436,7 @@ public class TaskService {
         normalizeStrategy(request.strategy()),
         dataset == null ? null : dataset.id(),
         request.maxClaimPerUser(),
-        parseAssignedLabelerIds(request.assignedLabelerIds()),
+        assignedLabelerIds,
         schemaLabel,
         schemaVersionId,
         schemaVersion,
@@ -385,8 +444,11 @@ public class TaskService {
         aiReviewRule.ruleId(),
         aiReviewRule.ruleName(),
         request.llmAssistEnabled() == null
-            ? fallbackMetadata != null && fallbackMetadata.resolvedLlmAssistEnabled()
+            ? fallbackMetadata == null || fallbackMetadata.resolvedLlmAssistEnabled()
             : request.llmAssistEnabled(),
+        request.itemSelectionMode() == null && fallbackMetadata != null
+            ? fallbackMetadata.resolvedItemSelectionMode()
+            : normalizeItemSelectionMode(request.itemSelectionMode()),
         resolveTaskType(request),
         resolveRewardPerItem(request.reward()));
   }
@@ -515,18 +577,32 @@ public class TaskService {
     }
   }
 
-  private void validateStrategyConfiguration(TaskMetadata metadata, String state) {
+  private void validateStrategyConfiguration(
+      TaskMetadata metadata,
+      String state,
+      int itemCount,
+      List<TaskRepository.UserAllocationRecord> labelerAllocations,
+      List<TaskRepository.UserAllocationRecord> reviewerAllocations) {
     if (!PUBLISHED_STRATEGIES.contains(metadata.resolvedStrategy())) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ASSIGN_STRATEGY", "unsupported assign strategy");
     }
     if (!"published".equals(state)) {
       return;
     }
-    if ("assigned".equals(metadata.resolvedStrategy()) && metadata.resolvedAssignedLabelerIds().isEmpty()) {
+    if (itemCount <= 0) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "TASK_ITEMS_REQUIRED", "published task requires at least one item");
+    }
+    if ("assigned".equals(metadata.resolvedStrategy()) && labelerAllocations.isEmpty()) {
       throw new ApiException(
           HttpStatus.BAD_REQUEST,
           "ASSIGNED_LABELERS_REQUIRED",
           "assigned strategy requires at least one labeler");
+    }
+    if ("assigned".equals(metadata.resolvedStrategy()) && sumAllocations(labelerAllocations) != itemCount) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "LABELER_ALLOCATION_MISMATCH",
+          "labeler allocation total must equal task item count");
     }
     if ("quota".equals(metadata.resolvedStrategy()) && metadata.resolvedMaxClaimPerUser() == null) {
       throw new ApiException(
@@ -534,6 +610,219 @@ public class TaskService {
           "MAX_CLAIM_PER_USER_REQUIRED",
           "quota strategy requires max claim per user");
     }
+    if (reviewerAllocations.isEmpty()) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "REVIEWERS_REQUIRED",
+          "published task requires at least one reviewer");
+    }
+    if (sumAllocations(reviewerAllocations) != itemCount) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "REVIEWER_ALLOCATION_MISMATCH",
+          "reviewer allocation total must equal task item count");
+    }
+  }
+
+  private List<Long> resolveTaskItemScope(
+      long ownerId,
+      DatasetRecord dataset,
+      CreateTaskRequest request,
+      String state,
+      TaskRecord existing) {
+    if (dataset == null) {
+      if ("published".equals(state)) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "DATASET_REQUIRED", "published task requires dataset");
+      }
+      return existing == null ? List.of() : taskRepository.listTaskItemIds(existing.id());
+    }
+    if (request.itemSelectionMode() == null
+        && request.selectedItemIds() == null
+        && existing != null
+        && taskRepository.hasTaskItemSnapshot(existing.id())) {
+      return taskRepository.listTaskItemIds(existing.id());
+    }
+    List<Long> datasetItemIds = datasetRepository.listDatasetItemIds(ownerId, dataset.id());
+    String mode = normalizeItemSelectionMode(request.itemSelectionMode());
+    if ("all".equals(mode)) {
+      return datasetItemIds;
+    }
+    List<Long> selected = parseLongIds(request.selectedItemIds(), "INVALID_ITEM_ID");
+    if (selected.isEmpty()) {
+      if ("published".equals(state)) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "TASK_ITEMS_REQUIRED", "partial item selection is empty");
+      }
+      return List.of();
+    }
+    Set<Long> allowed = new LinkedHashSet<>(datasetItemIds);
+    for (long itemId : selected) {
+      if (!allowed.contains(itemId)) {
+        throw new ApiException(
+            HttpStatus.BAD_REQUEST,
+            "ITEM_NOT_IN_DATASET",
+            "selected item does not belong to dataset");
+      }
+    }
+    return selected;
+  }
+
+  private Integer resolveTaskQuota(Integer requestedQuota, List<Long> taskItemIds) {
+    if (taskItemIds != null && !taskItemIds.isEmpty()) {
+      return taskItemIds.size();
+    }
+    return requestedQuota;
+  }
+
+  private List<TaskRepository.UserAllocationRecord> resolveLabelerAllocations(
+      CreateTaskRequest request,
+      TaskMetadata metadata,
+      int itemCount,
+      List<TaskRepository.UserAllocationRecord> fallback) {
+    if (request.labelerAllocations() == null && fallback != null && !fallback.isEmpty()) {
+      return fallback;
+    }
+    List<TaskRepository.UserAllocationRecord> allocations =
+        parseUserAllocations(request.labelerAllocations(), "INVALID_LABELER_ID");
+    if (allocations.isEmpty() && "assigned".equals(metadata.resolvedStrategy())) {
+      List<Long> labelerIds = metadata.resolvedAssignedLabelerIds();
+      allocations = splitEvenly(labelerIds, itemCount);
+    }
+    for (TaskRepository.UserAllocationRecord allocation : allocations) {
+      ensureAssignableLabeler(allocation.userId());
+    }
+    return allocations;
+  }
+
+  private List<TaskRepository.UserAllocationRecord> resolveReviewerAllocations(
+      CreateTaskRequest request,
+      int itemCount,
+      List<TaskRepository.UserAllocationRecord> fallback) {
+    if (request.reviewerAllocations() == null && fallback != null && !fallback.isEmpty()) {
+      return fallback;
+    }
+    List<TaskRepository.UserAllocationRecord> allocations =
+        parseUserAllocations(request.reviewerAllocations(), "INVALID_REVIEWER_ID");
+    if (allocations.isEmpty() && itemCount > 0) {
+      List<Long> reviewerIds = authRepository.listUsersByRoleCode("reviewer").stream()
+          .map(UserAccount::id)
+          .toList();
+      allocations = splitEvenly(reviewerIds, itemCount);
+    }
+    for (TaskRepository.UserAllocationRecord allocation : allocations) {
+      ensureAssignableReviewer(allocation.userId());
+    }
+    return allocations;
+  }
+
+  private void ensureConfigMutable(
+      TaskRecord existing,
+      List<Long> nextItemIds,
+      List<TaskRepository.UserAllocationRecord> nextLabelerAllocations,
+      List<TaskRepository.UserAllocationRecord> nextReviewerAllocations) {
+    if (!taskRepository.hasTaskWork(existing.id())) {
+      return;
+    }
+    if (!sameLongList(taskRepository.listTaskItemIds(existing.id()), nextItemIds)
+        || !sameAllocationList(taskRepository.listLabelerAllocations(existing.id()), nextLabelerAllocations)
+        || !sameAllocationList(taskRepository.listReviewerAllocations(existing.id()), nextReviewerAllocations)) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "TASK_DISTRIBUTION_LOCKED",
+          "task item scope or allocation cannot be changed after assignments or annotations exist");
+    }
+  }
+
+  private void syncTaskScopeAndAllocations(
+      long taskId,
+      List<Long> itemIds,
+      List<TaskRepository.UserAllocationRecord> labelerAllocations,
+      List<TaskRepository.UserAllocationRecord> reviewerAllocations) {
+    taskRepository.replaceTaskItems(taskId, itemIds);
+    taskRepository.replaceLabelerAllocations(taskId, labelerAllocations);
+    taskRepository.replaceReviewerAllocations(taskId, reviewerAllocations);
+    taskRepository.replaceTaskReviewItems(taskId, buildReviewItemBindings(itemIds, reviewerAllocations));
+  }
+
+  private List<TaskRepository.ItemReviewerRecord> buildReviewItemBindings(
+      List<Long> itemIds,
+      List<TaskRepository.UserAllocationRecord> reviewerAllocations) {
+    List<TaskRepository.ItemReviewerRecord> records = new ArrayList<>();
+    if (itemIds == null || itemIds.isEmpty() || reviewerAllocations == null || reviewerAllocations.isEmpty()) {
+      return records;
+    }
+    int itemIndex = 0;
+    for (TaskRepository.UserAllocationRecord allocation : reviewerAllocations) {
+      for (int i = 0; i < allocation.itemCount() && itemIndex < itemIds.size(); i++) {
+        records.add(new TaskRepository.ItemReviewerRecord(itemIds.get(itemIndex), allocation.userId()));
+        itemIndex++;
+      }
+    }
+    return records;
+  }
+
+  private List<TaskRepository.UserAllocationRecord> parseUserAllocations(
+      List<UserAllocationRequest> requests,
+      String idCode) {
+    if (requests == null) {
+      return List.of();
+    }
+    List<TaskRepository.UserAllocationRecord> allocations = new ArrayList<>();
+    Set<Long> seen = new LinkedHashSet<>();
+    for (UserAllocationRequest request : requests) {
+      if (request == null || request.userId() == null || request.userId().isBlank()) {
+        continue;
+      }
+      long userId = parseLongId(request.userId(), idCode);
+      if (!seen.add(userId)) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "DUPLICATE_ALLOCATION_USER", "allocation user is duplicated");
+      }
+      if (request.itemCount() == null || request.itemCount() < 1) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ALLOCATION_COUNT", "allocation count must be greater than 0");
+      }
+      allocations.add(new TaskRepository.UserAllocationRecord(userId, null, null, request.itemCount()));
+    }
+    return allocations;
+  }
+
+  private List<TaskRepository.UserAllocationRecord> splitEvenly(List<Long> userIds, int itemCount) {
+    if (userIds == null || userIds.isEmpty() || itemCount <= 0) {
+      return List.of();
+    }
+    List<TaskRepository.UserAllocationRecord> allocations = new ArrayList<>();
+    int base = itemCount / userIds.size();
+    int remainder = itemCount % userIds.size();
+    for (int index = 0; index < userIds.size(); index++) {
+      int count = base + (index < remainder ? 1 : 0);
+      if (count > 0) {
+        allocations.add(new TaskRepository.UserAllocationRecord(userIds.get(index), null, null, count));
+      }
+    }
+    return allocations;
+  }
+
+  private int sumAllocations(List<TaskRepository.UserAllocationRecord> allocations) {
+    return allocations == null ? 0 : allocations.stream().mapToInt(TaskRepository.UserAllocationRecord::itemCount).sum();
+  }
+
+  private boolean sameLongList(List<Long> left, List<Long> right) {
+    return List.copyOf(left == null ? List.of() : left).equals(List.copyOf(right == null ? List.of() : right));
+  }
+
+  private boolean sameAllocationList(
+      List<TaskRepository.UserAllocationRecord> left,
+      List<TaskRepository.UserAllocationRecord> right) {
+    Map<Long, Integer> leftMap = toAllocationMap(left);
+    Map<Long, Integer> rightMap = toAllocationMap(right);
+    return leftMap.equals(rightMap);
+  }
+
+  private Map<Long, Integer> toAllocationMap(List<TaskRepository.UserAllocationRecord> allocations) {
+    return allocations == null
+        ? Map.of()
+        : allocations.stream()
+            .collect(java.util.stream.Collectors.toMap(
+                TaskRepository.UserAllocationRecord::userId,
+                TaskRepository.UserAllocationRecord::itemCount));
   }
 
   private void ensureStrategyAssignments(
@@ -549,7 +838,11 @@ public class TaskService {
     }
 
     List<Long> labelerIds = metadata.resolvedAssignedLabelerIds();
-    for (long labelerId : metadata.resolvedAssignedLabelerIds()) {
+    List<TaskRepository.UserAllocationRecord> allocations = taskRepository.listLabelerAllocations(taskId);
+    for (TaskRepository.UserAllocationRecord allocation : allocations) {
+      ensureAssignableLabeler(allocation.userId());
+    }
+    for (long labelerId : labelerIds) {
       ensureAssignableLabeler(labelerId);
     }
 
@@ -558,6 +851,26 @@ public class TaskService {
     if (batchSize <= 0) {
       if (existingAssignments == 0) {
         throw noAssignableItemOrQuota(taskId, "assign");
+      }
+      return;
+    }
+
+    if (!allocations.isEmpty()) {
+      LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
+      for (TaskRepository.UserAllocationRecord allocation : allocations) {
+        long alreadyAssigned = taskRepository.countLabelerTaskAssignments(taskId, allocation.userId());
+        int remaining = (int) Math.max(allocation.itemCount() - alreadyAssigned, 0);
+        if (remaining <= 0) {
+          continue;
+        }
+        List<Long> itemIds = taskRepository.findClaimableItems(taskId, remaining);
+        if (itemIds.size() < remaining && existingAssignments == 0) {
+          throw noAssignableItemOrQuota(taskId, "assign");
+        }
+        for (long itemId : itemIds) {
+          long assignmentId = createAssignmentOrConflict(taskId, itemId, allocation.userId(), lockedUntil);
+          auditAssignmentCreation(assignmentId, owner, "owner", taskId, itemId, allocation.userId());
+        }
       }
       return;
     }
@@ -594,6 +907,25 @@ public class TaskService {
     }
   }
 
+  private void ensureAssignableReviewer(long reviewerId) {
+    UserAccount user = authRepository.findUserById(reviewerId)
+        .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "REVIEWER_NOT_FOUND", "reviewer not found"));
+    if (!authRepository.findRoleCodes(user.id()).contains("reviewer")) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "REVIEWER_ROLE_REQUIRED",
+          "assigned user must have reviewer role");
+    }
+  }
+
+  private TaskUserAllocationResponse toTaskUserAllocationResponse(TaskRepository.UserAllocationRecord record) {
+    return new TaskUserAllocationResponse(
+        Long.toString(record.userId()),
+        record.username(),
+        record.displayName(),
+        record.itemCount());
+  }
+
   private OwnerTaskResponse toOwnerResponse(TaskRecord record) {
     TaskMetadata metadata = readMetadata(record.rewardRuleJson());
     int totalQuota = record.quota() == null ? 0 : record.quota();
@@ -613,6 +945,10 @@ public class TaskService {
         datasetId,
         record.quotaUsed(),
         totalQuota,
+        record.annotatedItemCount(),
+        record.publishedItemTotal(),
+        record.reviewStatus(),
+        record.reviewRound(),
         metadata.resolvedMaxClaimPerUser(),
         metadata.resolvedAssignedLabelerIds().stream().map(String::valueOf).toList(),
         formatDateTime(record.createdAt()),
@@ -1063,6 +1399,7 @@ public class TaskService {
         null,
         null,
         false,
+        "all",
         "Annotation Task",
         null);
   }
@@ -1157,6 +1494,44 @@ public class TaskService {
       }
     }
     return ids;
+  }
+
+  private List<Long> resolveAssignedLabelerIds(CreateTaskRequest request) {
+    if (request.labelerAllocations() != null && !request.labelerAllocations().isEmpty()) {
+      return parseUserAllocations(request.labelerAllocations(), "INVALID_LABELER_ID").stream()
+          .map(TaskRepository.UserAllocationRecord::userId)
+          .toList();
+    }
+    return parseAssignedLabelerIds(request.assignedLabelerIds());
+  }
+
+  private List<Long> parseLongIds(List<String> values, String code) {
+    if (values == null) {
+      return List.of();
+    }
+    List<Long> ids = new ArrayList<>();
+    Set<Long> seen = new LinkedHashSet<>();
+    for (String value : values) {
+      if (value == null || value.isBlank()) {
+        continue;
+      }
+      long parsed = parseLongId(value.trim(), code);
+      if (seen.add(parsed)) {
+        ids.add(parsed);
+      }
+    }
+    return ids;
+  }
+
+  private String normalizeItemSelectionMode(String mode) {
+    if (mode == null || mode.isBlank()) {
+      return "all";
+    }
+    String normalized = mode.trim().toLowerCase(Locale.ROOT);
+    if (!Set.of("all", "partial").contains(normalized)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ITEM_SELECTION_MODE", "unsupported item selection mode");
+    }
+    return normalized;
   }
 
   private String resolveTaskType(CreateTaskRequest request) {

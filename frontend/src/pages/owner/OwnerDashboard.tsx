@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons';
 import {
   Alert,
+  App as AntdApp,
   Avatar,
   Button,
   Card,
@@ -89,12 +90,20 @@ const reviewLabels: Array<{ key: keyof ReviewDistribution; label: string; color:
 ];
 
 const roleColors = ['#2f7bff', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
+const currentYear = new Date().getFullYear();
+const reviewYearOptions = Array.from({ length: 5 }, (_, index) => {
+  const year = currentYear - index;
+  return { label: String(year), value: year };
+});
 
 export default function OwnerDashboard() {
+  const { message } = AntdApp.useApp();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
+  const [reviewYear, setReviewYear] = useState(currentYear);
+  const [reviewReportDownloading, setReviewReportDownloading] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [issueFeedback, setIssueFeedback] = useState<IssueFeedback[]>([]);
   const [issueTotal, setIssueTotal] = useState(0);
@@ -139,7 +148,7 @@ export default function OwnerDashboard() {
       ] = await Promise.all([
         dashboardApi.getOverview(range),
         dashboardApi.getTaskProgress(),
-        dashboardApi.getReviewDistribution(range),
+        dashboardApi.getReviewDistribution({ year: reviewYear }),
         dashboardApi.getLabelerPerformance(range),
         dashboardApi.getSubmissionTimeline(),
         dashboardApi.getRecentActivities(),
@@ -166,7 +175,7 @@ export default function OwnerDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [range]);
+  }, [range, reviewYear]);
 
   useEffect(() => {
     void loadDashboard();
@@ -180,6 +189,18 @@ export default function OwnerDashboard() {
     setFeedbackOpen(true);
     void loadIssueFeedback();
   };
+
+  const downloadReviewReport = useCallback(async () => {
+    setReviewReportDownloading(true);
+    try {
+      await dashboardApi.downloadReviewDistributionReport(reviewYear);
+      message.success(`${reviewYear} 年 AI 审核分布报告已开始下载`);
+    } catch (error) {
+      message.error(getApiErrorMessage(error, 'AI 审核分布报告下载失败'));
+    } finally {
+      setReviewReportDownloading(false);
+    }
+  }, [message, reviewYear]);
 
   return (
     <>
@@ -222,7 +243,14 @@ export default function OwnerDashboard() {
                 <TaskProgressCard items={data.taskProgress} />
               </Col>
               <Col xs={24} xl={9}>
-                <ReviewDistributionCard distribution={data.review} />
+                <ReviewDistributionCard
+                  distribution={data.review}
+                  year={reviewYear}
+                  yearOptions={reviewYearOptions}
+                  onYearChange={setReviewYear}
+                  onDownload={downloadReviewReport}
+                  downloading={reviewReportDownloading}
+                />
               </Col>
             </Row>
 
@@ -604,7 +632,21 @@ function TaskProgressCard({ items }: { items: TaskProgress[] }) {
 }
 
 /* ============ AI 审核分布(环形图 recharts) ============ */
-function ReviewDistributionCard({ distribution }: { distribution: ReviewDistribution }) {
+function ReviewDistributionCard({
+  distribution,
+  year,
+  yearOptions,
+  onYearChange,
+  onDownload,
+  downloading,
+}: {
+  distribution: ReviewDistribution;
+  year: number;
+  yearOptions: Array<{ label: string; value: number }>;
+  onYearChange: (year: number) => void;
+  onDownload: () => void;
+  downloading: boolean;
+}) {
   const total = reviewLabels.reduce((sum, item) => sum + (distribution[item.key] ?? 0), 0);
   // 整理成 recharts Pie 数据
   const pieData = reviewLabels.map((seg) => ({
@@ -620,11 +662,9 @@ function ReviewDistributionCard({ distribution }: { distribution: ReviewDistribu
       extra={
         <Select
           size="small"
-          defaultValue="2026"
-          options={[
-            { label: '2026', value: '2026' },
-            { label: '2025', value: '2025' },
-          ]}
+          value={year}
+          options={yearOptions}
+          onChange={onYearChange}
           style={{ width: 80 }}
         />
       }
@@ -682,7 +722,13 @@ function ReviewDistributionCard({ distribution }: { distribution: ReviewDistribu
         <Typography.Text type="secondary" className="dashboard-foot-tip">
           周期内合计 {total} 条审核结果
         </Typography.Text>
-        <Button type="primary" size="small" icon={<DownloadOutlined />}>
+        <Button
+          type="primary"
+          size="small"
+          icon={<DownloadOutlined />}
+          onClick={onDownload}
+          loading={downloading}
+        >
           下载报告
         </Button>
       </div>

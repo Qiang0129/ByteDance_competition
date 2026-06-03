@@ -24,6 +24,10 @@ public record CreateTaskRequest(
     Boolean aiReviewEnabled,
     String aiReviewRuleId,
     Boolean llmAssistEnabled,
+    String itemSelectionMode,
+    List<String> selectedItemIds,
+    List<UserAllocationRequest> labelerAllocations,
+    List<UserAllocationRequest> reviewerAllocations,
     String description,
     String taskType,
     String status) {}

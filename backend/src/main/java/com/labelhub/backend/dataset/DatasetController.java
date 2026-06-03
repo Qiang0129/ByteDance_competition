@@ -66,6 +66,16 @@ public class DatasetController {
     return datasetService.listItems(authentication, datasetId);
   }
 
+  @GetMapping("/datasets/{datasetId}/item-options")
+  public PageResponse<DatasetItemOptionResponse> listDatasetItemOptions(
+      Authentication authentication,
+      @PathVariable long datasetId,
+      @RequestParam(required = false) String keyword,
+      @RequestParam(required = false) Integer page,
+      @RequestParam(required = false) Integer pageSize) {
+    return datasetService.listItemOptions(authentication, datasetId, keyword, page, pageSize);
+  }
+
   @DeleteMapping("/datasets/{datasetId}")
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void deleteDataset(

@@ -48,7 +48,7 @@ public class ReviewService {
     int rangeDays = days == null || days < 1 ? 30 : Math.min(days, 365);
     return new ReviewerOverviewResponse(
         rangeDays,
-        reviewRepository.countPendingBatches(),
+        reviewRepository.countPendingBatches(reviewer.id()),
         reviewRepository.countHumanReviewsToday("approve"),
         reviewRepository.countHumanReviewsToday("return"),
         reviewRepository.countHumanReviewsToday("escalate"),
@@ -63,12 +63,12 @@ public class ReviewService {
       String keyword,
       Integer page,
       Integer pageSize) {
-    requireReviewer(authentication);
+    AuthenticatedUser reviewer = requireReviewer(authentication);
     String normalizedStatus = normalizeBatchStatus(status);
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
     List<ReviewBatchResponse> items = reviewRepository
-        .listBatches(normalizedStatus, keyword, safePageSize, (safePage - 1) * safePageSize)
+        .listBatches(reviewer.id(), normalizedStatus, keyword, safePageSize, (safePage - 1) * safePageSize)
         .stream()
         .map(this::toBatchResponse)
         .toList();
@@ -76,12 +76,12 @@ public class ReviewService {
         items,
         safePage,
         safePageSize,
-        reviewRepository.countBatches(normalizedStatus, keyword));
+        reviewRepository.countBatches(reviewer.id(), normalizedStatus, keyword));
   }
 
   public ReviewBatchResponse claimBatch(Authentication authentication, long batchId) {
-    requireReviewer(authentication);
-    return reviewRepository.findBatch(batchId)
+    AuthenticatedUser reviewer = requireReviewer(authentication);
+    return reviewRepository.findBatch(reviewer.id(), batchId)
         .map(this::toBatchResponse)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "REVIEW_BATCH_NOT_FOUND", "review batch not found"));
   }
@@ -92,7 +92,7 @@ public class ReviewService {
       String decision,
       Integer page,
       Integer pageSize) {
-    requireReviewer(authentication);
+    AuthenticatedUser reviewer = requireReviewer(authentication);
     long taskId = "all".equalsIgnoreCase(batchId) ? 0L : parseLongId(batchId, "INVALID_REVIEW_BATCH_ID");
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
@@ -100,7 +100,7 @@ public class ReviewService {
         ? null
         : decision.trim().toLowerCase(Locale.ROOT);
     List<AnnotationToReviewResponse> items = reviewRepository
-        .listAnnotations(taskId, normalizedDecision, safePageSize, (safePage - 1) * safePageSize)
+        .listAnnotations(reviewer.id(), taskId, normalizedDecision, safePageSize, (safePage - 1) * safePageSize)
         .stream()
         .map(this::toAnnotationResponse)
         .toList();
@@ -108,7 +108,7 @@ public class ReviewService {
         items,
         safePage,
         safePageSize,
-        reviewRepository.countAnnotations(taskId, normalizedDecision));
+        reviewRepository.countAnnotations(reviewer.id(), taskId, normalizedDecision));
   }
 
   public ReviewerPageResponse<AiReviewTaskSummaryResponse> listAiReviewTasks(
@@ -183,6 +183,7 @@ public class ReviewService {
     String reason = effectiveReason(request);
     ReviewRepository.AnnotationStateRecord state = reviewRepository.lockAnnotationState(annotationId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ANNOTATION_NOT_FOUND", "annotation not found"));
+    ensureReviewerAssigned(reviewer, annotationId);
     ensureReviewable(state.annotationStatus());
     int roundNo = reviewRepository.nextReviewRound(annotationId);
     Long responseAnnotationId = null;
@@ -251,6 +252,7 @@ public class ReviewService {
     String decision = normalizeReviewDecision(request.decision());
     ReviewRepository.AnnotationStateRecord state = reviewRepository.lockAnnotationState(annotationId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ANNOTATION_NOT_FOUND", "annotation not found"));
+    ensureReviewerAssigned(reviewer, annotationId);
     ensureReviewable(state.annotationStatus());
     int roundNo = reviewRepository.nextReviewRound(annotationId);
     String reason = effectiveReason(request);
@@ -475,6 +477,15 @@ public class ReviewService {
           HttpStatus.CONFLICT,
           "ANNOTATION_NOT_REVIEWABLE",
           "annotation is not reviewable in current state");
+    }
+  }
+
+  private void ensureReviewerAssigned(AuthenticatedUser reviewer, long annotationId) {
+    if (!reviewRepository.canReviewerAccessAnnotation(reviewer.id(), annotationId)) {
+      throw new ApiException(
+          HttpStatus.FORBIDDEN,
+          "REVIEWER_NOT_ASSIGNED",
+          "reviewer is not assigned to this annotation");
     }
   }
 

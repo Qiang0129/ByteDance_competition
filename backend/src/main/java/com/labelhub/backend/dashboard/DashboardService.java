@@ -3,12 +3,19 @@ package com.labelhub.backend.dashboard;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.task.TaskDeadlineSettlementService;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -96,14 +103,45 @@ public class DashboardService {
     return new DashboardItemsResponse<>(items);
   }
 
-  public ReviewDistributionResponse getReviewDistribution(Authentication authentication, String range) {
+  public ReviewDistributionResponse getReviewDistribution(Authentication authentication, String range, Integer year) {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
-    DateRange dateRange = dashboardRange(range);
+    DateRange dateRange = reviewDistributionRange(range, year);
+    return buildReviewDistribution(owner.id(), dateRange);
+  }
+
+  public ResponseEntity<Resource> downloadReviewDistributionReport(Authentication authentication, Integer year) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    settleExpiredTasks();
+    int safeYear = normalizeYear(year);
+    DateRange dateRange = yearRange(safeYear);
+    ReviewDistributionResponse distribution = buildReviewDistribution(owner.id(), dateRange);
+    long total = distribution.aiPass()
+        + distribution.aiNeedHuman()
+        + distribution.aiReject()
+        + distribution.humanPass()
+        + distribution.humanReturned();
+    String csv = buildReviewDistributionCsv(safeYear, distribution, total);
+    byte[] bytes = csv.getBytes(StandardCharsets.UTF_8);
+    String filename = "ai-review-distribution-" + safeYear + ".csv";
+
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+        .contentLength(bytes.length)
+        .header(
+            HttpHeaders.CONTENT_DISPOSITION,
+            ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build()
+                .toString())
+        .body(new ByteArrayResource(bytes));
+  }
+
+  private ReviewDistributionResponse buildReviewDistribution(long ownerId, DateRange dateRange) {
     DashboardRepository.AiDecisionCounts ai = safeAiCounts(
-        repository.countAiDecisions(owner.id(), dateRange.start(), dateRange.end()));
+        repository.countAiDecisions(ownerId, dateRange.start(), dateRange.end()));
     DashboardRepository.HumanDecisionCounts human = safeHumanCounts(
-        repository.countHumanDecisions(owner.id(), dateRange.start(), dateRange.end()));
+        repository.countHumanDecisions(ownerId, dateRange.start(), dateRange.end()));
     return new ReviewDistributionResponse(
         ai.aiPass(),
         ai.aiNeedHuman(),
@@ -214,6 +252,18 @@ public class DashboardService {
     return new DateRange(end.minusDays(days), end);
   }
 
+  private DateRange reviewDistributionRange(String range, Integer year) {
+    if (year != null) {
+      return yearRange(normalizeYear(year));
+    }
+    return dashboardRange(range);
+  }
+
+  private DateRange yearRange(int year) {
+    LocalDate start = LocalDate.of(year, 1, 1);
+    return new DateRange(start.atStartOfDay(), start.plusYears(1).atStartOfDay());
+  }
+
   private DateRange previousRange(DateRange range) {
     long days = java.time.Duration.between(range.start(), range.end()).toDays();
     return new DateRange(range.start().minusDays(days), range.start());
@@ -262,6 +312,55 @@ public class DashboardService {
 
   private double roundRate(double value) {
     return Math.round(value * 1000D) / 1000D;
+  }
+
+  private String buildReviewDistributionCsv(
+      int year,
+      ReviewDistributionResponse distribution,
+      long total) {
+    String period = year + " 年";
+    StringBuilder csv = new StringBuilder("\uFEFF");
+    csv.append(csvRow("统计周期", "分类", "数量", "占比"));
+    csv.append(csvRow(period, "AI 通过", Long.toString(distribution.aiPass()), percentText(distribution.aiPass(), total)));
+    csv.append(csvRow(
+        period,
+        "需人工复核",
+        Long.toString(distribution.aiNeedHuman()),
+        percentText(distribution.aiNeedHuman(), total)));
+    csv.append(csvRow(period, "AI 拒绝", Long.toString(distribution.aiReject()), percentText(distribution.aiReject(), total)));
+    csv.append(csvRow(period, "人工通过", Long.toString(distribution.humanPass()), percentText(distribution.humanPass(), total)));
+    csv.append(csvRow(
+        period,
+        "打回修改",
+        Long.toString(distribution.humanReturned()),
+        percentText(distribution.humanReturned(), total)));
+    csv.append(csvRow(period, "合计", Long.toString(total), total == 0 ? "0.00%" : "100.00%"));
+    return csv.toString();
+  }
+
+  private String percentText(long value, long total) {
+    double percent = total == 0 ? 0D : (double) value * 100D / total;
+    return String.format(Locale.ROOT, "%.2f%%", percent);
+  }
+
+  private String csvRow(String... cells) {
+    StringBuilder row = new StringBuilder();
+    for (int i = 0; i < cells.length; i++) {
+      if (i > 0) {
+        row.append(',');
+      }
+      row.append(csvCell(cells[i]));
+    }
+    row.append('\n');
+    return row.toString();
+  }
+
+  private String csvCell(String value) {
+    String safe = value == null ? "" : value;
+    if (safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\r")) {
+      return "\"" + safe.replace("\"", "\"\"") + "\"";
+    }
+    return safe;
   }
 
   private String activityStatus(String action, String toState) {

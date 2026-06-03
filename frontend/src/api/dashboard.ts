@@ -4,6 +4,8 @@
  *   GET /dashboard/overview?range=...
  *   GET /dashboard/task-progress
  *   GET /dashboard/review-distribution?range=...
+ *   GET /dashboard/review-distribution?year=...
+ *   GET /dashboard/review-distribution/report?year=...
  *   GET /dashboard/labeler-performance?range=...
  *   GET /dashboard/submission-timeline?year=...
  *   GET /dashboard/recent-activities
@@ -11,7 +13,7 @@
  *   GET /dashboard/disputes?days=7|14|30
  */
 
-import { apiRequest } from './client';
+import { ApiError, apiRequest, buildApiUrl, getAuthToken } from './client';
 import type {
   DashboardOverview,
   DashboardPageResult,
@@ -26,6 +28,60 @@ import type {
   TaskProgress,
 } from '../types/dashboard';
 
+type ReviewDistributionParams =
+  | string
+  | {
+      range?: string;
+      year?: number;
+    };
+
+function buildReviewDistributionQuery(params: ReviewDistributionParams) {
+  const searchParams = new URLSearchParams();
+  if (typeof params === 'string') {
+    searchParams.set('range', params);
+  } else {
+    if (params.range) searchParams.set('range', params.range);
+    if (params.year) searchParams.set('year', String(params.year));
+  }
+  const query = searchParams.toString();
+  return query ? `?${query}` : '';
+}
+
+function parseFilename(contentDisposition: string | null) {
+  if (!contentDisposition) return null;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ''));
+    } catch {
+      return utf8Match[1].replace(/"/g, '');
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ?? null;
+}
+
+async function throwDownloadError(response: Response): Promise<never> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const payload = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
+  throw new ApiError(response.status, response.statusText, payload);
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const dashboardApi = {
   getOverview(range = '30d'): Promise<DashboardOverview> {
     return apiRequest<DashboardOverview>(`/dashboard/overview?range=${encodeURIComponent(range)}`);
@@ -35,8 +91,30 @@ export const dashboardApi = {
     return apiRequest('/dashboard/task-progress');
   },
 
-  getReviewDistribution(range = '30d'): Promise<ReviewDistribution> {
-    return apiRequest(`/dashboard/review-distribution?range=${encodeURIComponent(range)}`);
+  getReviewDistribution(params: ReviewDistributionParams = '30d'): Promise<ReviewDistribution> {
+    return apiRequest(`/dashboard/review-distribution${buildReviewDistributionQuery(params)}`);
+  },
+
+  async downloadReviewDistributionReport(year: number): Promise<void> {
+    const headers = new Headers();
+    const token = getAuthToken();
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    const response = await fetch(
+      buildApiUrl(`/dashboard/review-distribution/report?year=${encodeURIComponent(year)}`),
+      { headers },
+    );
+    if (!response.ok) {
+      await throwDownloadError(response);
+    }
+
+    const blob = await response.blob();
+    const filename =
+      parseFilename(response.headers.get('content-disposition')) ??
+      `ai-review-distribution-${year}.csv`;
+    triggerBrowserDownload(blob, filename);
   },
 
   getLabelerPerformance(range = '30d'): Promise<{ items: LabelerPerformance[] }> {

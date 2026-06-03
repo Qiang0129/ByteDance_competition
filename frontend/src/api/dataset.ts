@@ -1,6 +1,7 @@
 import { apiRequest } from './client';
 import type {
   CreateDatasetRequest,
+  DatasetItemOption,
   DatasetItem,
   DatasetMeta,
   ImportDatasetRequest,
@@ -14,6 +15,20 @@ export const datasetApi = {
 
   listItems(datasetId: string): Promise<DatasetItem[]> {
     return apiRequest<DatasetItem[]>(`/datasets/${datasetId}/items`);
+  },
+
+  listItemOptions(
+    datasetId: string,
+    params: { keyword?: string; page?: number; pageSize?: number } = {},
+  ): Promise<PageResult<DatasetItemOption>> {
+    const search = new URLSearchParams();
+    if (params.keyword) search.set('keyword', params.keyword);
+    if (params.page) search.set('page', String(params.page));
+    if (params.pageSize) search.set('pageSize', String(params.pageSize));
+    const qs = search.toString();
+    return apiRequest<PageResult<DatasetItemOption>>(
+      `/datasets/${datasetId}/item-options${qs ? `?${qs}` : ''}`,
+    );
   },
 
   createDataset(payload: CreateDatasetRequest): Promise<DatasetMeta> {

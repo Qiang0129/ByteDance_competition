@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import {
   CopyOutlined,
   InfoCircleOutlined,
@@ -17,8 +17,17 @@ const LOGIN_BASE_URL = 'http://localhost:5173';
 const LOGIN_ENDPOINTS = ['/login', '/login#signup'] as const;
 const LOGIN_ENDPOINT_CYCLE = [...LOGIN_ENDPOINTS, LOGIN_ENDPOINTS[0]];
 const ENDPOINT_SWITCH_INTERVAL = 4000;
+const LANDING_ROUTE_ANIMATION_MS = 500;
 
 type PublicNavKey = 'home' | 'docs' | 'about';
+type LandingTransitionKind = 'login' | 'signup';
+
+type LandingRouteTransition = {
+  kind: LandingTransitionKind;
+  target: string;
+  x: number;
+  y: number;
+};
 
 const navItems: Array<{ key: PublicNavKey; label: string; path: string }> = [
   { key: 'home', label: '首页', path: '/' },
@@ -85,8 +94,11 @@ export default function Landing() {
   const { message } = App.useApp();
   const resetFrameRef = useRef<number | null>(null);
   const resetReleaseFrameRef = useRef<number | null>(null);
+  const transitionTimerRef = useRef<number | null>(null);
+  const transitionLockRef = useRef(false);
   const [endpointStep, setEndpointStep] = useState(0);
   const [isEndpointResetting, setIsEndpointResetting] = useState(false);
+  const [routeTransition, setRouteTransition] = useState<LandingRouteTransition | null>(null);
   const currentEndpoint = LOGIN_ENDPOINTS[endpointStep % LOGIN_ENDPOINTS.length];
   const currentLoginUrl = `${LOGIN_BASE_URL}${currentEndpoint}`;
 
@@ -102,6 +114,9 @@ export default function Landing() {
       }
       if (resetReleaseFrameRef.current !== null) {
         window.cancelAnimationFrame(resetReleaseFrameRef.current);
+      }
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current);
       }
     };
   }, []);
@@ -131,8 +146,29 @@ export default function Landing() {
     }
   };
 
+  const handleRouteTransition = (
+    event: MouseEvent<HTMLElement>,
+    target: string,
+    kind: LandingTransitionKind,
+  ) => {
+    if (transitionLockRef.current) {
+      return;
+    }
+
+    transitionLockRef.current = true;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+
+    setRouteTransition({ kind, target, x, y });
+    transitionTimerRef.current = window.setTimeout(() => {
+      navigate(target);
+      transitionTimerRef.current = null;
+    }, LANDING_ROUTE_ANIMATION_MS);
+  };
+
   return (
-    <main className="landing-page">
+    <main className={`landing-page${routeTransition ? ' is-route-transitioning' : ''}`}>
       <PublicHeader activeKey="home" />
 
       <section className="landing-hero" aria-labelledby="landing-title">
@@ -183,17 +219,21 @@ export default function Landing() {
             <Button
               type="primary"
               size="large"
-              className="landing-action-button landing-action-primary"
+              className={`landing-action-button landing-action-primary${
+                routeTransition?.kind === 'login' ? ' is-transition-source' : ''
+              }`}
               icon={<img className="landing-action-icon" src={loginIconUrl} alt="" aria-hidden="true" />}
-              onClick={() => navigate('/login')}
+              onClick={(event) => handleRouteTransition(event, '/login', 'login')}
             >
               登录
             </Button>
             <Button
               size="large"
-              className="landing-action-button landing-action-secondary"
+              className={`landing-action-button landing-action-secondary${
+                routeTransition?.kind === 'signup' ? ' is-transition-source' : ''
+              }`}
               icon={<img className="landing-action-icon" src={signupIconUrl} alt="" aria-hidden="true" />}
-              onClick={() => navigate('/login#signup')}
+              onClick={(event) => handleRouteTransition(event, '/login#signup', 'signup')}
             >
               注册
             </Button>
@@ -220,6 +260,18 @@ export default function Landing() {
       </section>
 
       <LandingFooter />
+      {routeTransition ? (
+        <div
+          className={`landing-route-transition landing-route-transition-${routeTransition.kind}`}
+          style={
+            {
+              '--landing-transition-x': `${routeTransition.x}px`,
+              '--landing-transition-y': `${routeTransition.y}px`,
+            } as CSSProperties
+          }
+          aria-hidden="true"
+        />
+      ) : null}
     </main>
   );
 }

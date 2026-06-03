@@ -43,6 +43,13 @@ public class TaskController {
     return taskService.listOwnerTasks(authentication);
   }
 
+  @GetMapping("/tasks/{taskId}")
+  public OwnerTaskDetailResponse getTaskDetail(
+      Authentication authentication,
+      @PathVariable long taskId) {
+    return taskService.getTaskDetail(authentication, taskId);
+  }
+
   @DeleteMapping("/tasks/{taskId}")
   public ResponseEntity<Void> deleteTask(
       Authentication authentication,
@@ -54,6 +61,11 @@ public class TaskController {
   @GetMapping("/tasks/assignable-labelers")
   public java.util.List<AssignableLabelerResponse> listAssignableLabelers(Authentication authentication) {
     return taskService.listAssignableLabelers(authentication);
+  }
+
+  @GetMapping("/tasks/assignable-reviewers")
+  public java.util.List<AssignableLabelerResponse> listAssignableReviewers(Authentication authentication) {
+    return taskService.listAssignableReviewers(authentication);
   }
 
   @PutMapping("/tasks/{taskId}/state")

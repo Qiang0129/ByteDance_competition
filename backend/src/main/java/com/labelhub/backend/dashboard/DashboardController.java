@@ -1,5 +1,7 @@
 package com.labelhub.backend.dashboard;
 
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,8 +33,16 @@ public class DashboardController {
   @GetMapping("/review-distribution")
   public ReviewDistributionResponse getReviewDistribution(
       Authentication authentication,
-      @RequestParam(required = false) String range) {
-    return dashboardService.getReviewDistribution(authentication, range);
+      @RequestParam(required = false) String range,
+      @RequestParam(required = false) Integer year) {
+    return dashboardService.getReviewDistribution(authentication, range, year);
+  }
+
+  @GetMapping("/review-distribution/report")
+  public ResponseEntity<Resource> downloadReviewDistributionReport(
+      Authentication authentication,
+      @RequestParam(required = false) Integer year) {
+    return dashboardService.downloadReviewDistributionReport(authentication, year);
   }
 
   @GetMapping("/labeler-performance")

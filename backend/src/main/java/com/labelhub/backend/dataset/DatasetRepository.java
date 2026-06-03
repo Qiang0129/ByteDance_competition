@@ -191,6 +191,100 @@ public class DatasetRepository {
         datasetId);
   }
 
+  public List<Long> listDatasetItemIds(long ownerId, long datasetId) {
+    return jdbcTemplate.query(
+        """
+        SELECT i.id
+        FROM items i
+        JOIN datasets d ON d.id = i.dataset_id
+        LEFT JOIN files f ON f.id = d.file_id
+        WHERE f.created_by = ? AND d.id = ?
+        ORDER BY i.id ASC
+        """,
+        (rs, rowNum) -> rs.getLong("id"),
+        ownerId,
+        datasetId);
+  }
+
+  public List<DatasetItemOptionRecord> listItemOptions(
+      long ownerId,
+      long datasetId,
+      String keyword,
+      int limit,
+      int offset) {
+    List<Object> args = new java.util.ArrayList<>();
+    args.add(ownerId);
+    args.add(datasetId);
+    String keywordFilter = "";
+    if (keyword != null && !keyword.isBlank()) {
+      keywordFilter = """
+          AND (
+            i.item_key LIKE ?
+            OR CAST(i.id AS CHAR) LIKE ?
+            OR CAST(i.raw_payload AS CHAR) LIKE ?
+          )
+          """;
+      String like = "%" + keyword.trim() + "%";
+      args.add(like);
+      args.add(like);
+      args.add(like);
+    }
+    args.add(limit);
+    args.add(offset);
+    return jdbcTemplate.query(
+        """
+        SELECT
+          i.id,
+          i.item_key,
+          COALESCE(NULLIF(i.media_type, ''), 'text') AS media_type,
+          CAST(i.raw_payload AS CHAR) AS raw_payload_json
+        FROM items i
+        JOIN datasets d ON d.id = i.dataset_id
+        LEFT JOIN files f ON f.id = d.file_id
+        WHERE f.created_by = ? AND d.id = ?
+        """ + keywordFilter + """
+        ORDER BY i.id ASC
+        LIMIT ? OFFSET ?
+        """,
+        (rs, rowNum) -> new DatasetItemOptionRecord(
+            rs.getLong("id"),
+            rs.getString("item_key"),
+            rs.getString("media_type"),
+            rs.getString("raw_payload_json")),
+        args.toArray());
+  }
+
+  public long countItemOptions(long ownerId, long datasetId, String keyword) {
+    List<Object> args = new java.util.ArrayList<>();
+    args.add(ownerId);
+    args.add(datasetId);
+    String keywordFilter = "";
+    if (keyword != null && !keyword.isBlank()) {
+      keywordFilter = """
+          AND (
+            i.item_key LIKE ?
+            OR CAST(i.id AS CHAR) LIKE ?
+            OR CAST(i.raw_payload AS CHAR) LIKE ?
+          )
+          """;
+      String like = "%" + keyword.trim() + "%";
+      args.add(like);
+      args.add(like);
+      args.add(like);
+    }
+    Long count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM items i
+        JOIN datasets d ON d.id = i.dataset_id
+        LEFT JOIN files f ON f.id = d.file_id
+        WHERE f.created_by = ? AND d.id = ?
+        """ + keywordFilter,
+        Long.class,
+        args.toArray());
+    return count == null ? 0L : count;
+  }
+
   public void insertItems(Long taskId, long datasetId, List<DatasetItemPayload> items) {
     if (items.isEmpty()) {
       return;
@@ -319,4 +413,10 @@ public class DatasetRepository {
   private Long toLong(Object value) {
     return value == null ? null : ((Number) value).longValue();
   }
+
+  public record DatasetItemOptionRecord(
+      long itemId,
+      String itemKey,
+      String mediaType,
+      String rawPayloadJson) {}
 }

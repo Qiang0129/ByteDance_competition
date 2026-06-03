@@ -357,10 +357,10 @@ export default function OwnerReview() {
     },
     {
       title: '通过 / 打回 / 进行中',
-      width: 230,
+      width: 260,
       render: (_, row) => (
         <Space direction="vertical" size={6}>
-          <Space size={6} wrap>
+          <div className="owner-review-result-row">
             <Tag className="owner-review-result-pill is-approved" icon={<CheckCircleFilled />}>
               通过 {row.approvedCount}
             </Tag>
@@ -370,7 +370,7 @@ export default function OwnerReview() {
             <Tag className="owner-review-result-pill is-progress" icon={<ClockCircleOutlined />}>
               进行中 {row.inProgress}
             </Tag>
-          </Space>
+          </div>
           <Text type="secondary" style={{ fontSize: 12 }}>
             共 {row.totalAnnotations} 条 · 人工已审 {row.totalReviewed}
           </Text>

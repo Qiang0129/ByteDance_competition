@@ -26,7 +26,9 @@ import {
   Select,
   Space,
   Table,
+  Tabs,
   Tag,
+  Tooltip,
   Typography,
   Switch,
 } from 'antd';
@@ -38,19 +40,24 @@ import { datasetApi } from '../../api/dataset';
 import { ownerApi } from '../../api/owner';
 import { schemaApi } from '../../api/schema';
 import { AiAssistantIcon } from '../../components/icons';
-import type { DatasetMeta } from '../../types/dataset';
+import type { DatasetItemOption, DatasetMeta } from '../../types/dataset';
 import type { AiReviewRule } from '../../types/aiReview';
 import type {
   AssignableLabeler,
   CreateOwnerTaskRequest,
   OwnerAssignStrategy,
+  OwnerItemSelectionMode,
+  OwnerTaskDetail,
   OwnerTask,
+  OwnerTaskReviewStatus,
   OwnerTaskState,
+  TaskUserAllocation,
 } from '../../types/owner';
 import type { SchemaSummary } from '../../types/schema';
 
 type TaskState = OwnerTaskState;
 type OwnerTaskRow = OwnerTask;
+type LabelingStatus = 'draft' | 'published' | 'labeling' | 'paused' | 'ended';
 
 interface PublishFormValues {
   title: string;
@@ -59,9 +66,14 @@ interface PublishFormValues {
   quota: number | null;
   deadline: Dayjs | null;
   datasetId: string;
+  itemSelectionMode: OwnerItemSelectionMode;
+  selectedItemIds: string[];
   strategy: OwnerAssignStrategy;
   maxClaimPerUser?: number | null;
   assignedLabelerIds?: string[];
+  labelerAllocations?: AllocationFormValue[];
+  reviewerAssignmentMode?: 'auto' | 'manual';
+  reviewerAllocations?: AllocationFormValue[];
   schema?: string;
   schemaVersionId?: string;
   aiReviewEnabled?: boolean;
@@ -70,13 +82,28 @@ interface PublishFormValues {
   llmAssistEnabled?: boolean;
 }
 
+interface AllocationFormValue {
+  userId?: string;
+  itemCount?: number | null;
+}
+
 const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm';
 
-const stateMeta: Record<TaskState, { label: string; color: string; icon: React.ReactNode }> = {
+const labelingStatusMeta: Record<LabelingStatus, { label: string; color: string; icon: React.ReactNode }> = {
   draft: { label: '草稿', color: 'default', icon: <span className="state-dot dot-draft" /> },
   published: { label: '发布中', color: 'success', icon: <span className="state-dot dot-published" /> },
+  labeling: { label: '进行中', color: 'processing', icon: <span className="state-dot dot-labeling" /> },
   paused: { label: '已暂停', color: 'warning', icon: <span className="state-dot dot-paused" /> },
   ended: { label: '已结束', color: 'default', icon: <span className="state-dot dot-ended" /> },
+};
+
+const reviewStatusMeta: Record<OwnerTaskReviewStatus, { label: string; color: string }> = {
+  not_started: { label: '未开始', color: 'default' },
+  ai_prereviewing: { label: 'AI预审中', color: 'processing' },
+  human_first_review: { label: '人工初审', color: 'warning' },
+  human_second_review: { label: '人工复审', color: 'orange' },
+  human_final_review: { label: '人工终审', color: 'red' },
+  completed: { label: '已完成', color: 'success' },
 };
 
 const strategyLabel: Record<OwnerAssignStrategy, string> = {
@@ -85,10 +112,11 @@ const strategyLabel: Record<OwnerAssignStrategy, string> = {
   quota: '配额抢单',
 };
 
-const stateFilterOptions = [
-  { label: '全部状态', value: 'all' },
+const stateFilterOptions: { label: string; value: 'all' | LabelingStatus }[] = [
+  { label: '全部标注状态', value: 'all' },
   { label: '草稿', value: 'draft' },
   { label: '发布中', value: 'published' },
+  { label: '进行中', value: 'labeling' },
   { label: '已暂停', value: 'paused' },
   { label: '已结束', value: 'ended' },
 ];
@@ -100,10 +128,110 @@ const strategyFilterOptions = [
   { label: '配额抢单', value: 'quota' },
 ];
 
+function sumAllocationValues(values?: AllocationFormValue[]) {
+  return (values ?? []).reduce((sum, item) => sum + (Number(item?.itemCount) || 0), 0);
+}
+
+function toAllocationPayload(values?: AllocationFormValue[]): TaskUserAllocation[] {
+  return (values ?? [])
+    .filter((item) => item?.userId && Number(item.itemCount) > 0)
+    .map((item) => ({
+      userId: item.userId!,
+      itemCount: Number(item.itemCount),
+    }));
+}
+
+function resolveLabelingStatus(record: OwnerTaskRow): LabelingStatus {
+  if (record.state === 'published' && record.quotaUsed > 0) {
+    return 'labeling';
+  }
+  return record.state;
+}
+
+function resolveReviewTooltip(record: OwnerTaskRow) {
+  const reviewStatus = record.reviewStatus ?? 'not_started';
+  switch (reviewStatus) {
+    case 'human_first_review':
+      return '第一轮人工审核';
+    case 'human_second_review':
+      return '第二轮人工审核';
+    case 'human_final_review':
+      return `第${record.reviewRound ?? 3}轮人工审核（第三轮及以上归为人工终审）`;
+    case 'ai_prereviewing':
+      return 'AI 预审进行中';
+    case 'completed':
+      return '当前任务暂无待审核题目';
+    case 'not_started':
+    default:
+      return '暂无提交进入审核';
+  }
+}
+
+function AllocationEditor({
+  name,
+  userOptions,
+  userPlaceholder,
+  addText,
+  total,
+  taskItemCount,
+}: {
+  name: 'labelerAllocations' | 'reviewerAllocations';
+  userOptions: { label: string; value: string }[];
+  userPlaceholder: string;
+  addText: string;
+  total: number;
+  taskItemCount: number;
+}) {
+  return (
+    <div className="owner-allocation-editor">
+      <Form.List name={name}>
+        {(fields, { add, remove }) => (
+          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            {fields.map((field) => (
+              <div className="owner-allocation-row" key={field.key}>
+                <Form.Item
+                  name={[field.name, 'userId']}
+                  rules={[{ required: true, message: userPlaceholder }]}
+                >
+                  <Select
+                    options={userOptions}
+                    placeholder={userPlaceholder}
+                    showSearch
+                    optionFilterProp="label"
+                  />
+                </Form.Item>
+                <Form.Item
+                  name={[field.name, 'itemCount']}
+                  rules={[{ required: true, message: '请输入题量' }]}
+                >
+                  <InputNumber min={1} placeholder="题量" />
+                </Form.Item>
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => remove(field.name)}
+                  aria-label="删除分配"
+                />
+              </div>
+            ))}
+            <Button type="dashed" icon={<PlusOutlined />} onClick={() => add()}>
+              {addText}
+            </Button>
+          </Space>
+        )}
+      </Form.List>
+      <Typography.Text type={total === taskItemCount ? 'secondary' : 'danger'}>
+        已分配 {total} / {taskItemCount || 0} 题
+      </Typography.Text>
+    </div>
+  );
+}
+
 export default function OwnerTasks() {
   const { message } = App.useApp();
   const [form] = Form.useForm<PublishFormValues>();
-  const [stateFilter, setStateFilter] = useState<string>('all');
+  const [stateFilter, setStateFilter] = useState<'all' | LabelingStatus>('all');
   const [strategyFilter, setStrategyFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -113,26 +241,46 @@ export default function OwnerTasks() {
   const [schemas, setSchemas] = useState<SchemaSummary[]>([]);
   const [aiRules, setAiRules] = useState<AiReviewRule[]>([]);
   const [assignableLabelers, setAssignableLabelers] = useState<AssignableLabeler[]>([]);
+  const [assignableReviewers, setAssignableReviewers] = useState<AssignableLabeler[]>([]);
+  const [datasetItemOptions, setDatasetItemOptions] = useState<DatasetItemOption[]>([]);
+  const [itemOptionKeyword, setItemOptionKeyword] = useState('');
+  const [itemOptionPage, setItemOptionPage] = useState(1);
+  const [itemOptionTotal, setItemOptionTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [schemaLoading, setSchemaLoading] = useState(false);
+  const [itemOptionLoading, setItemOptionLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [activeFormTab, setActiveFormTab] = useState('basic');
   const submitStateRef = useRef<TaskState>('published');
   const lastSchemaSelectionRef = useRef<string | undefined>();
   const lastDatasetSelectionRef = useRef<string | undefined>();
 
   const selectedStrategy = Form.useWatch('strategy', form);
   const selectedDatasetId = Form.useWatch('datasetId', form);
+  const selectedItemSelectionMode = Form.useWatch('itemSelectionMode', form);
+  const selectedItemIds = Form.useWatch('selectedItemIds', form);
+  const selectedLabelerAllocations = Form.useWatch('labelerAllocations', form);
+  const selectedReviewerAssignmentMode = Form.useWatch('reviewerAssignmentMode', form);
+  const selectedReviewerAllocations = Form.useWatch('reviewerAllocations', form);
   const selectedSchemaVersionId = Form.useWatch('schemaVersionId', form);
   const selectedAiReviewEnabled = Form.useWatch('aiReviewEnabled', form);
 
   useEffect(() => {
-    void Promise.all([loadTasks(), loadDatasets(), loadSchemas(), loadAiRules(), loadAssignableLabelers()]);
+    void Promise.all([
+      loadTasks(),
+      loadDatasets(),
+      loadSchemas(),
+      loadAiRules(),
+      loadAssignableLabelers(),
+      loadAssignableReviewers(),
+    ]);
   }, []);
 
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
-        if (stateFilter !== 'all' && row.state !== stateFilter) return false;
+        if (stateFilter !== 'all' && resolveLabelingStatus(row) !== stateFilter) return false;
         if (strategyFilter !== 'all' && row.assignStrategy !== strategyFilter) return false;
         if (keyword && !`${row.title} ${row.taskId} ${row.owner}`.includes(keyword)) return false;
         return true;
@@ -140,7 +288,7 @@ export default function OwnerTasks() {
     [keyword, rows, stateFilter, strategyFilter],
   );
 
-  const publishedCount = rows.filter((row) => row.state === 'published').length;
+  const publishedCount = rows.filter((row) => resolveLabelingStatus(row) === 'published').length;
   const draftCount = rows.filter((row) => row.state === 'draft').length;
   const submittedCount = rows.reduce((sum, row) => sum + row.quotaUsed, 0);
 
@@ -230,15 +378,43 @@ export default function OwnerTasks() {
     form.setFieldValue('quota', quota);
   }, [activeRow, drawerOpen, form, selectedDatasetId, datasets]);
 
+  useEffect(() => {
+    if (!drawerOpen || !selectedDatasetId || selectedItemSelectionMode !== 'partial') {
+      setDatasetItemOptions([]);
+      return;
+    }
+    void loadDatasetItemOptions(selectedDatasetId, itemOptionPage, itemOptionKeyword);
+  }, [drawerOpen, selectedDatasetId, selectedItemSelectionMode, itemOptionPage, itemOptionKeyword]);
+
+  useEffect(() => {
+    if (!drawerOpen || activeRow) {
+      return;
+    }
+    setItemOptionPage(1);
+    setItemOptionKeyword('');
+    form.setFieldValue('selectedItemIds', []);
+  }, [activeRow, drawerOpen, form, selectedDatasetId]);
+
   const labelerOptions = assignableLabelers.map((labeler) => ({
     label: `${labeler.displayName} (${labeler.username})`,
     value: labeler.userId,
+  }));
+
+  const reviewerOptions = assignableReviewers.map((reviewer) => ({
+    label: `${reviewer.displayName} (${reviewer.username})`,
+    value: reviewer.userId,
   }));
 
   const selectedDataset = datasets.find((dataset) => dataset.id === selectedDatasetId);
   const selectedSchema = publishedSchemas.find(
     (schema) => schema.versionId === selectedSchemaVersionId,
   );
+  const taskItemCount =
+    selectedItemSelectionMode === 'partial'
+      ? selectedItemIds?.length ?? 0
+      : selectedDataset?.itemCount ?? 0;
+  const labelerAllocationTotal = sumAllocationValues(selectedLabelerAllocations);
+  const reviewerAllocationTotal = sumAllocationValues(selectedReviewerAllocations);
 
   const columns: ColumnsType<OwnerTaskRow> = [
     {
@@ -246,7 +422,13 @@ export default function OwnerTasks() {
       dataIndex: 'title',
       render: (_value, record) => (
         <div className="owner-task-title">
-          <div className="owner-task-name">{record.title}</div>
+          <div className="owner-task-name-row">
+            <span className="owner-task-name">{record.title}</span>
+            <span className="owner-task-name-separator">·</span>
+            <Tag className="owner-task-total-quota">
+              总配额 {record.quotaTotal.toLocaleString()}
+            </Tag>
+          </div>
           <div className="owner-task-meta">
             {record.taskId} · Owner: {record.owner} · 创建于 {record.createdAt}
           </div>
@@ -254,15 +436,35 @@ export default function OwnerTasks() {
       ),
     },
     {
-      title: '状态',
-      dataIndex: 'state',
+      title: '标注状态',
+      key: 'labelingStatus',
       width: 120,
-      render: (state: TaskState) => (
-        <span className="owner-task-state">
-          {stateMeta[state].icon}
-          {stateMeta[state].label}
-        </span>
-      ),
+      render: (_value, record) => {
+        const labelingStatus = resolveLabelingStatus(record);
+        const meta = labelingStatusMeta[labelingStatus];
+        return (
+          <span className="owner-task-state">
+            {meta.icon}
+            {meta.label}
+          </span>
+        );
+      },
+    },
+    {
+      title: '审核状态',
+      dataIndex: 'reviewStatus',
+      width: 130,
+      render: (status: OwnerTaskReviewStatus | undefined, record) => {
+        const reviewStatus = status ?? 'not_started';
+        const meta = reviewStatusMeta[reviewStatus] ?? reviewStatusMeta.not_started;
+        return (
+          <Tooltip title={resolveReviewTooltip(record)}>
+            <Tag color={meta.color} className="owner-task-review-status">
+              {meta.label}
+            </Tag>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '分发策略',
@@ -286,21 +488,27 @@ export default function OwnerTasks() {
       ),
     },
     {
-      title: '配额 / 进度',
-      dataIndex: 'quotaUsed',
+      title: '进度',
+      dataIndex: 'annotatedItemCount',
       width: 220,
       render: (_value, record) => {
-        const ratio = record.quotaTotal > 0 ? (record.quotaUsed / record.quotaTotal) * 100 : 0;
+        const annotatedCount = record.annotatedItemCount ?? 0;
+        const itemTotal = record.publishedItemTotal ?? 0;
+        const rawPercent = itemTotal > 0 ? (annotatedCount / itemTotal) * 100 : 0;
+        const barPercent = Math.min(Math.max(rawPercent, 0), 100);
+        const displayPercent = Math.min(Math.round(rawPercent), 100);
+        const tooltip = `已标注数量 ${annotatedCount.toLocaleString()}，任务总额 ${itemTotal.toLocaleString()}，总配额 ${record.quotaTotal.toLocaleString()}`;
         return (
-          <div className="owner-task-quota">
-            <div className="owner-task-quota-numbers">
-              <strong>{record.quotaUsed.toLocaleString()}</strong>
-              <span> / {record.quotaTotal.toLocaleString()}</span>
+          <Tooltip title={tooltip}>
+            <div className="owner-task-quota" tabIndex={0}>
+              <div className="owner-task-quota-numbers">
+                <strong>{displayPercent}%</strong>
+              </div>
+              <div className="owner-task-quota-bar">
+                <span style={{ width: `${barPercent}%` }} />
+              </div>
             </div>
-            <div className="owner-task-quota-bar">
-              <span style={{ width: `${ratio}%` }} />
-            </div>
-          </div>
+          </Tooltip>
         );
       },
     },
@@ -415,6 +623,33 @@ export default function OwnerTasks() {
     }
   }
 
+  async function loadAssignableReviewers() {
+    try {
+      const response = await ownerApi.listAssignableReviewers();
+      setAssignableReviewers(response);
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '审核员列表加载失败'));
+    }
+  }
+
+  async function loadDatasetItemOptions(datasetId: string, page = itemOptionPage, keyword = itemOptionKeyword) {
+    setItemOptionLoading(true);
+    try {
+      const response = await datasetApi.listItemOptions(datasetId, {
+        page,
+        pageSize: 20,
+        keyword: keyword.trim() || undefined,
+      });
+      setDatasetItemOptions(response.items);
+      setItemOptionPage(response.page);
+      setItemOptionTotal(response.total);
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '题目列表加载失败'));
+    } finally {
+      setItemOptionLoading(false);
+    }
+  }
+
   function inferDatasetId(row?: OwnerTaskRow) {
     if (!row) {
       return datasets[0]?.id ?? '';
@@ -432,7 +667,7 @@ export default function OwnerTasks() {
     return datasets.find((dataset) => dataset.id === datasetId)?.itemCount ?? null;
   }
 
-  function toFormValues(row?: OwnerTaskRow): PublishFormValues {
+  function toFormValues(row?: OwnerTaskRow, detail?: OwnerTaskDetail): PublishFormValues {
     const datasetId = inferDatasetId(row);
     return {
       title: row?.title ?? '',
@@ -441,9 +676,14 @@ export default function OwnerTasks() {
       quota: row?.quotaTotal ?? resolveDatasetQuota(datasetId),
       deadline: row?.deadline ? dayjs(row.deadline, DATE_TIME_FORMAT) : null,
       datasetId,
+      itemSelectionMode: detail?.itemSelectionMode ?? 'all',
+      selectedItemIds: detail?.selectedItemIds ?? [],
       strategy: row?.assignStrategy ?? 'first-come',
       maxClaimPerUser: row?.maxClaimPerUser ?? null,
       assignedLabelerIds: row?.assignedLabelerIds ?? [],
+      labelerAllocations: detail?.labelerAllocations?.map(toAllocationFormValue) ?? [],
+      reviewerAssignmentMode: detail?.reviewerAllocations?.length ? 'manual' : 'auto',
+      reviewerAllocations: detail?.reviewerAllocations?.map(toAllocationFormValue) ?? [],
       schema: row ? `${row.title} (Schema ${row.schemaVersion})` : '',
       schemaVersionId:
         row?.schemaVersionId && publishedSchemas.some((schema) => schema.versionId === row.schemaVersionId)
@@ -451,46 +691,84 @@ export default function OwnerTasks() {
           : undefined,
       aiReviewEnabled: row?.aiReviewEnabled ?? true,
       aiReviewRuleId: row?.aiReviewRuleId ?? aiRules[0]?.ruleId,
-      llmAssistEnabled: row?.llmAssistEnabled ?? false,
+      llmAssistEnabled: row ? row.llmAssistEnabled ?? false : true,
     };
   }
 
-  function openDrawer(row?: OwnerTaskRow) {
+  function toAllocationFormValue(allocation: TaskUserAllocation): AllocationFormValue {
+    return {
+      userId: allocation.userId,
+      itemCount: allocation.itemCount,
+    };
+  }
+
+  async function openDrawer(row?: OwnerTaskRow) {
     setActiveRow(row ?? null);
     submitStateRef.current = row?.state ?? 'published';
     lastSchemaSelectionRef.current = row?.schemaVersionId || undefined;
-    const values = toFormValues(row);
-    lastDatasetSelectionRef.current = values.datasetId;
-    form.setFieldsValue(values);
+    setActiveFormTab('basic');
+    setItemOptionKeyword('');
+    setItemOptionPage(1);
     setDrawerOpen(true);
+    setDetailLoading(!!row);
+    try {
+      const detail = row ? await ownerApi.getTaskDetail(row.taskId) : undefined;
+      const values = toFormValues(row, detail);
+      lastDatasetSelectionRef.current = values.datasetId;
+      form.setFieldsValue(values);
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '任务详情加载失败'));
+      closeDrawer();
+    } finally {
+      setDetailLoading(false);
+    }
   }
 
   function closeDrawer() {
     setDrawerOpen(false);
     setActiveRow(null);
+    setDetailLoading(false);
+    setDatasetItemOptions([]);
+    setItemOptionKeyword('');
+    setItemOptionPage(1);
+    setItemOptionTotal(0);
     form.resetFields();
   }
 
   function buildTaskPayload(values: PublishFormValues, status: TaskState): CreateOwnerTaskRequest {
     const schema = publishedSchemas.find((item) => item.versionId === values.schemaVersionId);
     const schemaLabel = schema ? `${schema.name} (${schema.versionNumber})` : values.schema?.trim();
+    const itemSelectionMode = values.itemSelectionMode ?? 'all';
+    const selectedItems = itemSelectionMode === 'partial' ? values.selectedItemIds ?? [] : [];
+    const totalItems =
+      itemSelectionMode === 'partial'
+        ? selectedItems.length
+        : datasets.find((dataset) => dataset.id === values.datasetId)?.itemCount ?? 0;
+    const labelerAllocations =
+      values.strategy === 'assigned' ? toAllocationPayload(values.labelerAllocations) : [];
+    const reviewerAllocations =
+      values.reviewerAssignmentMode === 'manual' ? toAllocationPayload(values.reviewerAllocations) : [];
     return {
       title: values.title.trim(),
       tags: values.tags ?? [],
       reward: values.reward?.trim(),
-      quota: values.quota ?? undefined,
+      quota: totalItems || values.quota || undefined,
       deadline: values.deadline ? values.deadline.format(DATE_TIME_FORMAT) : undefined,
       datasetId: values.datasetId,
+      itemSelectionMode,
+      selectedItemIds: selectedItems,
       strategy: values.strategy,
       maxClaimPerUser:
         values.strategy === 'quota' ? values.maxClaimPerUser ?? undefined : undefined,
       assignedLabelerIds:
-        values.strategy === 'assigned' ? values.assignedLabelerIds ?? [] : [],
+        values.strategy === 'assigned' ? labelerAllocations.map((item) => item.userId) : [],
+      labelerAllocations,
+      reviewerAllocations,
       schema: schemaLabel || undefined,
       schemaVersionId: schema?.versionId,
       aiReviewEnabled: values.aiReviewEnabled ?? true,
       aiReviewRuleId: values.aiReviewEnabled === false ? undefined : values.aiReviewRuleId,
-      llmAssistEnabled: values.llmAssistEnabled ?? false,
+      llmAssistEnabled: values.llmAssistEnabled ?? true,
       status,
     };
   }
@@ -539,6 +817,33 @@ export default function OwnerTasks() {
 
   async function handlePublishFinish(values: PublishFormValues) {
     const targetState = submitStateRef.current;
+    const selectedCount =
+      values.itemSelectionMode === 'partial'
+        ? values.selectedItemIds?.length ?? 0
+        : datasets.find((dataset) => dataset.id === values.datasetId)?.itemCount ?? 0;
+    if (targetState === 'published' && selectedCount <= 0) {
+      message.error('发布任务前请至少选择 1 道题目');
+      setActiveFormTab('scope');
+      return;
+    }
+    if (
+      targetState === 'published' &&
+      values.strategy === 'assigned' &&
+      sumAllocationValues(values.labelerAllocations) !== selectedCount
+    ) {
+      message.error('标注员分配题量总和必须等于任务题目数');
+      setActiveFormTab('distribution');
+      return;
+    }
+    if (
+      targetState === 'published' &&
+      values.reviewerAssignmentMode === 'manual' &&
+      sumAllocationValues(values.reviewerAllocations) !== selectedCount
+    ) {
+      message.error('审核员分配题量总和必须等于任务题目数');
+      setActiveFormTab('review');
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = buildTaskPayload(values, targetState);
@@ -640,7 +945,7 @@ export default function OwnerTasks() {
 
       <Drawer
         title={activeRow ? `发布任务 · ${activeRow.title}` : '新建标注任务'}
-        width={560}
+        width={760}
         open={drawerOpen}
         onClose={closeDrawer}
         closeIcon={<CloseOutlined />}
@@ -648,6 +953,7 @@ export default function OwnerTasks() {
           <Space className="owner-drawer-footer">
             <Button
               loading={submitting}
+              disabled={detailLoading}
               onClick={() => {
                 submitStateRef.current = secondarySubmitState();
                 form.submit();
@@ -659,6 +965,7 @@ export default function OwnerTasks() {
               type="primary"
               icon={<ArrowRightOutlined />}
               loading={submitting}
+              disabled={detailLoading}
               onClick={() => {
                 submitStateRef.current = primarySubmitState();
                 form.submit();
@@ -674,219 +981,344 @@ export default function OwnerTasks() {
         }
       >
         <div className="owner-drawer-banner">
-          发布后任务会进入「发布中」状态。你可以在这里直接绑定现有数据集，并配置指派或配额抢单策略。
+          发布后任务会进入「发布中」状态。题目范围会固定为当前选择，审核与标注分配按本页配置执行。
         </div>
 
         <Form<PublishFormValues>
           form={form}
           layout="vertical"
           requiredMark={false}
+          disabled={detailLoading}
           onFinish={handlePublishFinish}
         >
-          <Form.Item
-            label="任务标题"
-            name="title"
-            rules={[{ required: true, message: '请输入任务标题' }]}
-          >
-            <Input placeholder="例如：商品标题清洗 v3" />
-          </Form.Item>
-
-          <Form.Item label="标签" name="tags">
-            <Select mode="tags" placeholder="按回车输入标签" />
-          </Form.Item>
-
-          <Form.Item
-            label="关联数据集"
-            name="datasetId"
-            rules={[{ required: true, message: '请选择一个现有数据集' }]}
-          >
-            <Select
-              placeholder="选择本任务使用的数据集"
-              options={datasetOptions}
-              showSearch
-              optionFilterProp="label"
-            />
-          </Form.Item>
-
-          {selectedDataset ? (
-            <Card size="small" className="owner-stat-card">
-              <Space direction="vertical" size={2}>
-                <Typography.Text strong>{selectedDataset.name}</Typography.Text>
-                <Typography.Text type="secondary">
-                  {selectedDataset.itemCount} 条 · 当前任务：{selectedDataset.taskTitle}
-                </Typography.Text>
-              </Space>
-            </Card>
-          ) : null}
-
-          <Form.Item label="奖励规则" name="reward">
-            <Input placeholder="0.30 元 / 条 · 月度封顶 1500 元" />
-          </Form.Item>
-
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item
-                label="配额"
-                name="quota"
-                rules={[{ required: true, message: '请输入任务总配额' }]}
-              >
-                <InputNumber min={1} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="截止时间"
-                name="deadline"
-                rules={[
-                  { required: true, message: '请选择截止时间' },
-                  {
-                    validator: async (_rule, value) => {
-                      if (submitStateRef.current === 'published' && value && value.isBefore(dayjs())) {
-                        throw new Error('发布时间必须晚于当前时间');
-                      }
-                    },
-                  },
-                ]}
-              >
-                <DatePicker
-                  showTime={{ format: 'HH:mm' }}
-                  format={DATE_TIME_FORMAT}
-                  style={{ width: '100%' }}
-                  placeholder="选择截止时间"
-                  disabledDate={(current) => !!current && current.endOf('day').isBefore(dayjs())}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item label="分发策略" name="strategy">
-            <Segmented
-              block
-              options={[
-                { label: '先到先得', value: 'first-come' },
-                { label: '指派', value: 'assigned' },
-                { label: '配额抢单', value: 'quota' },
-              ]}
-            />
-          </Form.Item>
-
-          {selectedStrategy === 'assigned' ? (
-            <Form.Item
-              label="指派标注员"
-              name="assignedLabelerIds"
-              rules={[{ required: true, message: '请至少选择一位标注员' }]}
-            >
-              <Select
-                mode="multiple"
-                placeholder="选择需要预分配任务的标注员"
-                options={labelerOptions}
-                showSearch
-                optionFilterProp="label"
-              />
-            </Form.Item>
-          ) : null}
-
-          {selectedStrategy === 'quota' ? (
-            <Form.Item
-              label="每人最多可认领"
-              name="maxClaimPerUser"
-              rules={[{ required: true, message: '请输入每人最多可认领数量' }]}
-            >
-              <InputNumber min={1} style={{ width: '100%' }} placeholder="例如：2" />
-            </Form.Item>
-          ) : null}
-
-          <Form.Item
-            label="关联模板"
-            name="schemaVersionId"
-            extra={
-              publishedSchemas.length === 0
-                ? '暂无已发布模板，请先到「模板搭建」页发布模板。'
-                : '任务发布后，Labeler 将按该模板版本渲染标注表单。'
-            }
-            rules={[
+          <Tabs
+            className="owner-task-form-tabs"
+            activeKey={activeFormTab}
+            onChange={setActiveFormTab}
+            items={[
               {
-                validator: async (_rule, value) => {
-                  if (
-                    submitStateRef.current === 'published' &&
-                    !publishedSchemas.some((schema) => schema.versionId === value)
-                  ) {
-                    throw new Error('发布任务前请选择一个已发布模板');
-                  }
-                },
+                key: 'basic',
+                label: '基础信息',
+                children: (
+                  <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                    <Form.Item
+                      label="任务标题"
+                      name="title"
+                      rules={[{ required: true, message: '请输入任务标题' }]}
+                    >
+                      <Input placeholder="例如：商品标题清洗 v3" />
+                    </Form.Item>
+                    <Form.Item label="标签" name="tags">
+                      <Select mode="tags" placeholder="按回车输入标签" />
+                    </Form.Item>
+                    <Form.Item label="奖励规则" name="reward">
+                      <Input placeholder="0.30 元 / 条 · 月度封顶 1500 元" />
+                    </Form.Item>
+                    <Form.Item
+                      label="截止时间"
+                      name="deadline"
+                      rules={[
+                        { required: true, message: '请选择截止时间' },
+                        {
+                          validator: async (_rule, value) => {
+                            if (submitStateRef.current === 'published' && value && value.isBefore(dayjs())) {
+                              throw new Error('发布时间必须晚于当前时间');
+                            }
+                          },
+                        },
+                      ]}
+                    >
+                      <DatePicker
+                        showTime={{ format: 'HH:mm' }}
+                        format={DATE_TIME_FORMAT}
+                        style={{ width: '100%' }}
+                        placeholder="选择截止时间"
+                        disabledDate={(current) => !!current && current.endOf('day').isBefore(dayjs())}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      label="关联模板"
+                      name="schemaVersionId"
+                      extra={
+                        publishedSchemas.length === 0
+                          ? '暂无已发布模板，请先到「模板搭建」页发布模板。'
+                          : '任务发布后，Labeler 将按该模板版本渲染标注表单。'
+                      }
+                      rules={[
+                        {
+                          validator: async (_rule, value) => {
+                            if (
+                              submitStateRef.current === 'published' &&
+                              !publishedSchemas.some((schema) => schema.versionId === value)
+                            ) {
+                              throw new Error('发布任务前请选择一个已发布模板');
+                            }
+                          },
+                        },
+                      ]}
+                    >
+                      <Select
+                        placeholder="选择已发布模板"
+                        options={schemaOptions}
+                        loading={schemaLoading}
+                        showSearch
+                        allowClear
+                        optionFilterProp="label"
+                      />
+                    </Form.Item>
+                    {selectedSchema ? (
+                      <Card size="small" className="owner-stat-card">
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text strong>{selectedSchema.name}</Typography.Text>
+                          <Typography.Text type="secondary">
+                            {selectedSchema.versionNumber} · {selectedSchema.fieldCount} 个字段 · 更新于{' '}
+                            {selectedSchema.updatedAt}
+                          </Typography.Text>
+                          {selectedSchema.datasetName ? (
+                            <Typography.Text type="secondary">
+                              模板默认数据集：{selectedSchema.datasetName}
+                            </Typography.Text>
+                          ) : null}
+                        </Space>
+                      </Card>
+                    ) : null}
+                    <Row gutter={12}>
+                      <Col xs={24} sm={12}>
+                        <Form.Item label="启用 AI 预审" name="aiReviewEnabled" valuePropName="checked">
+                          <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} sm={12}>
+                        <Form.Item
+                          label="启用 LLM 标注助手"
+                          name="llmAssistEnabled"
+                          valuePropName="checked"
+                          extra="开启后，标注员答题页可向 AI 助手提问。"
+                        >
+                          <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    {selectedAiReviewEnabled !== false ? (
+                      <Form.Item
+                        label="AI 预审规则"
+                        name="aiReviewRuleId"
+                        extra="任务启用 AI 预审时，发布前必须绑定一条启用中的规则。"
+                        rules={[
+                          {
+                            validator: async (_rule, value) => {
+                              if (submitStateRef.current === 'published' && !value) {
+                                throw new Error('请选择 AI 预审规则');
+                              }
+                            },
+                          },
+                        ]}
+                      >
+                        <Select
+                          placeholder="选择启用中的 AI 预审规则"
+                          options={aiRuleOptions}
+                          showSearch
+                          allowClear
+                          optionFilterProp="label"
+                        />
+                      </Form.Item>
+                    ) : null}
+                  </Space>
+                ),
+              },
+              {
+                key: 'scope',
+                label: '数据范围',
+                children: (
+                  <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                    <Form.Item
+                      label="关联数据集"
+                      name="datasetId"
+                      rules={[{ required: true, message: '请选择一个现有数据集' }]}
+                    >
+                      <Select
+                        placeholder="选择本任务使用的数据集"
+                        options={datasetOptions}
+                        showSearch
+                        optionFilterProp="label"
+                      />
+                    </Form.Item>
+                    {selectedDataset ? (
+                      <Card size="small" className="owner-stat-card">
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text strong>{selectedDataset.name}</Typography.Text>
+                          <Typography.Text type="secondary">
+                            {selectedDataset.itemCount} 条 · 当前任务：{selectedDataset.taskTitle || '未关联'}
+                          </Typography.Text>
+                        </Space>
+                      </Card>
+                    ) : null}
+                    <Form.Item label="题目范围" name="itemSelectionMode">
+                      <Segmented
+                        block
+                        options={[
+                          { label: '全部题目', value: 'all' },
+                          { label: '部分题目', value: 'partial' },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item name="selectedItemIds" hidden>
+                      <Select mode="multiple" />
+                    </Form.Item>
+                    <div className="owner-task-scope-summary">
+                      <Tag color="processing">任务总配额 {taskItemCount || 0}</Tag>
+                      <Typography.Text type="secondary">
+                        {selectedItemSelectionMode === 'partial'
+                          ? `已选择 ${selectedItemIds?.length ?? 0} 道题`
+                          : '发布时固定为当前数据集全部题目'}
+                      </Typography.Text>
+                    </div>
+                    {selectedItemSelectionMode === 'partial' ? (
+                      <Card size="small" className="owner-task-item-picker">
+                        <Input.Search
+                          placeholder="搜索题目 ID / 内容"
+                          allowClear
+                          value={itemOptionKeyword}
+                          onChange={(event) => {
+                            setItemOptionKeyword(event.target.value);
+                            setItemOptionPage(1);
+                          }}
+                          onSearch={(value) => {
+                            setItemOptionKeyword(value);
+                            setItemOptionPage(1);
+                          }}
+                        />
+                        <Table<DatasetItemOption>
+                          size="small"
+                          rowKey="itemId"
+                          loading={itemOptionLoading}
+                          dataSource={datasetItemOptions}
+                          rowSelection={{
+                            selectedRowKeys: selectedItemIds ?? [],
+                            preserveSelectedRowKeys: true,
+                            onChange: (keys) => {
+                              form.setFieldValue('selectedItemIds', keys.map(String));
+                            },
+                          }}
+                          columns={[
+                            {
+                              title: '题目',
+                              dataIndex: 'label',
+                              width: 180,
+                              render: (label: string, record) => (
+                                <Space direction="vertical" size={2}>
+                                  <Typography.Text strong>{label}</Typography.Text>
+                                  <Typography.Text type="secondary">#{record.itemId}</Typography.Text>
+                                </Space>
+                              ),
+                            },
+                            {
+                              title: '摘要',
+                              dataIndex: 'summary',
+                              render: (summary: string) => (
+                                <Typography.Text className="owner-task-item-summary">{summary}</Typography.Text>
+                              ),
+                            },
+                            {
+                              title: '类型',
+                              dataIndex: 'mediaType',
+                              width: 88,
+                              render: (mediaType: string) => <Tag>{mediaType}</Tag>,
+                            },
+                          ]}
+                          pagination={{
+                            current: itemOptionPage,
+                            pageSize: 20,
+                            total: itemOptionTotal,
+                            showSizeChanger: false,
+                            onChange: (page) => setItemOptionPage(page),
+                          }}
+                        />
+                      </Card>
+                    ) : null}
+                  </Space>
+                ),
+              },
+              {
+                key: 'distribution',
+                label: '标注分发',
+                children: (
+                  <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                    <Form.Item label="分发策略" name="strategy">
+                      <Segmented
+                        block
+                        options={[
+                          { label: '先到先得', value: 'first-come' },
+                          { label: '指派', value: 'assigned' },
+                          { label: '配额抢单', value: 'quota' },
+                        ]}
+                      />
+                    </Form.Item>
+                    {selectedStrategy === 'assigned' ? (
+                      <AllocationEditor
+                        name="labelerAllocations"
+                        userOptions={labelerOptions}
+                        userPlaceholder="选择标注员"
+                        addText="添加标注员"
+                        total={labelerAllocationTotal}
+                        taskItemCount={taskItemCount}
+                      />
+                    ) : null}
+                    {selectedStrategy === 'quota' ? (
+                      <Form.Item
+                        label="每人最多可认领"
+                        name="maxClaimPerUser"
+                        rules={[{ required: true, message: '请输入每人最多可认领数量' }]}
+                      >
+                        <InputNumber min={1} style={{ width: '100%' }} placeholder="例如：2" />
+                      </Form.Item>
+                    ) : null}
+                    {selectedStrategy !== 'assigned' ? (
+                      <Typography.Text type="secondary">
+                        当前任务题目数 {taskItemCount || 0}，标注员按策略领取后生成作业。
+                      </Typography.Text>
+                    ) : null}
+                  </Space>
+                ),
+              },
+              {
+                key: 'review',
+                label: '审核分配',
+                children: (
+                  <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                    <Form.Item label="审核分配方式" name="reviewerAssignmentMode">
+                      <Segmented
+                        block
+                        options={[
+                          { label: '自动平均', value: 'auto' },
+                          { label: '指定审核员', value: 'manual' },
+                        ]}
+                      />
+                    </Form.Item>
+                    {selectedReviewerAssignmentMode === 'manual' ? (
+                      <AllocationEditor
+                        name="reviewerAllocations"
+                        userOptions={reviewerOptions}
+                        userPlaceholder="选择审核员"
+                        addText="添加审核员"
+                        total={reviewerAllocationTotal}
+                        taskItemCount={taskItemCount}
+                      />
+                    ) : (
+                      <Card size="small" className="owner-stat-card">
+                        <Space direction="vertical" size={4}>
+                          <Typography.Text strong>自动平均分配</Typography.Text>
+                          <Typography.Text type="secondary">
+                            系统会把 {taskItemCount || 0} 道题平均分给 {assignableReviewers.length} 位审核员。
+                          </Typography.Text>
+                        </Space>
+                      </Card>
+                    )}
+                  </Space>
+                ),
               },
             ]}
-          >
-            <Select
-              placeholder="选择已发布模板"
-              options={schemaOptions}
-              loading={schemaLoading}
-              showSearch
-              allowClear
-              optionFilterProp="label"
-            />
-          </Form.Item>
-
-          {selectedSchema ? (
-            <Card size="small" className="owner-stat-card">
-              <Space direction="vertical" size={2}>
-                <Typography.Text strong>{selectedSchema.name}</Typography.Text>
-                <Typography.Text type="secondary">
-                  {selectedSchema.versionNumber} · {selectedSchema.fieldCount} 个字段 · 更新于{' '}
-                  {selectedSchema.updatedAt}
-                </Typography.Text>
-                {selectedSchema.datasetName ? (
-                  <Typography.Text type="secondary">
-                    模板默认数据集：{selectedSchema.datasetName}
-                  </Typography.Text>
-                ) : null}
-              </Space>
-            </Card>
-          ) : null}
-
-          <Form.Item label="启用 AI 预审" name="aiReviewEnabled" valuePropName="checked">
-            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-          </Form.Item>
-
-          {selectedAiReviewEnabled !== false ? (
-            <Form.Item
-              label="AI 预审规则"
-              name="aiReviewRuleId"
-              extra="任务启用 AI 预审时，发布前必须绑定一条启用中的规则。"
-              rules={[
-                {
-                  validator: async (_rule, value) => {
-                    if (submitStateRef.current === 'published' && !value) {
-                      throw new Error('请选择 AI 预审规则');
-                    }
-                  },
-                },
-              ]}
-            >
-              <Select
-                placeholder="选择启用中的 AI 预审规则"
-                options={aiRuleOptions}
-                showSearch
-                allowClear
-                optionFilterProp="label"
-              />
-            </Form.Item>
-          ) : null}
-
-          {/*
-            标注员 LLM 助手开关:
-              - 默认关闭,需 Owner 主动开启,避免 RLHF 偏好对比等敏感任务被 LLM 影响主观判断;
-              - 开启后,标注员答题页右下角出现 AI 助手浮动按钮,可向 LLM 问"如何理解这道题",
-                助手只给参考意见,不能直接写答案字段。
-           */}
-          <Form.Item
-            label="启用 LLM 标注助手"
-            name="llmAssistEnabled"
-            valuePropName="checked"
-            extra="开启后,标注员答题页可向 AI 助手提问。助手仅给参考思路,不会直接填写答案字段。"
-          >
-            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-          </Form.Item>
+          />
         </Form>
       </Drawer>
     </Space>

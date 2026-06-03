@@ -16,6 +16,7 @@ public record TaskMetadata(
     Long aiReviewRuleId,
     String aiReviewRuleName,
     Boolean llmAssistEnabled,
+    String itemSelectionMode,
     String taskType,
     Double rewardPerItem) {
 
@@ -33,6 +34,10 @@ public record TaskMetadata(
 
   public boolean resolvedLlmAssistEnabled() {
     return llmAssistEnabled != null && llmAssistEnabled;
+  }
+
+  public String resolvedItemSelectionMode() {
+    return itemSelectionMode == null || itemSelectionMode.isBlank() ? "all" : itemSelectionMode;
   }
 
   public Integer resolvedMaxClaimPerUser() {

@@ -46,6 +46,14 @@ export interface PreferenceCompareItem {
 
 export type DatasetItem = QaQualityItem | PreferenceCompareItem | Record<string, unknown>;
 
+export interface DatasetItemOption {
+  itemId: string;
+  itemKey?: string;
+  label: string;
+  mediaType: MediaType | string;
+  summary: string;
+}
+
 /** 数据集元数据(列表卡用) */
 export interface DatasetMeta {
   id: string;

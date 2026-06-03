@@ -61,6 +61,28 @@ public class DatasetService {
         .toList();
   }
 
+  public PageResponse<DatasetItemOptionResponse> listItemOptions(
+      Authentication authentication,
+      long datasetId,
+      String keyword,
+      Integer page,
+      Integer pageSize) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    ensureDataset(owner.id(), datasetId);
+    int safePage = page == null || page < 1 ? 1 : page;
+    int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
+    List<DatasetItemOptionResponse> items = datasetRepository
+        .listItemOptions(owner.id(), datasetId, keyword, safePageSize, (safePage - 1) * safePageSize)
+        .stream()
+        .map(this::toItemOptionResponse)
+        .toList();
+    return new PageResponse<>(
+        items,
+        safePage,
+        safePageSize,
+        datasetRepository.countItemOptions(owner.id(), datasetId, keyword));
+  }
+
   @Transactional
   public void deleteDataset(Authentication authentication, long datasetId) {
     AuthenticatedUser owner = requireOwner(authentication);
@@ -236,6 +258,35 @@ public class DatasetService {
         record.importStatus(),
         record.errorCount(),
         record.errorSummary());
+  }
+
+  private DatasetItemOptionResponse toItemOptionResponse(DatasetRepository.DatasetItemOptionRecord record) {
+    JsonNode raw = readJson(record.rawPayloadJson());
+    String label = text(raw, "id");
+    if (label == null || label.isBlank()) {
+      label = record.itemKey();
+    }
+    if (label == null || label.isBlank()) {
+      label = "题目 #" + record.itemId();
+    }
+    return new DatasetItemOptionResponse(
+        Long.toString(record.itemId()),
+        record.itemKey(),
+        label,
+        record.mediaType(),
+        summarizeItem(raw));
+  }
+
+  private String summarizeItem(JsonNode raw) {
+    for (String field : List.of("prompt", "content_markdown", "question", "model_answer", "reference", "response_a")) {
+      String value = text(raw, field);
+      if (value != null && !value.isBlank()) {
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() > 120 ? normalized.substring(0, 120) + "..." : normalized;
+      }
+    }
+    String fallback = raw == null ? "" : raw.toString();
+    return fallback.length() > 120 ? fallback.substring(0, 120) + "..." : fallback;
   }
 
   private void ensureDataset(long ownerId, long datasetId) {
