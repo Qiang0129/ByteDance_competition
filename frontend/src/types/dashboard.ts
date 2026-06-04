@@ -104,7 +104,7 @@ export interface DashboardPageResult<T> {
   total: number;
 }
 
-export type IssueFeedbackStatus = 'open' | 'all';
+export type IssueFeedbackStatus = 'open' | 'viewed' | 'all';
 
 /** Owner 数据看板「题目反馈」条目 */
 export interface IssueFeedback {
@@ -118,6 +118,6 @@ export interface IssueFeedback {
   category: string;
   categoryLabel: string;
   description: string;
-  status: 'open' | string;
+  status: 'open' | 'viewed' | string;
   createdAt: string;
 }

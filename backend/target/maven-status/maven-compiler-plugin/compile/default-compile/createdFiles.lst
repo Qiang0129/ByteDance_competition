@@ -11,6 +11,7 @@ com\labelhub\backend\ai\AiReviewRepository$DashboardTaskVolumeRecord.class
 com\labelhub\backend\ownerreview\OwnerReviewReviewerResponse.class
 com\labelhub\backend\schema\SchemaDiagnosticResponse.class
 com\labelhub\backend\task\TaskService$AiReviewRuleSelection.class
+com\labelhub\backend\review\ReviewRepository$ReviewerReviewDetailRecord.class
 com\labelhub\backend\auth\ApiErrorResponse.class
 com\labelhub\backend\auth\RegisterRequest.class
 com\labelhub\backend\dashboard\DashboardRepository$DisputeStatsRecord.class
@@ -23,6 +24,8 @@ com\labelhub\backend\ai\AiReviewCancelRequest.class
 com\labelhub\backend\labeler\LabelerReturnedItemsRepository$ReturnedItemRecord.class
 com\labelhub\backend\ownerreview\ReviewerWorkloadResponse.class
 com\labelhub\backend\dashboard\ReviewDistributionResponse.class
+com\labelhub\backend\review\ReviewRepository$ReviewerAiConsistencyCounts.class
+com\labelhub\backend\review\ReviewerReportTrendPointResponse.class
 com\labelhub\backend\task\TaskRepository$TaskAnnotationStateRecord.class
 com\labelhub\backend\annotation\DraftResponse.class
 com\labelhub\backend\auth\SessionPrincipal.class
@@ -37,6 +40,7 @@ com\labelhub\backend\dashboard\SubmissionTimelineMonthResponse.class
 com\labelhub\backend\review\AiReviewResultResponse.class
 com\labelhub\backend\review\ReviewBatchResponse.class
 com\labelhub\backend\ai\AiReviewRepository$DashboardDailyTrendRecord.class
+com\labelhub\backend\review\ReviewerReportSummaryResponse.class
 com\labelhub\backend\auth\UserAccount.class
 com\labelhub\backend\export\ExportService.class
 com\labelhub\backend\export\ExportRepository$ExportOverviewRecord.class
@@ -104,6 +108,7 @@ com\labelhub\backend\ai\AiReviewRuleResponse.class
 com\labelhub\backend\ai\AiModelConfigController.class
 com\labelhub\backend\dashboard\RecentTaskActivityResponse.class
 com\labelhub\backend\ownerreview\OwnerReviewRepository$AnnotationRecord.class
+com\labelhub\backend\dashboard\MarkIssueFeedbackViewedRequest.class
 com\labelhub\backend\annotation\AnnotationRepository$IssueRecord.class
 com\labelhub\backend\annotation\AnnotationRepository$AssignmentProgressRecord.class
 com\labelhub\backend\annotation\DraftRequest.class
@@ -120,10 +125,12 @@ com\labelhub\backend\auth\CurrentUserResponse.class
 com\labelhub\backend\annotation\BatchSubmitInvalidItem.class
 com\labelhub\backend\task\OwnerTaskResponse.class
 com\labelhub\backend\labeler\LabelerOverviewRepository$RecentBatchRecord.class
+com\labelhub\backend\review\ReviewRepository$ReviewerTrendRecord.class
 com\labelhub\backend\review\ReviewRepository$ReviewBatchRecord.class
 com\labelhub\backend\task\OwnerTaskDetailResponse.class
 com\labelhub\backend\task\TaskRepository$ItemReviewerRecord.class
 com\labelhub\backend\annotation\AnswerValidationService.class
+com\labelhub\backend\dashboard\MarkIssueFeedbackViewedResponse.class
 com\labelhub\backend\ai\AiReviewRepository$AiReviewResultRecord.class
 com\labelhub\backend\annotation\AssignmentPositionResponse.class
 com\labelhub\backend\task\TaskRepository$3.class
@@ -183,6 +190,7 @@ com\labelhub\backend\auth\CorsConfig.class
 com\labelhub\backend\ai\AiModelConfigResponse.class
 com\labelhub\backend\review\DisputeDetailResponse.class
 com\labelhub\backend\annotation\AnnotationService$PreparedBatchSubmission.class
+com\labelhub\backend\review\ReviewRepository$ReviewerSamplingCoverageCounts.class
 com\labelhub\backend\export\ExportRepository$ExportRowRecord.class
 com\labelhub\backend\task\UpdateTaskStateRequest.class
 com\labelhub\backend\labeler\LabelerOverviewRepository$HumanDecisionCounts.class
@@ -211,6 +219,7 @@ com\labelhub\backend\ai\AiDecisionDistributionResponse.class
 com\labelhub\backend\task\TaskDeadlineSettlementService$SchemaContext.class
 com\labelhub\backend\dashboard\DashboardOverviewResponse$Deltas.class
 com\labelhub\backend\labeler\LabelerReturnedItemsService.class
+com\labelhub\backend\review\ReviewRepository$ReviewerDecisionCounts.class
 com\labelhub\backend\dataset\DatasetRepository.class
 com\labelhub\backend\ownerreview\OwnerReviewRepository$ReviewerRecord.class
 com\labelhub\backend\schema\SchemaService$DatasetBinding.class

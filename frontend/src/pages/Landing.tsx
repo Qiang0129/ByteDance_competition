@@ -9,20 +9,43 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  ApiOutlined,
+  ArrowLeftOutlined,
   CopyOutlined,
+  DownloadOutlined,
+  FileTextOutlined,
+  FileWordOutlined,
+  GithubOutlined,
   InfoCircleOutlined,
+  LinkOutlined,
+  PictureOutlined,
   ReadOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { App, Button } from 'antd';
+import { renderAsync } from 'docx-preview';
 import ReactMarkdown from 'react-markdown';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
+import architectureSource from '../../../docs/architecture.md?raw';
+import apiDocsSource from '../../../docs/api-docs.md?raw';
+import demoScriptSource from '../../../docs/demo-script.md?raw';
+import stateMachineSource from '../../../docs/state-machine.md?raw';
+import submissionDemoSource from '../../../submission/demo-video.md?raw';
+import interfaceDocsSource from '../../../接口文档.md?raw';
 import readmeSource from '../../../README.md?raw';
+import phaseImplementationSource from '../../../阶段实现.md?raw';
+import phasePlanSource from '../../../阶段计划.md?raw';
+import courseRequirementDocxUrl from '../../../LabelHub 数据标注平台 · AI全栈课题实现要求.docx?url';
+import englishImplementationPlanDocxUrl from '../../../LabelHub_Project_Implementation_Plan_EN.docx?url';
+import implementationPlanDocxUrl from '../../../项目实施计划书.docx?url';
+import docsCenterPreviewUrl from '../../images/文档中心.png';
 import imageIconUrl from '../../images/图片.svg';
 import loginIconUrl from '../../images/登陆账号.svg';
 import signupIconUrl from '../../images/注册账号.svg';
 import textIconUrl from '../../images/文本.svg';
 import videoIconUrl from '../../images/视频.svg';
+import '../styles/landing-docs.css';
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.6';
 const LOGIN_BASE_URL = 'http://localhost:5173';
@@ -42,6 +65,26 @@ type LandingRouteTransition = {
   y: number;
 };
 
+type DocsCategoryKey = 'project' | 'technical' | 'demo' | 'coding' | 'external';
+type DocsResourceKind = 'markdown' | 'docx' | 'image' | 'external' | 'missing';
+type DocsPanelMode = 'categories' | 'resources';
+type DocsPanelTransition = 'forward' | 'back';
+
+type DocsResource = {
+  id: string;
+  category: DocsCategoryKey;
+  title: string;
+  description: string;
+  kind: DocsResourceKind;
+  status: 'available' | 'missing' | 'external';
+  badge: string;
+  source?: string;
+  fileUrl?: string;
+  externalUrl?: string;
+  downloadName?: string;
+  meta?: string;
+};
+
 const navItems: Array<{ key: PublicNavKey; label: string; path: string }> = [
   { key: 'home', label: '首页', path: '/' },
   { key: 'docs', label: '文档', path: '/docs' },
@@ -55,6 +98,204 @@ type ReadmeHeading = {
 };
 
 const README_HEADINGS = createReadmeHeadings(readmeSource);
+const SWAGGER_URL = 'http://127.0.0.1:8080/swagger-ui/index.html';
+
+const docsCategories: Array<{ key: DocsCategoryKey; label: string; description: string }> = [
+  { key: 'project', label: '项目资料', description: '计划书、课题要求与项目总览' },
+  { key: 'technical', label: '技术文档', description: '架构、状态机与关键技术点' },
+  { key: 'demo', label: '演示素材', description: '演示脚本、Demo 截图与视频记录' },
+  { key: 'coding', label: 'AI Coding 记录', description: '阶段计划、实现和接口记录' },
+  { key: 'external', label: '外部接口', description: 'Swagger 与外部调试入口' },
+];
+
+const docsResources: DocsResource[] = [
+  {
+    id: 'implementation-plan-docx',
+    category: 'project',
+    title: '项目实施计划书.docx',
+    description: '项目实施计划、阶段目标和交付范围的 Word 原文档。',
+    kind: 'docx',
+    status: 'available',
+    badge: 'DOCX',
+    fileUrl: implementationPlanDocxUrl,
+    downloadName: '项目实施计划书.docx',
+    meta: '根目录',
+  },
+  {
+    id: 'course-requirement-docx',
+    category: 'project',
+    title: 'AI 全栈课题实现要求',
+    description: 'LabelHub 数据标注平台课题要求原始 Word 文档。',
+    kind: 'docx',
+    status: 'available',
+    badge: 'DOCX',
+    fileUrl: courseRequirementDocxUrl,
+    downloadName: 'LabelHub 数据标注平台 · AI全栈课题实现要求.docx',
+    meta: '根目录',
+  },
+  {
+    id: 'implementation-plan-en-docx',
+    category: 'project',
+    title: 'Implementation Plan EN',
+    description: '英文版项目实施计划文档，便于对外交付和说明。',
+    kind: 'docx',
+    status: 'available',
+    badge: 'DOCX',
+    fileUrl: englishImplementationPlanDocxUrl,
+    downloadName: 'LabelHub_Project_Implementation_Plan_EN.docx',
+    meta: '根目录',
+  },
+  {
+    id: 'basic-tech-docx',
+    category: 'project',
+    title: '基础技术文档.docx',
+    description: '基础技术文档资源尚未放入仓库，保留预览与下载接入位置。',
+    kind: 'missing',
+    status: 'missing',
+    badge: '待补充',
+    meta: '待补充',
+  },
+  {
+    id: 'readme',
+    category: 'project',
+    title: 'README.md',
+    description: '仓库根目录说明文档，包含项目状态、环境要求和启动方式。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: readmeSource,
+    downloadName: 'README.md',
+    meta: '根目录',
+  },
+  {
+    id: 'architecture',
+    category: 'technical',
+    title: '架构说明',
+    description: '系统架构说明入口，后续可继续补充架构图和模块边界。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: architectureSource,
+    downloadName: 'architecture.md',
+    meta: 'docs/architecture.md',
+  },
+  {
+    id: 'architecture-diagram',
+    category: 'technical',
+    title: '系统架构图',
+    description: '架构图图片资源尚未放入仓库，保留图片预览入口。',
+    kind: 'missing',
+    status: 'missing',
+    badge: '待补充',
+    meta: '图片资源',
+  },
+  {
+    id: 'state-machine',
+    category: 'technical',
+    title: '状态机与核心流程',
+    description: '任务状态、审核流转和协作流程说明。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: stateMachineSource,
+    downloadName: 'state-machine.md',
+    meta: 'docs/state-machine.md',
+  },
+  {
+    id: 'api-docs-local',
+    category: 'technical',
+    title: 'API 文档说明',
+    description: '本地 API 文档说明 Markdown，Swagger 入口在外部接口分类中打开。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: apiDocsSource,
+    downloadName: 'api-docs.md',
+    meta: 'docs/api-docs.md',
+  },
+  {
+    id: 'demo-script',
+    category: 'demo',
+    title: 'Demo 演示脚本',
+    description: '演示路径、讲解顺序和录制说明。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: demoScriptSource,
+    downloadName: 'demo-script.md',
+    meta: 'docs/demo-script.md',
+  },
+  {
+    id: 'demo-video-record',
+    category: 'demo',
+    title: 'Demo 视频记录',
+    description: 'Demo 视频与提交材料记录入口。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: submissionDemoSource,
+    downloadName: 'demo-video.md',
+    meta: 'submission/demo-video.md',
+  },
+  {
+    id: 'demo-screenshots',
+    category: 'demo',
+    title: 'Demo 截图',
+    description: 'Demo 截图资源尚未放入仓库，保留截图集预览入口。',
+    kind: 'missing',
+    status: 'missing',
+    badge: '待补充',
+    meta: '图片资源',
+  },
+  {
+    id: 'phase-plan',
+    category: 'coding',
+    title: '阶段计划.md',
+    description: 'AI Coding 过程中的阶段计划与实施前记录。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: phasePlanSource,
+    downloadName: '阶段计划.md',
+    meta: '根目录',
+  },
+  {
+    id: 'phase-implementation',
+    category: 'coding',
+    title: '阶段实现.md',
+    description: 'AI Coding 过程中的阶段实现记录。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: phaseImplementationSource,
+    downloadName: '阶段实现.md',
+    meta: '根目录',
+  },
+  {
+    id: 'interface-docs',
+    category: 'coding',
+    title: '接口文档.md',
+    description: '前后端接口记录，同时提供 Swagger 外部入口。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD + Swagger',
+    source: interfaceDocsSource,
+    externalUrl: SWAGGER_URL,
+    downloadName: '接口文档.md',
+    meta: '根目录',
+  },
+  {
+    id: 'swagger',
+    category: 'external',
+    title: 'Swagger UI',
+    description: '后端 OpenAPI 调试和接口浏览入口。',
+    kind: 'external',
+    status: 'external',
+    badge: 'HTTP',
+    externalUrl: SWAGGER_URL,
+    meta: '127.0.0.1:8080',
+  },
+];
 
 function normalizeHeadingText(text: string) {
   return text
@@ -477,14 +718,414 @@ function PublicPlaceholderPage({
 }
 
 export function DocsPlaceholder() {
+  const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('project');
+  const [activeResourceId, setActiveResourceId] = useState(docsResources[0]?.id ?? '');
+  const [docsPanelMode, setDocsPanelMode] = useState<DocsPanelMode>('categories');
+  const [docsPanelTransition, setDocsPanelTransition] = useState<DocsPanelTransition>('forward');
+  const [docsJumpTransition, setDocsJumpTransition] = useState(false);
+  const activeResource = docsResources.find((resource) => resource.id === activeResourceId) ?? docsResources[0];
+  const visibleResources = docsResources.filter((resource) => resource.category === activeCategory);
+  const activeCategoryMeta = docsCategories.find((category) => category.key === activeCategory) ?? docsCategories[0];
+
+  usePublicPageClass();
+
+  useEffect(() => {
+    if (!docsJumpTransition) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setDocsJumpTransition(false);
+    }, PUBLIC_NAV_ANIMATION_MS + 120);
+
+    return () => window.clearTimeout(timer);
+  }, [docsJumpTransition]);
+
+  const selectCategory = (category: DocsCategoryKey) => {
+    setActiveCategory(category);
+    const firstResource = docsResources.find((resource) => resource.category === category);
+    if (firstResource) {
+      setActiveResourceId(firstResource.id);
+    }
+    setDocsPanelTransition('forward');
+    setDocsPanelMode('resources');
+  };
+
+  const backToCategories = () => {
+    setDocsPanelTransition('back');
+    setDocsPanelMode('categories');
+  };
+
+  const handleDownload = () => {
+    if (!activeResource.fileUrl && !activeResource.source) {
+      return;
+    }
+
+    downloadDocsResource(activeResource);
+  };
+
+  const handleQuickStart = () => {
+    setDocsJumpTransition(true);
+    setActiveCategory('technical');
+    setActiveResourceId('api-docs-local');
+    setDocsPanelTransition('forward');
+    setDocsPanelMode('resources');
+
+    window.setTimeout(() => {
+      document.getElementById('docs-workbench')?.scrollIntoView({
+        block: 'start',
+        behavior: 'smooth',
+      });
+    }, 160);
+  };
+
   return (
-    <PublicPlaceholderPage
-      activeKey="docs"
-      icon={<ReadOutlined />}
-      title="文档中心建设中"
-      description="这里已预留 Label Hub 文档入口，后续可接入使用说明、接口说明和部署文档。"
-    />
+    <main className="landing-page landing-docs-page">
+      <PublicHeader activeKey="docs" />
+
+      <section className="landing-docs-hero" aria-labelledby="docs-title">
+        <div className="landing-docs-hero-inner">
+          <div className="landing-docs-hero-content">
+            <div className="landing-docs-hero-badge">
+              <span className="landing-docs-hero-badge-dot" aria-hidden />
+              <span>数据标注文档中心</span>
+            </div>
+            <h1 id="docs-title">
+              沉淀项目文档，
+              <br />
+              连接 <span>标注流程.</span>
+            </h1>
+            <div className="landing-docs-hero-actions" aria-label="文档中心快捷入口">
+              <button className="landing-docs-hero-action is-primary" type="button" onClick={handleQuickStart}>
+                <ReadOutlined />
+                <span>快速开始</span>
+              </button>
+              <a
+                className="landing-docs-hero-action"
+                href="https://github.com/Qiang0129/ByteDance_competition"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <GithubOutlined />
+                <span>GitHub</span>
+              </a>
+              <a
+                className="landing-docs-hero-action"
+                href="http://127.0.0.1:8080/swagger-ui/index.html"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <LinkOutlined />
+                <span>Swagger</span>
+              </a>
+            </div>
+          </div>
+
+          <img
+            className="landing-docs-hero-screenshot"
+            src={docsCenterPreviewUrl}
+            alt=""
+            aria-hidden="true"
+          />
+        </div>
+      </section>
+
+      {docsJumpTransition ? (
+        <div className="landing-docs-jump-transition" aria-hidden="true">
+          <span />
+        </div>
+      ) : null}
+
+      <section id="docs-workbench" className="landing-docs-workbench" aria-label="文档浏览工作台">
+        <aside className="landing-docs-sidebar" aria-label="文档分类">
+          <div
+            key={docsPanelMode}
+            className={`landing-docs-panel landing-docs-panel-${docsPanelMode} is-${docsPanelTransition}`}
+          >
+            {docsPanelMode === 'categories' ? (
+              <>
+                <div className="landing-docs-sidebar-title">资源分类</div>
+                <nav className="landing-docs-category-list" aria-label="资源分类">
+                  {docsCategories.map((category) => {
+                    const categoryResources = docsResources.filter((resource) => resource.category === category.key);
+                    return (
+                      <button
+                        key={category.key}
+                        type="button"
+                        className={`landing-docs-category${activeCategory === category.key ? ' is-active' : ''}`}
+                        onClick={() => selectCategory(category.key)}
+                      >
+                        <span>{category.label}</span>
+                        <small>{category.description}</small>
+                        <em>{categoryResources.length}</em>
+                      </button>
+                    );
+                  })}
+                </nav>
+              </>
+            ) : (
+              <>
+                <div className="landing-docs-resource-panel-head">
+                  <button type="button" className="landing-docs-back-button" onClick={backToCategories}>
+                    <ArrowLeftOutlined />
+                    返回
+                  </button>
+                  <div>
+                    <span>{activeCategoryMeta.label}</span>
+                    <small>{activeCategoryMeta.description}</small>
+                  </div>
+                  <strong>{visibleResources.length}</strong>
+                </div>
+                <div className="landing-docs-resource-list landing-docs-resource-list-in-sidebar">
+                  {visibleResources.map((resource) => (
+                    <button
+                      key={resource.id}
+                      type="button"
+                      className={`landing-docs-resource${activeResource.id === resource.id ? ' is-active' : ''}${
+                        resource.status === 'missing' ? ' is-missing' : ''
+                      }`}
+                      onClick={() => setActiveResourceId(resource.id)}
+                    >
+                      <span className="landing-docs-resource-icon" aria-hidden="true">
+                        {getDocsResourceIcon(resource.kind)}
+                      </span>
+                      <span className="landing-docs-resource-text">
+                        <strong>{resource.title}</strong>
+                        <small>{resource.description}</small>
+                      </span>
+                      <span className="landing-docs-resource-badge">{resource.badge}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </aside>
+
+        <article className="landing-docs-preview" aria-labelledby="docs-preview-title">
+          <header className="landing-docs-preview-head">
+            <div>
+              <span className="landing-docs-preview-kicker">{activeResource.meta}</span>
+              <h2 id="docs-preview-title">{activeResource.title}</h2>
+              <p>{activeResource.description}</p>
+            </div>
+            <div className="landing-docs-preview-actions">
+              {activeResource.externalUrl ? (
+                <a
+                  className="landing-docs-action-link"
+                  href={activeResource.externalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <LinkOutlined />
+                  打开外部链接
+                </a>
+              ) : null}
+              {activeResource.status !== 'missing' && (activeResource.fileUrl || activeResource.source) ? (
+                <button
+                  type="button"
+                  className="landing-docs-action-link"
+                  onClick={handleDownload}
+                >
+                  <DownloadOutlined />
+                  下载
+                </button>
+              ) : null}
+            </div>
+          </header>
+
+          <div className="landing-docs-preview-body">
+            <DocsPreview resource={activeResource} />
+          </div>
+        </article>
+      </section>
+
+      <LandingFooter />
+    </main>
   );
+}
+
+function DocsPreview({ resource }: { resource: DocsResource }) {
+  if (resource.status === 'missing') {
+    return <MissingDocsPreview resource={resource} />;
+  }
+
+  if (resource.kind === 'markdown') {
+    return (
+      <div className="landing-docs-markdown landing-about-markdown">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ children, href, node: _node, ...props }) => (
+              <a
+                href={href}
+                target={href?.startsWith('http') ? '_blank' : undefined}
+                rel={href?.startsWith('http') ? 'noreferrer' : undefined}
+                {...props}
+              >
+                {children}
+              </a>
+            ),
+            table: ({ children, node: _node, ...props }) => (
+              <div className="landing-about-table-scroll">
+                <table {...props}>{children}</table>
+              </div>
+            ),
+          }}
+        >
+          {resource.source ?? ''}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  if (resource.kind === 'docx' && resource.fileUrl) {
+    return <DocxPreviewPane resource={resource} />;
+  }
+
+  if (resource.kind === 'image' && resource.fileUrl) {
+    return (
+      <div className="landing-docs-image-preview">
+        <img src={resource.fileUrl} alt={resource.title} />
+      </div>
+    );
+  }
+
+  if (resource.kind === 'external' && resource.externalUrl) {
+    return (
+      <div className="landing-docs-external-preview">
+        <ApiOutlined />
+        <h3>外部接口文档</h3>
+        <p>Swagger UI 由后端服务提供。为了避免 iframe 跨域或安全策略限制，这里使用新标签页打开。</p>
+        <a href={resource.externalUrl} target="_blank" rel="noreferrer">
+          打开 Swagger UI
+        </a>
+      </div>
+    );
+  }
+
+  return <MissingDocsPreview resource={resource} />;
+}
+
+function DocxPreviewPane({ resource }: { resource: DocsResource }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !resource.fileUrl) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    container.innerHTML = '';
+
+    fetch(resource.fileUrl)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.arrayBuffer();
+      })
+      .then((buffer) => renderAsync(buffer, container, undefined, {
+        className: 'landing-docx-rendered',
+        inWrapper: false,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        breakPages: true,
+      }))
+      .then(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        container.innerHTML = '';
+        setError(reason instanceof Error ? reason.message : 'DOCX 预览加载失败');
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resource.fileUrl, retryKey]);
+
+  return (
+    <div className="landing-docs-docx-preview">
+      {loading ? (
+        <div className="landing-docs-preview-state">
+          <ReadOutlined />
+          <span>正在渲染 Word 文档...</span>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="landing-docs-preview-state is-error">
+          <FileWordOutlined />
+          <strong>DOCX 预览失败</strong>
+          <span>{error}</span>
+          <button type="button" onClick={() => setRetryKey((value) => value + 1)}>
+            <ReloadOutlined />
+            重试
+          </button>
+        </div>
+      ) : null}
+      <div
+        ref={containerRef}
+        className={`landing-docs-docx-canvas${loading || error ? ' is-hidden' : ''}`}
+      />
+    </div>
+  );
+}
+
+function MissingDocsPreview({ resource }: { resource: DocsResource }) {
+  return (
+    <div className="landing-docs-missing-preview">
+      <ReadOutlined />
+      <h3>{resource.title} 待补充</h3>
+      <p>{resource.description}</p>
+      <span>资源放入仓库并补充 manifest 后即可在这里预览和下载。</span>
+    </div>
+  );
+}
+
+function getDocsResourceIcon(kind: DocsResourceKind) {
+  if (kind === 'docx') return <FileWordOutlined />;
+  if (kind === 'image') return <PictureOutlined />;
+  if (kind === 'external') return <ApiOutlined />;
+  if (kind === 'missing') return <InfoCircleOutlined />;
+  return <FileTextOutlined />;
+}
+
+function downloadDocsResource(resource: DocsResource) {
+  const link = document.createElement('a');
+  const filename = resource.downloadName ?? resource.title;
+
+  if (resource.fileUrl) {
+    link.href = resource.fileUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    return;
+  }
+
+  if (resource.source) {
+    const blob = new Blob([resource.source], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function AboutPlaceholder() {

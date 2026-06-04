@@ -6,8 +6,10 @@ import com.labelhub.backend.dashboard.DashboardIssueFeedbackRepository.IssueFeed
 import com.labelhub.backend.task.PageResponse;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -41,12 +43,24 @@ public class DashboardIssueFeedbackService {
     return new PageResponse<>(items, safePage, safePageSize, total);
   }
 
+  public MarkIssueFeedbackViewedResponse markIssueFeedbackViewed(
+      Authentication authentication,
+      MarkIssueFeedbackViewedRequest request) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    List<Long> issueIds = normalizeIssueIds(request == null ? null : request.issueIds());
+    if (issueIds.isEmpty()) {
+      return new MarkIssueFeedbackViewedResponse(0);
+    }
+    int markedCount = repository.markIssueFeedbackViewed(owner.id(), issueIds);
+    return new MarkIssueFeedbackViewedResponse(markedCount);
+  }
+
   private String normalizeStatus(String status) {
     if (status == null || status.isBlank()) {
       return "open";
     }
     String normalized = status.trim().toLowerCase(Locale.ROOT);
-    if (List.of("open", "all").contains(normalized)) {
+    if (List.of("open", "viewed", "all").contains(normalized)) {
       return normalized;
     }
     throw new ApiException(
@@ -55,13 +69,37 @@ public class DashboardIssueFeedbackService {
         "unsupported issue status");
   }
 
+  private List<Long> normalizeIssueIds(List<String> issueIds) {
+    if (issueIds == null || issueIds.isEmpty()) {
+      return List.of();
+    }
+    Set<Long> normalizedIds = new LinkedHashSet<>();
+    for (String rawId : issueIds) {
+      if (rawId == null || rawId.isBlank()) {
+        continue;
+      }
+      try {
+        long issueId = Long.parseLong(rawId.trim());
+        if (issueId > 0) {
+          normalizedIds.add(issueId);
+        }
+      } catch (NumberFormatException ex) {
+        throw new ApiException(
+            HttpStatus.BAD_REQUEST,
+            "INVALID_ISSUE_ID",
+            "issue id must be a positive integer");
+      }
+    }
+    return List.copyOf(normalizedIds);
+  }
+
   private IssueFeedbackResponse toResponse(IssueFeedbackRecord record) {
     return new IssueFeedbackResponse(
         Long.toString(record.issueId()),
         Long.toString(record.assignmentId()),
         Long.toString(record.taskId()),
         blankToDefault(record.taskTitle(), "标注任务"),
-        Long.toString(record.itemId()),
+        displayItemNo(record),
         Long.toString(record.labelerId()),
         blankToDefault(record.labelerName(), "Labeler"),
         record.category(),
@@ -89,6 +127,10 @@ public class DashboardIssueFeedbackService {
 
   private String blankToDefault(String value, String fallback) {
     return value == null || value.isBlank() ? fallback : value;
+  }
+
+  private String displayItemNo(IssueFeedbackRecord record) {
+    return Long.toString(record.taskItemPositionNo() == null ? record.itemId() : record.taskItemPositionNo());
   }
 
   private AuthenticatedUser requireOwner(Authentication authentication) {

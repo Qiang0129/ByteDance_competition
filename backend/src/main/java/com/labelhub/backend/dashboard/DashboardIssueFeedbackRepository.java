@@ -44,6 +44,7 @@ public class DashboardIssueFeedbackRepository {
           iss.task_id,
           t.title AS task_title,
           iss.item_id,
+          ti.position_no AS task_item_position_no,
           iss.labeler_id,
           u.name AS labeler_name,
           iss.category,
@@ -53,6 +54,7 @@ public class DashboardIssueFeedbackRepository {
         FROM issues iss
         JOIN tasks t ON t.id = iss.task_id
         JOIN users u ON u.id = iss.labeler_id
+        LEFT JOIN task_items ti ON ti.task_id = iss.task_id AND ti.item_id = iss.item_id
         WHERE t.owner_id = ?
           AND t.deleted_at IS NULL
         """ + statusFilter(status, args) + """
@@ -67,12 +69,35 @@ public class DashboardIssueFeedbackRepository {
         rs.getLong("task_id"),
         rs.getString("task_title"),
         rs.getLong("item_id"),
+        getNullableLong(rs, "task_item_position_no"),
         rs.getLong("labeler_id"),
         rs.getString("labeler_name"),
         rs.getString("category"),
         rs.getString("description"),
         rs.getString("status"),
         toLocalDateTime(rs.getTimestamp("created_at"))), args.toArray());
+  }
+
+  public int markIssueFeedbackViewed(long ownerId, List<Long> issueIds) {
+    if (issueIds == null || issueIds.isEmpty()) {
+      return 0;
+    }
+    List<Object> args = new ArrayList<>();
+    args.add(ownerId);
+    args.addAll(issueIds);
+    String placeholders = String.join(", ", issueIds.stream().map(id -> "?").toList());
+    String sql = """
+        UPDATE issues iss
+        JOIN tasks t ON t.id = iss.task_id
+        SET iss.status = 'viewed'
+        WHERE t.owner_id = ?
+          AND t.deleted_at IS NULL
+          AND iss.status = 'open'
+          AND iss.id IN (
+        """ + placeholders + """
+          )
+        """;
+    return jdbcTemplate.update(sql, args.toArray());
   }
 
   private String statusFilter(String status, List<Object> args) {
@@ -87,12 +112,18 @@ public class DashboardIssueFeedbackRepository {
     return timestamp == null ? null : timestamp.toLocalDateTime();
   }
 
+  private Long getNullableLong(java.sql.ResultSet rs, String columnName) throws java.sql.SQLException {
+    long value = rs.getLong(columnName);
+    return rs.wasNull() ? null : value;
+  }
+
   public record IssueFeedbackRecord(
       long issueId,
       long assignmentId,
       long taskId,
       String taskTitle,
       long itemId,
+      Long taskItemPositionNo,
       long labelerId,
       String labelerName,
       String category,

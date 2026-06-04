@@ -1,6 +1,8 @@
 package com.labelhub.backend.review;
 
 import org.springframework.security.core.Authentication;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,6 +36,23 @@ public class ReviewController {
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer pageSize) {
     return reviewService.listBatches(authentication, status, keyword, page, pageSize);
+  }
+
+  @GetMapping("/reports/summary")
+  public ReviewerReportSummaryResponse getReportSummary(
+      Authentication authentication,
+      @RequestParam(required = false) Integer days) {
+    return reviewService.getReportSummary(authentication, days);
+  }
+
+  @GetMapping("/reports/export")
+  public ResponseEntity<Resource> exportReviewDetails(
+      Authentication authentication,
+      @RequestParam(required = false) Integer days,
+      @RequestParam(required = false) String format,
+      @RequestParam(required = false) Long taskId,
+      @RequestParam(required = false) String decision) {
+    return reviewService.exportReviewDetails(authentication, days, format, taskId, decision);
   }
 
   @PostMapping("/batches/{batchId}/claim")

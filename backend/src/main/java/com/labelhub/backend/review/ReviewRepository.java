@@ -1,6 +1,7 @@
 package com.labelhub.backend.review;
 
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,19 +58,217 @@ public class ReviewRepository {
     return count == null ? 0 : count;
   }
 
+  public ReviewerDecisionCounts countReviewerDecisions(long reviewerId, LocalDateTime startAt) {
+    return jdbcTemplate.queryForObject(
+        """
+        SELECT
+          SUM(CASE WHEN LOWER(hr.decision) IN ('approve', 'revise') THEN 1 ELSE 0 END) AS approve_count,
+          SUM(CASE WHEN LOWER(hr.decision) = 'return' THEN 1 ELSE 0 END) AS return_count,
+          SUM(CASE WHEN LOWER(hr.decision) = 'escalate' THEN 1 ELSE 0 END) AS dispute_count
+        FROM human_reviews hr
+        JOIN annotations an ON an.id = hr.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE hr.reviewer_id = ?
+          AND hr.created_at >= ?
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+        """,
+        (rs, rowNum) -> new ReviewerDecisionCounts(
+            rs.getLong("approve_count"),
+            rs.getLong("return_count"),
+            rs.getLong("dispute_count")),
+        reviewerId,
+        Timestamp.valueOf(startAt));
+  }
+
+  public List<ReviewerTrendRecord> listReviewerTrend(long reviewerId, LocalDateTime startAt) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          DATE(hr.created_at) AS review_date,
+          SUM(CASE WHEN LOWER(hr.decision) IN ('approve', 'revise') THEN 1 ELSE 0 END) AS approve_count,
+          SUM(CASE WHEN LOWER(hr.decision) = 'return' THEN 1 ELSE 0 END) AS return_count,
+          SUM(CASE WHEN LOWER(hr.decision) = 'escalate' THEN 1 ELSE 0 END) AS dispute_count
+        FROM human_reviews hr
+        JOIN annotations an ON an.id = hr.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE hr.reviewer_id = ?
+          AND hr.created_at >= ?
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+        GROUP BY DATE(hr.created_at)
+        ORDER BY review_date ASC
+        """,
+        (rs, rowNum) -> new ReviewerTrendRecord(
+            rs.getDate("review_date").toLocalDate(),
+            rs.getLong("approve_count"),
+            rs.getLong("return_count"),
+            rs.getLong("dispute_count")),
+        reviewerId,
+        Timestamp.valueOf(startAt));
+  }
+
+  public ReviewerAiConsistencyCounts countReviewerAiConsistency(long reviewerId, LocalDateTime startAt) {
+    return jdbcTemplate.queryForObject(
+        """
+        SELECT
+          COUNT(*) AS total_count,
+          SUM(CASE
+            WHEN air.decision = 'PASS' AND LOWER(hr.decision) IN ('approve', 'revise') THEN 1
+            WHEN air.decision = 'REJECT' AND LOWER(hr.decision) IN ('return', 'escalate') THEN 1
+            ELSE 0
+          END) AS consistent_count
+        FROM human_reviews hr
+        JOIN annotations an ON an.id = hr.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          WHERE latest_job.annotation_id = an.id
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
+        JOIN ai_review_results air ON air.job_id = aj.id
+        WHERE hr.reviewer_id = ?
+          AND hr.created_at >= ?
+          AND air.decision IN ('PASS', 'REJECT')
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+        """,
+        (rs, rowNum) -> new ReviewerAiConsistencyCounts(
+            rs.getLong("consistent_count"),
+            rs.getLong("total_count")),
+        reviewerId,
+        Timestamp.valueOf(startAt));
+  }
+
+  public ReviewerSamplingCoverageCounts countReviewerSamplingCoverage(long reviewerId, LocalDateTime startAt) {
+    return jdbcTemplate.queryForObject(
+        """
+        SELECT
+          COUNT(DISTINCT an.id) AS total_pass_count,
+          COUNT(DISTINCT CASE WHEN EXISTS (
+            SELECT 1
+            FROM human_reviews hr_done
+            WHERE hr_done.annotation_id = an.id
+              AND hr_done.reviewer_id = ?
+              AND hr_done.created_at >= ?
+          ) THEN an.id END) AS sampled_pass_count
+        FROM annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          WHERE latest_job.annotation_id = an.id
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
+        JOIN ai_review_results air ON air.job_id = aj.id
+        WHERE air.decision = 'PASS'
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+          AND """ + reviewerAssignmentFilter(reviewerId) + """
+        """,
+        (rs, rowNum) -> new ReviewerSamplingCoverageCounts(
+            rs.getLong("sampled_pass_count"),
+            rs.getLong("total_pass_count")),
+        reviewerId,
+        Timestamp.valueOf(startAt));
+  }
+
+  public List<ReviewerReviewDetailRecord> listReviewerReviewDetails(
+      long reviewerId,
+      LocalDateTime startAt,
+      Long taskId,
+      String decision) {
+    List<Object> args = new ArrayList<>();
+    args.add(reviewerId);
+    args.add(Timestamp.valueOf(startAt));
+    String taskFilter = "";
+    if (taskId != null) {
+      taskFilter = "AND a.task_id = ?\n";
+      args.add(taskId);
+    }
+    String decisionFilter = "";
+    if (decision != null && !decision.isBlank()) {
+      decisionFilter = "AND LOWER(hr.decision) = ?\n";
+      args.add(decision.toLowerCase());
+    }
+    String sql = """
+        SELECT
+          hr.created_at AS reviewed_at,
+          a.task_id,
+          t.title AS task_title,
+          a.item_id,
+          an.id AS annotation_id,
+          an.revision_no,
+          hr.decision,
+          hr.reason,
+          air.decision AS ai_decision,
+          air.total_score AS ai_total_score,
+          labeler.name AS labeler_name,
+          reviewer.name AS reviewer_name
+        FROM human_reviews hr
+        JOIN annotations an ON an.id = hr.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        JOIN users labeler ON labeler.id = a.labeler_id
+        JOIN users reviewer ON reviewer.id = hr.reviewer_id
+        LEFT JOIN ai_review_jobs aj ON aj.id = (
+          SELECT latest_job.id
+          FROM ai_review_jobs latest_job
+          WHERE latest_job.annotation_id = an.id
+          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+          LIMIT 1
+        )
+        LEFT JOIN ai_review_results air ON air.job_id = aj.id
+        WHERE hr.reviewer_id = ?
+          AND hr.created_at >= ?
+          AND an.status <> 'voided'
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+        """ + taskFilter + decisionFilter + """
+        ORDER BY hr.created_at DESC, hr.id DESC
+        """;
+    return jdbcTemplate.query(
+        sql,
+        (rs, rowNum) -> new ReviewerReviewDetailRecord(
+            toLocalDateTime(rs.getTimestamp("reviewed_at")),
+            rs.getLong("task_id"),
+            rs.getString("task_title"),
+            rs.getLong("item_id"),
+            rs.getLong("annotation_id"),
+            rs.getInt("revision_no"),
+            rs.getString("decision"),
+            rs.getString("reason"),
+            rs.getString("ai_decision"),
+            toDouble(rs.getObject("ai_total_score")),
+            rs.getString("labeler_name"),
+            rs.getString("reviewer_name")),
+        args.toArray());
+  }
+
   public List<ReviewBatchRecord> listBatches(long reviewerId, String status, String keyword, int limit, int offset) {
     String having = "";
     if (status != null && !status.isBlank()) {
       having = switch (status) {
-        case "pending" -> "HAVING pending > 0 AND reviewed = 0";
-        case "in_review" -> "HAVING pending > 0 AND reviewed > 0";
-        case "completed" -> "HAVING pending = 0 AND reviewed > 0";
+        case "pending" -> "HAVING pending > 0 AND reviewed = 0\n";
+        case "in_review" -> "HAVING pending > 0 AND reviewed > 0\n";
+        case "completed" -> "HAVING pending = 0 AND reviewed > 0\n";
         default -> "";
       };
     }
     String keywordFilter = keyword == null || keyword.isBlank()
         ? ""
-        : "AND (t.title LIKE ? OR CAST(t.id AS CHAR) LIKE ?)";
+        : "AND (t.title LIKE ? OR CAST(t.id AS CHAR) LIKE ?)\n";
     String sql = """
         SELECT
           t.id AS task_id,
@@ -1196,6 +1395,39 @@ public class ReviewRepository {
       String status,
       LocalDateTime deadline,
       LocalDateTime updatedAt) {}
+
+  public record ReviewerDecisionCounts(
+      long approve,
+      long returnCount,
+      long dispute) {}
+
+  public record ReviewerTrendRecord(
+      LocalDate date,
+      long approve,
+      long returnCount,
+      long dispute) {}
+
+  public record ReviewerAiConsistencyCounts(
+      long consistent,
+      long total) {}
+
+  public record ReviewerSamplingCoverageCounts(
+      long sampled,
+      long total) {}
+
+  public record ReviewerReviewDetailRecord(
+      LocalDateTime reviewedAt,
+      long taskId,
+      String taskTitle,
+      long itemId,
+      long annotationId,
+      int revisionNo,
+      String decision,
+      String reason,
+      String aiDecision,
+      Double aiTotalScore,
+      String labelerName,
+      String reviewerName) {}
 
   public record AiReviewTaskSummaryRecord(
       long taskId,

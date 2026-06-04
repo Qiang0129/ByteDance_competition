@@ -18,6 +18,7 @@
     "@formily/json-schema": "^2.3.7",
     "@formily/react": "^2.3.7",
     "antd": "^6.4.3",
+    "docx-preview": "^0.3.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",

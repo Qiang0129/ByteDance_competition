@@ -152,4 +152,11 @@ export const dashboardApi = {
     const query = searchParams.toString();
     return apiRequest(`/dashboard/issue-feedback${query ? `?${query}` : ''}`);
   },
+
+  markIssueFeedbackViewed(issueIds: string[]): Promise<{ markedCount: number }> {
+    return apiRequest('/dashboard/issue-feedback/viewed', {
+      method: 'PATCH',
+      body: JSON.stringify({ issueIds }),
+    });
+  },
 };

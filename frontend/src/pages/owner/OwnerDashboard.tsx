@@ -95,6 +95,13 @@ const reviewYearOptions = Array.from({ length: 5 }, (_, index) => {
   const year = currentYear - index;
   return { label: String(year), value: year };
 });
+const ISSUE_FEEDBACK_PREVIEW_SIZE = 5;
+
+function issueStatusLabel(status: string) {
+  if (status === 'open') return '待查看';
+  if (status === 'viewed') return '已查看';
+  return status;
+}
 
 export default function OwnerDashboard() {
   const { message } = AntdApp.useApp();
@@ -110,17 +117,43 @@ export default function OwnerDashboard() {
   const [issueLoading, setIssueLoading] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
 
-  const loadIssueFeedback = useCallback(async () => {
+  const loadIssueFeedback = useCallback(async (options: { markViewed?: boolean; includeViewed?: boolean } = {}) => {
     setIssueLoading(true);
     setIssueError(null);
     try {
+      const shouldIncludeViewed = options.includeViewed ?? false;
       const result = await dashboardApi.listIssueFeedback({
         page: 1,
-        pageSize: 5,
-        status: 'open',
+        pageSize: ISSUE_FEEDBACK_PREVIEW_SIZE,
+        status: shouldIncludeViewed ? 'all' : 'open',
       });
-      setIssueFeedback(result.items ?? []);
-      setIssueTotal(result.total ?? 0);
+      const openResult = shouldIncludeViewed
+        ? await dashboardApi.listIssueFeedback({ page: 1, pageSize: 1, status: 'open' })
+        : result;
+      const items = result.items ?? [];
+      setIssueFeedback(items);
+      setIssueTotal(openResult.total ?? 0);
+      if (options.markViewed && items.length > 0) {
+        const issueIds = items
+          .filter((item) => item.status === 'open')
+          .map((item) => item.issueId);
+        const issueIdSet = new Set(issueIds);
+        if (issueIds.length === 0) {
+          return;
+        }
+        try {
+          const viewedResult = await dashboardApi.markIssueFeedbackViewed(issueIds);
+          const markedCount = viewedResult.markedCount ?? 0;
+          if (markedCount > 0) {
+            setIssueFeedback((currentItems) => currentItems.map((item) => (
+              issueIdSet.has(item.issueId) ? { ...item, status: 'viewed' } : item
+            )));
+            setIssueTotal((currentTotal) => Math.max(currentTotal - markedCount, 0));
+          }
+        } catch (error) {
+          message.warning(getApiErrorMessage(error, '题目反馈已加载,但标记已查看失败'));
+        }
+      }
     } catch (error) {
       setIssueFeedback([]);
       setIssueTotal(0);
@@ -128,7 +161,7 @@ export default function OwnerDashboard() {
     } finally {
       setIssueLoading(false);
     }
-  }, []);
+  }, [message]);
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -187,7 +220,7 @@ export default function OwnerDashboard() {
 
   const openIssueFeedback = () => {
     setFeedbackOpen(true);
-    void loadIssueFeedback();
+    void loadIssueFeedback({ markViewed: true, includeViewed: true });
   };
 
   const downloadReviewReport = useCallback(async () => {
@@ -300,7 +333,8 @@ export default function OwnerDashboard() {
         loading={issueLoading}
         error={issueError}
         onClose={() => setFeedbackOpen(false)}
-        onRetry={loadIssueFeedback}
+        onRetry={() => loadIssueFeedback({ markViewed: true, includeViewed: true })}
+        previewSize={ISSUE_FEEDBACK_PREVIEW_SIZE}
       />
     </>
   );
@@ -502,6 +536,7 @@ function IssueFeedbackDrawer({
   error,
   onClose,
   onRetry,
+  previewSize,
 }: {
   open: boolean;
   items: IssueFeedback[];
@@ -510,6 +545,7 @@ function IssueFeedbackDrawer({
   error: string | null;
   onClose: () => void;
   onRetry: () => void;
+  previewSize: number;
 }) {
   return (
     <Drawer
@@ -525,7 +561,7 @@ function IssueFeedbackDrawer({
     >
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Typography.Text type="secondary">
-          当前共有 {total} 条待查看反馈,仅展示最近 5 条。
+          当前共有 {total} 条待查看反馈,展示最近 {previewSize} 条反馈。
         </Typography.Text>
         {error && (
           <Alert
@@ -561,7 +597,7 @@ function IssueFeedbackDrawer({
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
                   <Space wrap size={8}>
                     <Tag color="blue">{item.categoryLabel || item.category}</Tag>
-                    <Tag>{item.status === 'open' ? '待查看' : item.status}</Tag>
+                    <Tag>{issueStatusLabel(item.status)}</Tag>
                     <Typography.Text type="secondary">{item.createdAt}</Typography.Text>
                   </Space>
                   <Typography.Text strong>{item.taskTitle}</Typography.Text>

@@ -10,13 +10,24 @@ import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.workflow.StateMachineService;
 import com.labelhub.backend.workflow.WorkflowEntityType;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +58,11 @@ public class ReviewService {
   public ReviewerOverviewResponse getOverview(Authentication authentication, Integer days) {
     AuthenticatedUser reviewer = requireReviewer(authentication);
     int rangeDays = days == null || days < 1 ? 30 : Math.min(days, 365);
+    LocalDateTime startAt = reportStartAt(rangeDays);
+    ReviewRepository.ReviewerAiConsistencyCounts consistency =
+        reviewRepository.countReviewerAiConsistency(reviewer.id(), startAt);
+    ReviewRepository.ReviewerSamplingCoverageCounts coverage =
+        reviewRepository.countReviewerSamplingCoverage(reviewer.id(), startAt);
     return new ReviewerOverviewResponse(
         rangeDays,
         reviewRepository.countPendingBatches(reviewer.id()),
@@ -54,8 +70,61 @@ public class ReviewService {
         reviewRepository.countHumanReviewsToday("return"),
         reviewRepository.countHumanReviewsToday("escalate"),
         reviewRepository.countReviewedTotal(reviewer.id()),
-        1.0,
-        1.0);
+        ratio(consistency.consistent(), consistency.total()),
+        ratio(coverage.sampled(), coverage.total()));
+  }
+
+  public ReviewerReportSummaryResponse getReportSummary(Authentication authentication, Integer days) {
+    AuthenticatedUser reviewer = requireReviewer(authentication);
+    int rangeDays = normalizeReportDays(days);
+    LocalDateTime startAt = reportStartAt(rangeDays);
+    ReviewRepository.ReviewerDecisionCounts counts =
+        reviewRepository.countReviewerDecisions(reviewer.id(), startAt);
+    long total = counts.approve() + counts.returnCount() + counts.dispute();
+    ReviewRepository.ReviewerAiConsistencyCounts consistency =
+        reviewRepository.countReviewerAiConsistency(reviewer.id(), startAt);
+    List<ReviewerReportTrendPointResponse> trend = buildTrend(rangeDays, startAt, reviewer.id());
+    return new ReviewerReportSummaryResponse(
+        rangeDays,
+        ratio(counts.approve(), total),
+        ratio(counts.returnCount(), total),
+        ratio(counts.dispute(), total),
+        ratio(consistency.consistent(), consistency.total()),
+        reviewRepository.countReviewedTotal(reviewer.id()),
+        trend);
+  }
+
+  public ResponseEntity<Resource> exportReviewDetails(
+      Authentication authentication,
+      Integer days,
+      String format,
+      Long taskId,
+      String decision) {
+    AuthenticatedUser reviewer = requireReviewer(authentication);
+    int rangeDays = normalizeReportDays(days);
+    String normalizedFormat = format == null || format.isBlank()
+        ? "csv"
+        : format.trim().toLowerCase(Locale.ROOT);
+    if (!"csv".equals(normalizedFormat)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_EXPORT_FORMAT", "only csv export is supported");
+    }
+    String normalizedDecision = normalizeExportDecision(decision);
+    LocalDateTime startAt = reportStartAt(rangeDays);
+    List<ReviewRepository.ReviewerReviewDetailRecord> rows =
+        reviewRepository.listReviewerReviewDetails(reviewer.id(), startAt, taskId, normalizedDecision);
+    String csv = buildReviewDetailsCsv(rows);
+    byte[] bytes = csv.getBytes(StandardCharsets.UTF_8);
+    String filename = "reviewer-review-details-" + rangeDays + "d.csv";
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+        .contentLength(bytes.length)
+        .header(
+            HttpHeaders.CONTENT_DISPOSITION,
+            ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build()
+                .toString())
+        .body(new ByteArrayResource(bytes));
   }
 
   public ReviewerPageResponse<ReviewBatchResponse> listBatches(
@@ -78,6 +147,120 @@ public class ReviewService {
         safePage,
         safePageSize,
         reviewRepository.countBatches(reviewer.id(), normalizedStatus, keyword));
+  }
+
+  private List<ReviewerReportTrendPointResponse> buildTrend(
+      int rangeDays,
+      LocalDateTime startAt,
+      long reviewerId) {
+    Map<LocalDate, ReviewRepository.ReviewerTrendRecord> rows = reviewRepository
+        .listReviewerTrend(reviewerId, startAt)
+        .stream()
+        .collect(Collectors.toMap(ReviewRepository.ReviewerTrendRecord::date, Function.identity()));
+    LocalDate startDate = startAt.toLocalDate();
+    List<ReviewerReportTrendPointResponse> trend = new ArrayList<>();
+    for (int i = 0; i < rangeDays; i++) {
+      LocalDate date = startDate.plusDays(i);
+      ReviewRepository.ReviewerTrendRecord row = rows.get(date);
+      trend.add(new ReviewerReportTrendPointResponse(
+          date.toString(),
+          row == null ? 0 : row.approve(),
+          row == null ? 0 : row.returnCount(),
+          row == null ? 0 : row.dispute()));
+    }
+    return trend;
+  }
+
+  private String buildReviewDetailsCsv(List<ReviewRepository.ReviewerReviewDetailRecord> rows) {
+    StringBuilder csv = new StringBuilder("\uFEFF");
+    csv.append(csvRow(
+        "审核时间",
+        "任务 ID",
+        "任务名",
+        "题目 ID",
+        "标注 ID",
+        "审核阶段",
+        "审核结论",
+        "审核原因",
+        "AI 预审结论",
+        "AI 预审分数",
+        "标注员",
+        "Reviewer"));
+    for (ReviewRepository.ReviewerReviewDetailRecord row : rows) {
+      csv.append(csvRow(
+          formatDateTime(row.reviewedAt()),
+          Long.toString(row.taskId()),
+          row.taskTitle(),
+          Long.toString(row.itemId()),
+          Long.toString(row.annotationId()),
+          resolveReviewStageLabel(row.revisionNo()),
+          decisionLabel(row.decision()),
+          row.reason(),
+          row.aiDecision() == null ? "" : row.aiDecision(),
+          row.aiTotalScore() == null ? "" : String.format(Locale.ROOT, "%.2f", row.aiTotalScore()),
+          row.labelerName(),
+          row.reviewerName()));
+    }
+    return csv.toString();
+  }
+
+  private String csvRow(String... cells) {
+    StringBuilder row = new StringBuilder();
+    for (int i = 0; i < cells.length; i++) {
+      if (i > 0) {
+        row.append(',');
+      }
+      row.append(csvCell(cells[i]));
+    }
+    row.append('\n');
+    return row.toString();
+  }
+
+  private String csvCell(String value) {
+    String safe = value == null ? "" : value;
+    if (safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\r")) {
+      return "\"" + safe.replace("\"", "\"\"") + "\"";
+    }
+    return safe;
+  }
+
+  private String decisionLabel(String decision) {
+    if (decision == null) {
+      return "";
+    }
+    return switch (decision.toLowerCase(Locale.ROOT)) {
+      case "approve" -> "通过";
+      case "return" -> "打回";
+      case "revise" -> "修订";
+      case "escalate" -> "升级争议";
+      default -> decision;
+    };
+  }
+
+  private int normalizeReportDays(Integer days) {
+    if (days == null) {
+      return 30;
+    }
+    return days <= 7 ? 7 : 30;
+  }
+
+  private LocalDateTime reportStartAt(int rangeDays) {
+    return LocalDate.now().minusDays(rangeDays - 1L).atStartOfDay();
+  }
+
+  private double ratio(long value, long total) {
+    return total <= 0 ? 0D : (double) value / (double) total;
+  }
+
+  private String normalizeExportDecision(String decision) {
+    if (decision == null || decision.isBlank() || "ALL".equalsIgnoreCase(decision)) {
+      return null;
+    }
+    String normalized = decision.trim().toLowerCase(Locale.ROOT);
+    if (!List.of("approve", "return", "revise", "escalate").contains(normalized)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DECISION", "invalid export decision");
+    }
+    return normalized;
   }
 
   public ReviewBatchResponse claimBatch(Authentication authentication, long batchId) {

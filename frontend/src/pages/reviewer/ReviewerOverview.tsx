@@ -19,6 +19,7 @@ import {
   Row,
   Segmented,
   Space,
+  Spin,
   Tag,
   Typography,
 } from 'antd';
@@ -38,8 +39,13 @@ import {
 
 import { AiAssistantIcon } from '../../components/icons';
 
+import { getApiErrorMessage } from '../../api/client';
 import { reviewerApi } from '../../api/reviewer';
-import type { ReviewBatch, ReviewerOverview as ReviewerOverviewMeta } from '../../types/reviewer';
+import type {
+  ReviewBatch,
+  ReviewerOverview as ReviewerOverviewMeta,
+  ReviewerReportSummary,
+} from '../../types/reviewer';
 import { useThemeColors } from '../../theme/useThemeColors';
 
 /**
@@ -47,15 +53,15 @@ import { useThemeColors } from '../../theme/useThemeColors';
  * 计划书 4.5 / 4.6:展示待审批次、今日审核流转、抽检覆盖、争议样本、AI 通过率与一致率。
  */
 
-const sampleOverview: ReviewerOverviewMeta = {
+const emptyOverview: ReviewerOverviewMeta = {
   rangeDays: 30,
-  pendingBatches: 7,
-  todayApproved: 112,
-  todayReturned: 9,
-  todayDisputes: 2,
-  reviewedTotal: 1840,
-  consistencyRate: 0.94,
-  samplingCoverage: 0.12,
+  pendingBatches: 0,
+  todayApproved: 0,
+  todayReturned: 0,
+  todayDisputes: 0,
+  reviewedTotal: 0,
+  consistencyRate: 0,
+  samplingCoverage: 0,
 };
 
 type ReviewerReportTrendPoint = {
@@ -66,30 +72,6 @@ type ReviewerReportTrendPoint = {
   total: number;
 };
 
-const reviewerReportTrend7: ReviewerReportTrendPoint[] = [
-  { date: '2026-05-29', pass: 0, return: 0, dispute: 0, total: 0 },
-  { date: '2026-05-30', pass: 30, return: 2, dispute: 1, total: 33 },
-  { date: '2026-05-31', pass: 27, return: 7, dispute: 1, total: 35 },
-  { date: '2026-06-01', pass: 5, return: 2, dispute: 0, total: 7 },
-  { date: '2026-06-02', pass: 14, return: 1, dispute: 0, total: 15 },
-  { date: '2026-06-03', pass: 0, return: 0, dispute: 0, total: 0 },
-  { date: '2026-06-04', pass: 0, return: 0, dispute: 0, total: 0 },
-];
-
-const reviewerReportTrend30: ReviewerReportTrendPoint[] = Array.from({ length: 30 }, (_, index) => {
-  const date = new Date(Date.UTC(2026, 4, 6 + index)).toISOString().slice(0, 10);
-  const pass = index % 7 === 0 ? 0 : 8 + ((index * 7) % 18);
-  const returned = index % 6 === 0 ? 1 : (index * 3) % 6;
-  const dispute = index % 9 === 0 ? 2 : index % 5 === 0 ? 1 : 0;
-  return {
-    date,
-    pass,
-    return: returned,
-    dispute,
-    total: pass + returned + dispute,
-  };
-});
-
 const reviewerReportTrendColors = {
   pass: '#22c55e',
   return: '#f59e0b',
@@ -97,15 +79,27 @@ const reviewerReportTrendColors = {
   total: '#94a3b8',
 };
 
+function mapReportTrend(summary: ReviewerReportSummary | null): ReviewerReportTrendPoint[] {
+  return (summary?.trend ?? []).map((item) => ({
+    date: item.label,
+    pass: item.approve,
+    return: item.return,
+    dispute: item.dispute,
+    total: item.approve + item.return + item.dispute,
+  }));
+}
+
 export default function ReviewerOverview() {
   const navigate = useNavigate();
   const themeColors = useThemeColors();
   const { message } = AntdApp.useApp();
-  const [overview, setOverview] = useState<ReviewerOverviewMeta>(sampleOverview);
+  const [overview, setOverview] = useState<ReviewerOverviewMeta>(emptyOverview);
   const [batches, setBatches] = useState<ReviewBatch[]>([]);
-  const [usingFallback, setUsingFallback] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [reportDays, setReportDays] = useState<7 | 30>(7);
+  const [reportSummary, setReportSummary] = useState<ReviewerReportSummary | null>(null);
+  const [reportLoading, setReportLoading] = useState(true);
+  const [reportExporting, setReportExporting] = useState(false);
+  const [reportDays, setReportDays] = useState<7 | 30>(30);
   const [reportChartType, setReportChartType] = useState<'line' | 'bar'>('bar');
 
   useEffect(() => {
@@ -120,20 +114,11 @@ export default function ReviewerOverview() {
         if (cancelled) return;
         setOverview(ov);
         setBatches(bt.items ?? []);
-        setUsingFallback(false);
-      } catch {
-        try {
-          const res = await fetch('/sample-datasets/reviewer-batches.json');
-          const data = await res.json();
-          if (cancelled) return;
-          const items = (data.items as ReviewBatch[]).filter(
-            (b) => b.status === 'pending' || b.status === 'in_review',
-          );
-          setBatches(items);
-        } catch {
-          // ignore
-        }
-        if (!cancelled) setUsingFallback(true);
+      } catch (error) {
+        if (cancelled) return;
+        setOverview(emptyOverview);
+        setBatches([]);
+        message.warning(getApiErrorMessage(error, '审核员工作台加载失败'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -141,7 +126,28 @@ export default function ReviewerOverview() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [message]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setReportLoading(true);
+      try {
+        const summary = await reviewerApi.getReportSummary(reportDays);
+        if (cancelled) return;
+        setReportSummary(summary);
+      } catch (error) {
+        if (cancelled) return;
+        setReportSummary(null);
+        message.warning(getApiErrorMessage(error, '审核报表加载失败'));
+      } finally {
+        if (!cancelled) setReportLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [message, reportDays]);
 
   const kpis = useMemo(
     () => [
@@ -178,46 +184,58 @@ export default function ReviewerOverview() {
   );
 
   const reportStats = useMemo(() => {
-    const reviewedToday = overview.todayApproved + overview.todayReturned + overview.todayDisputes;
-    const approveRate = reviewedToday === 0 ? 0 : overview.todayApproved / reviewedToday;
-    const returnRate = reviewedToday === 0 ? 0 : overview.todayReturned / reviewedToday;
-    const disputeRate = reviewedToday === 0 ? 0 : overview.todayDisputes / reviewedToday;
     return [
       {
         key: 'approve',
         label: '通过率',
-        value: `${(approveRate * 100).toFixed(1)}%`,
+        value: reportSummary ? `${(reportSummary.approveRate * 100).toFixed(1)}%` : '-',
         color: '#22c55e',
         icon: <CheckCircleFilled />,
       },
       {
         key: 'return',
         label: '打回率',
-        value: `${(returnRate * 100).toFixed(1)}%`,
+        value: reportSummary ? `${(reportSummary.returnRate * 100).toFixed(1)}%` : '-',
         color: '#f59e0b',
         icon: <CloseCircleFilled />,
       },
       {
         key: 'dispute',
         label: '争议率',
-        value: `${(disputeRate * 100).toFixed(1)}%`,
+        value: reportSummary ? `${(reportSummary.disputeRate * 100).toFixed(1)}%` : '-',
         color: '#ef4444',
         icon: <ExclamationCircleFilled />,
       },
       {
         key: 'ai',
         label: 'AI 一致率',
-        value: `${(overview.consistencyRate * 100).toFixed(1)}%`,
+        value: reportSummary ? `${(reportSummary.aiConsistencyRate * 100).toFixed(1)}%` : '-',
         color: '#2f7bff',
         icon: <AiAssistantIcon />,
       },
     ];
-  }, [overview]);
+  }, [reportSummary]);
 
-  const reportTrendData = reportDays === 7 ? reviewerReportTrend7 : reviewerReportTrend30;
+  const reportTrendData = useMemo(() => mapReportTrend(reportSummary), [reportSummary]);
 
-  function handleExportDetails() {
-    message.info('审核明细导出接口已预留，后端接入后可导出 CSV。');
+  async function handleExportDetails() {
+    setReportExporting(true);
+    try {
+      const blob = await reviewerApi.exportReviewDetails({ rangeDays: reportDays, format: 'csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `reviewer-review-details-${reportDays}d.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      message.success('审核明细已开始下载');
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '导出审核明细失败'));
+    } finally {
+      setReportExporting(false);
+    }
   }
 
   return (
@@ -230,7 +248,6 @@ export default function ReviewerOverview() {
           </Typography.Text>
         </Space>
         <Space>
-          {usingFallback && <Tag color="gold">演示模式 · 接口未连接</Tag>}
           <Button type="primary" onClick={() => navigate('/reviewer/ai')}>
             领取审核任务
           </Button>
@@ -248,7 +265,7 @@ export default function ReviewerOverview() {
               >
                 {k.icon}
               </div>
-              <div className="reviewer-kpi-value">{k.value}</div>
+              <div className="reviewer-kpi-value">{loading ? '-' : k.value}</div>
               <div className="reviewer-kpi-title">{k.title}</div>
             </Card>
           </Col>
@@ -317,20 +334,20 @@ export default function ReviewerOverview() {
             <Space direction="vertical" size={14} style={{ width: '100%' }}>
               <QualityRow
                 label="双审一致率"
-                value={`${(overview.consistencyRate * 100).toFixed(1)}%`}
-                ratio={overview.consistencyRate}
+                value={loading ? '-' : `${(overview.consistencyRate * 100).toFixed(1)}%`}
+                ratio={loading ? 0 : overview.consistencyRate}
                 color="#22c55e"
               />
               <QualityRow
                 label="抽检覆盖率"
-                value={`${(overview.samplingCoverage * 100).toFixed(0)}%`}
-                ratio={overview.samplingCoverage}
+                value={loading ? '-' : `${(overview.samplingCoverage * 100).toFixed(0)}%`}
+                ratio={loading ? 0 : overview.samplingCoverage}
                 color="#2f7bff"
               />
               <QualityRow
                 label="累计已审"
-                value={overview.reviewedTotal.toLocaleString()}
-                ratio={Math.min(1, overview.reviewedTotal / 5000)}
+                value={loading ? '-' : overview.reviewedTotal.toLocaleString()}
+                ratio={loading ? 0 : Math.min(1, overview.reviewedTotal / 5000)}
                 color="#a855f7"
               />
             </Space>
@@ -341,7 +358,12 @@ export default function ReviewerOverview() {
       <Card
         title="审核报表"
         extra={
-          <Button type="primary" icon={<DownloadOutlined />} onClick={handleExportDetails}>
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            loading={reportExporting}
+            onClick={handleExportDetails}
+          >
             导出审核明细
           </Button>
         }
@@ -389,118 +411,142 @@ export default function ReviewerOverview() {
               </Space>
             }
           >
-            <ResponsiveContainer width="100%" height={280}>
-              {reportChartType === 'line' ? (
-                <LineChart data={reportTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="pass"
-                    name="通过"
-                    stroke={reviewerReportTrendColors.pass}
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="return"
-                    name="打回"
-                    stroke={reviewerReportTrendColors.return}
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="dispute"
-                    name="争议"
-                    stroke={reviewerReportTrendColors.dispute}
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="total"
-                    name="总量"
-                    stroke={reviewerReportTrendColors.total}
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={false}
-                  />
-                </LineChart>
-              ) : (
-                <BarChart
-                  data={reportTrendData}
-                  margin={{ top: 10, right: 12, left: -12, bottom: 0 }}
-                  barGap={2}
-                  barCategoryGap="24%"
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 12, fill: '#94a3b8' }}
-                    axisLine={{ stroke: '#e2e8f0' }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 12, fill: '#94a3b8' }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
-                    contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
-                  />
-                  <Bar
-                    dataKey="pass"
-                    name="通过"
-                    fill={reviewerReportTrendColors.pass}
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={14}
-                  />
-                  <Bar
-                    dataKey="return"
-                    name="打回"
-                    fill={reviewerReportTrendColors.return}
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={14}
-                  />
-                  <Bar
-                    dataKey="dispute"
-                    name="争议"
-                    fill={reviewerReportTrendColors.dispute}
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={14}
-                  />
-                  <Bar
-                    dataKey="total"
-                    name="总量"
-                    fill={reviewerReportTrendColors.total}
-                    radius={[3, 3, 0, 0]}
-                    maxBarSize={14}
-                  />
-                </BarChart>
-              )}
-            </ResponsiveContainer>
-            {reportChartType === 'bar' && (
-              <div className="bar-legend">
-                <span>
-                  <i className="dot" style={{ background: reviewerReportTrendColors.pass }} />通过
-                </span>
-                <span>
-                  <i className="dot" style={{ background: reviewerReportTrendColors.return }} />打回
-                </span>
-                <span>
-                  <i className="dot" style={{ background: reviewerReportTrendColors.dispute }} />争议
-                </span>
-                <span>
-                  <i className="dot" style={{ background: reviewerReportTrendColors.total }} />总量
-                </span>
+            <Spin spinning={reportLoading}>
+              <div
+                key={`${reportDays}-${reportChartType}`}
+                className="reviewer-report-chart-transition"
+              >
+                {reportTrendData.length === 0 ? (
+                  <div className="reviewer-report-empty">
+                    <Empty description="暂无审核报表数据" />
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={280}>
+                    {reportChartType === 'line' ? (
+                      <LineChart
+                        data={reportTrendData}
+                        margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} />
+                        <Tooltip />
+                        <Legend />
+                        <Line
+                          type="monotone"
+                          dataKey="pass"
+                          name="通过"
+                          stroke={reviewerReportTrendColors.pass}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="return"
+                          name="打回"
+                          stroke={reviewerReportTrendColors.return}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="dispute"
+                          name="争议"
+                          stroke={reviewerReportTrendColors.dispute}
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="total"
+                          name="总量"
+                          stroke={reviewerReportTrendColors.total}
+                          strokeWidth={2}
+                          strokeDasharray="5 5"
+                          dot={false}
+                        />
+                      </LineChart>
+                    ) : (
+                      <BarChart
+                        data={reportTrendData}
+                        margin={{ top: 10, right: 12, left: -12, bottom: 0 }}
+                        barGap={2}
+                        barCategoryGap="24%"
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fontSize: 12, fill: '#94a3b8' }}
+                          axisLine={{ stroke: '#e2e8f0' }}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 12, fill: '#94a3b8' }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <Tooltip
+                          cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
+                          contentStyle={{
+                            borderRadius: 10,
+                            border: '1px solid #eef0f5',
+                            fontSize: 12,
+                          }}
+                        />
+                        <Bar
+                          dataKey="pass"
+                          name="通过"
+                          fill={reviewerReportTrendColors.pass}
+                          radius={[3, 3, 0, 0]}
+                          maxBarSize={14}
+                        />
+                        <Bar
+                          dataKey="return"
+                          name="打回"
+                          fill={reviewerReportTrendColors.return}
+                          radius={[3, 3, 0, 0]}
+                          maxBarSize={14}
+                        />
+                        <Bar
+                          dataKey="dispute"
+                          name="争议"
+                          fill={reviewerReportTrendColors.dispute}
+                          radius={[3, 3, 0, 0]}
+                          maxBarSize={14}
+                        />
+                        <Bar
+                          dataKey="total"
+                          name="总量"
+                          fill={reviewerReportTrendColors.total}
+                          radius={[3, 3, 0, 0]}
+                          maxBarSize={14}
+                        />
+                      </BarChart>
+                    )}
+                  </ResponsiveContainer>
+                )}
               </div>
-            )}
+              {reportChartType === 'bar' && reportTrendData.length > 0 && (
+                <div className="bar-legend">
+                  <span>
+                    <i className="dot" style={{ background: reviewerReportTrendColors.pass }} />
+                    通过
+                  </span>
+                  <span>
+                    <i className="dot" style={{ background: reviewerReportTrendColors.return }} />
+                    打回
+                  </span>
+                  <span>
+                    <i className="dot" style={{ background: reviewerReportTrendColors.dispute }} />
+                    争议
+                  </span>
+                  <span>
+                    <i className="dot" style={{ background: reviewerReportTrendColors.total }} />
+                    总量
+                  </span>
+                </div>
+              )}
+            </Spin>
           </Card>
         </Space>
       </Card>
