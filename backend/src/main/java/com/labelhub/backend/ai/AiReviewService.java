@@ -10,8 +10,10 @@ import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.task.PageResponse;
 import com.labelhub.backend.workflow.StateMachineService;
 import com.labelhub.backend.workflow.WorkflowEntityType;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -37,6 +39,8 @@ public class AiReviewService {
   private static final double DEFAULT_DIMENSION_MAX_SCORE = 100.0;
   private static final double DEFAULT_PASS_THRESHOLD = 80.0;
   private static final double DEFAULT_NEED_HUMAN_THRESHOLD = 70.0;
+  private static final List<String> DASHBOARD_DECISIONS =
+      List.of("PASS", "NEED_HUMAN_REVIEW", "REJECT");
 
   private final AiReviewRepository aiReviewRepository;
   private final StateMachineService stateMachineService;
@@ -160,6 +164,73 @@ public class AiReviewService {
         .map(this::toResponse)
         .toList();
     return new PageResponse<>(items, safePage, safePageSize, total);
+  }
+
+  public AiDashboardKpiResponse getDashboardKpi(Authentication authentication) {
+    requireAiManager(authentication);
+    AiReviewRepository.DashboardKpiRecord record = aiReviewRepository.getDashboardKpi();
+    double passRate = record.succeededJobs() == 0
+        ? 0D
+        : (double) record.passJobs() / record.succeededJobs();
+    return new AiDashboardKpiResponse(
+        record.totalJobs(),
+        record.succeededJobs(),
+        record.failedJobs(),
+        record.pendingJobs(),
+        record.runningJobs(),
+        record.needHumanJobs(),
+        passRate,
+        record.avgDurationSec() == null ? 0D : record.avgDurationSec());
+  }
+
+  public List<AiDecisionDistributionResponse> getDashboardDecisionDistribution(Authentication authentication) {
+    requireAiManager(authentication);
+    Map<String, Long> counts = new LinkedHashMap<>();
+    DASHBOARD_DECISIONS.forEach(decision -> counts.put(decision, 0L));
+    for (AiReviewRepository.DashboardDecisionCountRecord record : aiReviewRepository.listDashboardDecisionCounts()) {
+      if (counts.containsKey(record.decision())) {
+        counts.put(record.decision(), record.count());
+      }
+    }
+    return counts.entrySet().stream()
+        .map(entry -> new AiDecisionDistributionResponse(entry.getKey(), entry.getValue()))
+        .toList();
+  }
+
+  public List<AiDailyTrendResponse> getDashboardTrend(Authentication authentication, Integer days) {
+    requireAiManager(authentication);
+    int normalizedDays = normalizeDashboardDays(days);
+    LocalDate endDate = LocalDate.now();
+    LocalDate startDate = endDate.minusDays(normalizedDays - 1L);
+    Map<LocalDate, AiDailyTrendResponse> trend = new LinkedHashMap<>();
+    for (int i = 0; i < normalizedDays; i++) {
+      LocalDate date = startDate.plusDays(i);
+      trend.put(date, new AiDailyTrendResponse(date.toString(), 0L, 0L, 0L, 0L));
+    }
+    for (AiReviewRepository.DashboardDailyTrendRecord record
+        : aiReviewRepository.listDashboardTrend(startDate, endDate.plusDays(1))) {
+      trend.put(record.date(), new AiDailyTrendResponse(
+          record.date().toString(),
+          record.total(),
+          record.pass(),
+          record.needHuman(),
+          record.reject()));
+    }
+    return List.copyOf(trend.values());
+  }
+
+  public List<AiTaskVolumeResponse> getDashboardTaskVolumes(Authentication authentication) {
+    requireAiManager(authentication);
+    return aiReviewRepository.listDashboardTaskVolumes()
+        .stream()
+        .map(record -> new AiTaskVolumeResponse(
+            Long.toString(record.taskId()),
+            record.taskTitle(),
+            record.total(),
+            record.pass(),
+            record.needHuman(),
+            record.reject()))
+        .toList();
   }
 
   @Transactional
@@ -851,6 +922,17 @@ public class AiReviewService {
     }
     if (!List.of("pending", "running", "succeeded", "failed").contains(normalized)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_JOB_STATUS", "unsupported job status");
+    }
+    return normalized;
+  }
+
+  private int normalizeDashboardDays(Integer days) {
+    int normalized = days == null ? 7 : days;
+    if (!List.of(7, 30).contains(normalized)) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_AI_DASHBOARD_DAYS",
+          "dashboard days must be 7 or 30");
     }
     return normalized;
   }

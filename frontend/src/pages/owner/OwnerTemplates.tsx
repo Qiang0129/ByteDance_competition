@@ -7,6 +7,7 @@ import {
   EditOutlined,
   ExportOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
 import {
@@ -195,6 +196,9 @@ export default function OwnerTemplates() {
             value={statusFilter}
             onChange={(v) => setStatusFilter(v as StatusFilter)}
           />
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void loadSchemas()}>
+            刷新
+          </Button>
         </Space>
       </Card>
 

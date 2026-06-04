@@ -78,6 +78,28 @@ public class AiReviewController {
     return aiReviewService.listJobs(authentication, status, ruleId, taskId, page, pageSize);
   }
 
+  @GetMapping("/dashboard/kpi")
+  public AiDashboardKpiResponse getDashboardKpi(Authentication authentication) {
+    return aiReviewService.getDashboardKpi(authentication);
+  }
+
+  @GetMapping("/dashboard/decisions")
+  public List<AiDecisionDistributionResponse> getDashboardDecisionDistribution(Authentication authentication) {
+    return aiReviewService.getDashboardDecisionDistribution(authentication);
+  }
+
+  @GetMapping("/dashboard/trend")
+  public List<AiDailyTrendResponse> getDashboardTrend(
+      Authentication authentication,
+      @RequestParam(required = false) Integer days) {
+    return aiReviewService.getDashboardTrend(authentication, days);
+  }
+
+  @GetMapping("/dashboard/tasks")
+  public List<AiTaskVolumeResponse> getDashboardTaskVolumes(Authentication authentication) {
+    return aiReviewService.getDashboardTaskVolumes(authentication);
+  }
+
   @PostMapping("/jobs/claim-next")
   public AiReviewJobClaimResponse claimNext(Authentication authentication) {
     return aiReviewService.claimNext(authentication);

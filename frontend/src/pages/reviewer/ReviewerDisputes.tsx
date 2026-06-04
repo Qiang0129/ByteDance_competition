@@ -75,9 +75,9 @@ export default function ReviewerDisputes() {
     });
   }, [items, filter, keyword]);
 
-  async function resolve(item: DisputeItem, resolution: 'approve' | 'reject') {
+  async function resolve(item: DisputeItem, resolution: 'approve' | 'reject', note?: string) {
     try {
-      await reviewerApi.resolveDispute(item.disputeId, { resolution });
+      await reviewerApi.resolveDispute(item.disputeId, { resolution, note });
     } catch {
       // 演示模式
     }
@@ -90,16 +90,35 @@ export default function ReviewerDisputes() {
   }
 
   function openResolveDialog(item: DisputeItem, resolution: 'approve' | 'reject') {
+    let note = '';
     Modal.confirm({
       title: resolution === 'approve' ? '终审通过' : '终审驳回',
       content: (
-        <Typography.Paragraph type="secondary">
-          {item.taskTitle} · {item.disputeId} · 已经历 {item.rounds} 轮审核。
-          确认后写入 audit log 并通知关联标注员与初审员。
-        </Typography.Paragraph>
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            {item.taskTitle} · {item.disputeId} · 已经历 {item.rounds} 轮审核。
+            确认后写入 audit log 并通知关联标注员与初审员。
+          </Typography.Paragraph>
+          {resolution === 'reject' && (
+            <Input.TextArea
+              rows={4}
+              placeholder="请输入终审打回原因"
+              onChange={(event) => {
+                note = event.target.value;
+              }}
+            />
+          )}
+        </Space>
       ),
       okText: '确认',
-      onOk: () => resolve(item, resolution),
+      onOk: async () => {
+        const trimmed = note.trim();
+        if (resolution === 'reject' && !trimmed) {
+          message.warning('终审打回必须填写原因');
+          return Promise.reject();
+        }
+        await resolve(item, resolution, trimmed || undefined);
+      },
     });
   }
 

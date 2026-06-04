@@ -3,6 +3,7 @@ package com.labelhub.backend.ai;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -520,6 +521,122 @@ public class AiReviewRepository {
     return count == null ? 0L : count;
   }
 
+  public DashboardKpiRecord getDashboardKpi() {
+    return jdbcTemplate.queryForObject(
+        """
+        SELECT
+          COUNT(aj.id) AS total_jobs,
+          COALESCE(SUM(CASE WHEN aj.status = 'succeeded' THEN 1 ELSE 0 END), 0) AS succeeded_jobs,
+          COALESCE(SUM(CASE WHEN aj.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_jobs,
+          COALESCE(SUM(CASE WHEN aj.status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_jobs,
+          COALESCE(SUM(CASE WHEN aj.status = 'running' THEN 1 ELSE 0 END), 0) AS running_jobs,
+          COALESCE(SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_jobs,
+          COALESCE(SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_jobs,
+          AVG(CASE
+            WHEN aj.started_at IS NOT NULL AND aj.finished_at IS NOT NULL
+            THEN TIMESTAMPDIFF(SECOND, aj.started_at, aj.finished_at)
+            ELSE NULL
+          END) AS avg_duration_sec
+        FROM ai_review_jobs aj
+        JOIN annotations an ON an.id = aj.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        LEFT JOIN ai_review_results air ON air.job_id = aj.id
+        WHERE t.deleted_at IS NULL
+        """,
+        (rs, rowNum) -> new DashboardKpiRecord(
+            toLong(rs.getObject("total_jobs")),
+            toLong(rs.getObject("succeeded_jobs")),
+            toLong(rs.getObject("failed_jobs")),
+            toLong(rs.getObject("pending_jobs")),
+            toLong(rs.getObject("running_jobs")),
+            toLong(rs.getObject("need_human_jobs")),
+            toLong(rs.getObject("pass_jobs")),
+            toDouble(rs.getObject("avg_duration_sec"))));
+  }
+
+  public List<DashboardDecisionCountRecord> listDashboardDecisionCounts() {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          air.decision,
+          COUNT(*) AS decision_count
+        FROM ai_review_results air
+        JOIN ai_review_jobs aj ON aj.id = air.job_id
+        JOIN annotations an ON an.id = aj.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE t.deleted_at IS NULL
+          AND air.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
+        GROUP BY air.decision
+        """,
+        (rs, rowNum) -> new DashboardDecisionCountRecord(
+            rs.getString("decision"),
+            toLong(rs.getObject("decision_count"))));
+  }
+
+  public List<DashboardDailyTrendRecord> listDashboardTrend(LocalDate startDate, LocalDate endExclusive) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          DATE(COALESCE(aj.finished_at, air.created_at)) AS review_date,
+          COUNT(*) AS total_count,
+          COALESCE(SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_count,
+          COALESCE(SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_count,
+          COALESCE(SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END), 0) AS reject_count
+        FROM ai_review_results air
+        JOIN ai_review_jobs aj ON aj.id = air.job_id
+        JOIN annotations an ON an.id = aj.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE t.deleted_at IS NULL
+          AND air.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
+          AND COALESCE(aj.finished_at, air.created_at) >= ?
+          AND COALESCE(aj.finished_at, air.created_at) < ?
+        GROUP BY DATE(COALESCE(aj.finished_at, air.created_at))
+        ORDER BY review_date ASC
+        """,
+        (rs, rowNum) -> new DashboardDailyTrendRecord(
+            rs.getDate("review_date").toLocalDate(),
+            toLong(rs.getObject("total_count")),
+            toLong(rs.getObject("pass_count")),
+            toLong(rs.getObject("need_human_count")),
+            toLong(rs.getObject("reject_count"))),
+        java.sql.Date.valueOf(startDate),
+        java.sql.Date.valueOf(endExclusive));
+  }
+
+  public List<DashboardTaskVolumeRecord> listDashboardTaskVolumes() {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          t.id AS task_id,
+          t.title AS task_title,
+          COUNT(*) AS total_count,
+          COALESCE(SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_count,
+          COALESCE(SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_count,
+          COALESCE(SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END), 0) AS reject_count
+        FROM ai_review_results air
+        JOIN ai_review_jobs aj ON aj.id = air.job_id
+        JOIN annotations an ON an.id = aj.annotation_id
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE t.deleted_at IS NULL
+          AND aj.status = 'succeeded'
+          AND air.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
+        GROUP BY t.id, t.title
+        ORDER BY total_count DESC, t.id DESC
+        LIMIT 10
+        """,
+        (rs, rowNum) -> new DashboardTaskVolumeRecord(
+            rs.getLong("task_id"),
+            rs.getString("task_title"),
+            toLong(rs.getObject("total_count")),
+            toLong(rs.getObject("pass_count")),
+            toLong(rs.getObject("need_human_count")),
+            toLong(rs.getObject("reject_count"))));
+  }
+
   private List<AiReviewRuleRecord> queryRules(String whereClause, List<Object> args, String suffix) {
     String sql = """
         SELECT
@@ -738,6 +855,35 @@ public class AiReviewRepository {
       String responseJson,
       String modelName,
       Integer latencyMs) {}
+
+  public record DashboardKpiRecord(
+      long totalJobs,
+      long succeededJobs,
+      long failedJobs,
+      long pendingJobs,
+      long runningJobs,
+      long needHumanJobs,
+      long passJobs,
+      Double avgDurationSec) {}
+
+  public record DashboardDecisionCountRecord(
+      String decision,
+      long count) {}
+
+  public record DashboardDailyTrendRecord(
+      LocalDate date,
+      long total,
+      long pass,
+      long needHuman,
+      long reject) {}
+
+  public record DashboardTaskVolumeRecord(
+      long taskId,
+      String taskTitle,
+      long total,
+      long pass,
+      long needHuman,
+      long reject) {}
 
   public record AiReviewJobTimelineRecord(
       long annotationId,

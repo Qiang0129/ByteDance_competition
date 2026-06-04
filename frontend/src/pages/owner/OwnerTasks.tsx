@@ -7,6 +7,7 @@ import {
   DeleteOutlined,
   PauseCircleFilled,
   PlusOutlined,
+  ReloadOutlined,
   StopFilled,
   SyncOutlined,
 } from '@ant-design/icons';
@@ -121,6 +122,16 @@ const stateFilterOptions: { label: string; value: 'all' | LabelingStatus }[] = [
   { label: '已结束', value: 'ended' },
 ];
 
+const reviewStatusFilterOptions: { label: string; value: 'all' | OwnerTaskReviewStatus }[] = [
+  { label: '审核状态:全部', value: 'all' },
+  { label: '未开始', value: 'not_started' },
+  { label: 'AI预审中', value: 'ai_prereviewing' },
+  { label: '人工初审', value: 'human_first_review' },
+  { label: '人工复审', value: 'human_second_review' },
+  { label: '人工终审', value: 'human_final_review' },
+  { label: '已完成', value: 'completed' },
+];
+
 const strategyFilterOptions = [
   { label: '分发策略:全部', value: 'all' },
   { label: '先到先得', value: 'first-come' },
@@ -232,6 +243,7 @@ export default function OwnerTasks() {
   const { message } = App.useApp();
   const [form] = Form.useForm<PublishFormValues>();
   const [stateFilter, setStateFilter] = useState<'all' | LabelingStatus>('all');
+  const [reviewStatusFilter, setReviewStatusFilter] = useState<'all' | OwnerTaskReviewStatus>('all');
   const [strategyFilter, setStrategyFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -281,11 +293,14 @@ export default function OwnerTasks() {
     () =>
       rows.filter((row) => {
         if (stateFilter !== 'all' && resolveLabelingStatus(row) !== stateFilter) return false;
+        if (reviewStatusFilter !== 'all' && (row.reviewStatus ?? 'not_started') !== reviewStatusFilter) {
+          return false;
+        }
         if (strategyFilter !== 'all' && row.assignStrategy !== strategyFilter) return false;
         if (keyword && !`${row.title} ${row.taskId} ${row.owner}`.includes(keyword)) return false;
         return true;
       }),
-    [keyword, rows, stateFilter, strategyFilter],
+    [keyword, reviewStatusFilter, rows, stateFilter, strategyFilter],
   );
 
   const publishedCount = rows.filter((row) => resolveLabelingStatus(row) === 'published').length;
@@ -436,6 +451,22 @@ export default function OwnerTasks() {
       ),
     },
     {
+      title: '审核状态',
+      dataIndex: 'reviewStatus',
+      width: 130,
+      render: (status: OwnerTaskReviewStatus | undefined, record) => {
+        const reviewStatus = status ?? 'not_started';
+        const meta = reviewStatusMeta[reviewStatus] ?? reviewStatusMeta.not_started;
+        return (
+          <Tooltip title={resolveReviewTooltip(record)}>
+            <Tag color={meta.color} className="owner-task-review-status">
+              {meta.label}
+            </Tag>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: '标注状态',
       key: 'labelingStatus',
       width: 120,
@@ -451,17 +482,26 @@ export default function OwnerTasks() {
       },
     },
     {
-      title: '审核状态',
-      dataIndex: 'reviewStatus',
-      width: 130,
-      render: (status: OwnerTaskReviewStatus | undefined, record) => {
-        const reviewStatus = status ?? 'not_started';
-        const meta = reviewStatusMeta[reviewStatus] ?? reviewStatusMeta.not_started;
+      title: '标注进度',
+      dataIndex: 'annotatedItemCount',
+      width: 220,
+      render: (_value, record) => {
+        const annotatedCount = record.annotatedItemCount ?? 0;
+        const itemTotal = record.publishedItemTotal ?? 0;
+        const rawPercent = itemTotal > 0 ? (annotatedCount / itemTotal) * 100 : 0;
+        const barPercent = Math.min(Math.max(rawPercent, 0), 100);
+        const displayPercent = Math.min(Math.round(rawPercent), 100);
+        const tooltip = `已标注数量 ${annotatedCount.toLocaleString()}，任务总额 ${itemTotal.toLocaleString()}，总配额 ${record.quotaTotal.toLocaleString()}`;
         return (
-          <Tooltip title={resolveReviewTooltip(record)}>
-            <Tag color={meta.color} className="owner-task-review-status">
-              {meta.label}
-            </Tag>
+          <Tooltip title={tooltip}>
+            <div className="owner-task-quota" tabIndex={0}>
+              <div className="owner-task-quota-numbers">
+                <strong>{displayPercent}%</strong>
+              </div>
+              <div className="owner-task-quota-bar">
+                <span style={{ width: `${barPercent}%` }} />
+              </div>
+            </div>
           </Tooltip>
         );
       },
@@ -486,31 +526,6 @@ export default function OwnerTasks() {
           ) : null}
         </Space>
       ),
-    },
-    {
-      title: '进度',
-      dataIndex: 'annotatedItemCount',
-      width: 220,
-      render: (_value, record) => {
-        const annotatedCount = record.annotatedItemCount ?? 0;
-        const itemTotal = record.publishedItemTotal ?? 0;
-        const rawPercent = itemTotal > 0 ? (annotatedCount / itemTotal) * 100 : 0;
-        const barPercent = Math.min(Math.max(rawPercent, 0), 100);
-        const displayPercent = Math.min(Math.round(rawPercent), 100);
-        const tooltip = `已标注数量 ${annotatedCount.toLocaleString()}，任务总额 ${itemTotal.toLocaleString()}，总配额 ${record.quotaTotal.toLocaleString()}`;
-        return (
-          <Tooltip title={tooltip}>
-            <div className="owner-task-quota" tabIndex={0}>
-              <div className="owner-task-quota-numbers">
-                <strong>{displayPercent}%</strong>
-              </div>
-              <div className="owner-task-quota-bar">
-                <span style={{ width: `${barPercent}%` }} />
-              </div>
-            </div>
-          </Tooltip>
-        );
-      },
     },
     {
       title: '操作',
@@ -924,11 +939,20 @@ export default function OwnerTasks() {
             style={{ width: 140 }}
           />
           <Select
+            options={reviewStatusFilterOptions}
+            value={reviewStatusFilter}
+            onChange={setReviewStatusFilter}
+            style={{ width: 150 }}
+          />
+          <Select
             options={strategyFilterOptions}
             value={strategyFilter}
             onChange={setStrategyFilter}
             style={{ width: 160 }}
           />
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void loadTasks()}>
+            刷新
+          </Button>
         </Space>
       </Card>
 

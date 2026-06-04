@@ -1,11 +1,23 @@
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import {
+  isValidElement,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import {
   CopyOutlined,
   InfoCircleOutlined,
   ReadOutlined,
 } from '@ant-design/icons';
 import { App, Button } from 'antd';
+import ReactMarkdown from 'react-markdown';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import remarkGfm from 'remark-gfm';
+import readmeSource from '../../../README.md?raw';
 import imageIconUrl from '../../images/图片.svg';
 import loginIconUrl from '../../images/登陆账号.svg';
 import signupIconUrl from '../../images/注册账号.svg';
@@ -18,6 +30,7 @@ const LOGIN_ENDPOINTS = ['/login', '/login#signup'] as const;
 const LOGIN_ENDPOINT_CYCLE = [...LOGIN_ENDPOINTS, LOGIN_ENDPOINTS[0]];
 const ENDPOINT_SWITCH_INTERVAL = 4000;
 const LANDING_ROUTE_ANIMATION_MS = 500;
+const PUBLIC_NAV_ANIMATION_MS = 360;
 
 type PublicNavKey = 'home' | 'docs' | 'about';
 type LandingTransitionKind = 'login' | 'signup';
@@ -35,6 +48,86 @@ const navItems: Array<{ key: PublicNavKey; label: string; path: string }> = [
   { key: 'about', label: '关于', path: '/about' },
 ];
 
+type ReadmeHeading = {
+  id: string;
+  text: string;
+  level: number;
+};
+
+const README_HEADINGS = createReadmeHeadings(readmeSource);
+
+function normalizeHeadingText(text: string) {
+  return text
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_~]/g, '')
+    .trim();
+}
+
+function createHeadingBaseId(text: string) {
+  const base = normalizeHeadingText(text)
+    .trim()
+    .toLowerCase()
+    .replace(/[`~!@#$%^&*()+=[\]{}|\\:;"'<>,.?/]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+  return base || 'section';
+}
+
+function createHeadingId(text: string, occurrence = 1) {
+  const base = createHeadingBaseId(text);
+  return occurrence > 1 ? `${base}-${occurrence}` : base;
+}
+
+function createReadmeHeadings(source: string): ReadmeHeading[] {
+  const counts = new Map<string, number>();
+  return source
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = /^(#{2,3})\s+(.+)$/.exec(line.trim());
+      if (!match) return null;
+
+      const text = normalizeHeadingText(match[2]);
+      const level = match[1].length;
+      const key = `${level}:${createHeadingBaseId(text)}`;
+      const occurrence = (counts.get(key) ?? 0) + 1;
+      counts.set(key, occurrence);
+
+      return {
+        id: createHeadingId(text, occurrence),
+        text,
+        level,
+      };
+    })
+    .filter((item): item is ReadmeHeading => Boolean(item));
+}
+
+function getNodeText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') {
+    return '';
+  }
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(getNodeText).join('');
+  }
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return getNodeText(node.props.children);
+  }
+  return '';
+}
+
+function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
+  return (
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey
+  );
+}
+
 function usePublicPageClass() {
   useEffect(() => {
     document.documentElement.classList.add('lh-public-page');
@@ -45,30 +138,68 @@ function usePublicPageClass() {
 }
 
 function PublicHeader({ activeKey }: { activeKey: PublicNavKey }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const navTimerRef = useRef<number | null>(null);
+  const [navTransition, setNavTransition] = useState<PublicNavKey | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (navTimerRef.current !== null) {
+        window.clearTimeout(navTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleNavClick = (event: MouseEvent<HTMLAnchorElement>, item: (typeof navItems)[number]) => {
+    if (item.key !== 'about' || location.pathname === item.path || !isPlainLeftClick(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (navTransition !== null) {
+      return;
+    }
+
+    setNavTransition(item.key);
+    navTimerRef.current = window.setTimeout(() => {
+      navigate(item.path);
+      navTimerRef.current = null;
+    }, PUBLIC_NAV_ANIMATION_MS);
+  };
+
   return (
-    <header className="landing-header">
-      <Link to="/" className="landing-brand" aria-label="Label Hub 首页">
-        <span className="landing-logo-mark">LH</span>
-        <span className="landing-brand-name">Label Hub</span>
-      </Link>
+    <>
+      <header className="landing-header">
+        <Link to="/" className="landing-brand" aria-label="Label Hub 首页">
+          <span className="landing-logo-mark">LH</span>
+          <span className="landing-brand-name">Label Hub</span>
+        </Link>
 
-      <nav className="landing-nav" aria-label="公开页导航">
-        {navItems.map((item) => (
-          <Link
-            key={item.key}
-            to={item.path}
-            className={`landing-nav-link${activeKey === item.key ? ' is-active' : ''}`}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
+        <nav className="landing-nav" aria-label="公开页导航">
+          {navItems.map((item) => (
+            <Link
+              key={item.key}
+              to={item.path}
+              className={`landing-nav-link${activeKey === item.key ? ' is-active' : ''}`}
+              onClick={(event) => handleNavClick(event, item)}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
 
-      <div className="landing-version-pill" aria-label={`当前版本 ${APP_VERSION}`}>
-        <span className="landing-version-dot">L</span>
-        <span>v{APP_VERSION}</span>
-      </div>
-    </header>
+        <div className="landing-version-pill" aria-label={`当前版本 ${APP_VERSION}`}>
+          <span className="landing-version-dot">L</span>
+          <span>v{APP_VERSION}</span>
+        </div>
+      </header>
+      {navTransition ? (
+        <div className="landing-nav-transition" aria-hidden="true">
+          <span />
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -78,11 +209,44 @@ function LandingFooter() {
       <div className="landing-footer-main">
         <span>© 2026 SCU-肖强. 版权所有</span>
         <span>
-          设计与开发由 <strong>肖强 | Codex | Claude</strong>
+          设计与开发由{' '}
+          <a
+            className="landing-footer-link"
+            href="https://github.com/Qiang0129/ByteDance_competition"
+            target="_blank"
+            rel="noreferrer"
+          >
+            肖强
+          </a>
+          {' | '}
+          <a
+            className="landing-footer-link"
+            href="https://openai.com/zh-Hans-CN/codex/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Codex
+          </a>
+          {' | '}
+          <a
+            className="landing-footer-link"
+            href="https://claude.com/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Claude
+          </a>
         </span>
       </div>
       <div className="landing-footer-record">
-        Copyright © SCU-肖强 | 蜀ICP备2026020302号-1
+        <a
+          className="landing-footer-record-link"
+          href="https://beian.miit.gov.cn/#/Integrated/recordQuery"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Copyright © SCU-肖强 | 蜀ICP备2026020302号-1
+        </a>
       </div>
     </footer>
   );
@@ -319,12 +483,128 @@ export function DocsPlaceholder() {
 }
 
 export function AboutPlaceholder() {
+  const intro = useMemo(() => {
+    const lines = readmeSource.split(/\r?\n/);
+    const firstParagraph = lines.find((line) => {
+      const trimmed = line.trim();
+      return trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('```');
+    });
+    return firstParagraph ?? 'Label Hub 是一个面向数据标注协作流程的 Web 平台。';
+  }, []);
+  const markdownHeadingCounts = new Map<string, number>();
+
+  const getMarkdownHeadingId = (level: number, children: ReactNode) => {
+    const text = getNodeText(children);
+    const key = `${level}:${createHeadingBaseId(text)}`;
+    const occurrence = (markdownHeadingCounts.get(key) ?? 0) + 1;
+    markdownHeadingCounts.set(key, occurrence);
+    return createHeadingId(text, occurrence);
+  };
+
+  usePublicPageClass();
+
   return (
-    <PublicPlaceholderPage
-      activeKey="about"
-      icon={<InfoCircleOutlined />}
-      title="关于 Label Hub"
-      description="这里已预留系统介绍入口，后续可展示平台定位、核心能力和团队信息。"
-    />
+    <main className="landing-page landing-about-page">
+      <PublicHeader activeKey="about" />
+
+      <section className="landing-about-hero" aria-labelledby="about-title">
+        <span className="landing-hero-glow landing-hero-glow-indigo" aria-hidden />
+        <span className="landing-hero-glow landing-hero-glow-teal" aria-hidden />
+
+        <div className="landing-about-hero-inner">
+          <div className="landing-about-kicker">
+            <InfoCircleOutlined />
+            <span>About Label Hub</span>
+          </div>
+          <h1 id="about-title">关于 Label Hub</h1>
+          <p>{intro}</p>
+          <div className="landing-about-summary-grid" aria-label="平台能力摘要">
+            <article>
+              <span>协作角色</span>
+              <strong>Owner / Labeler / Reviewer</strong>
+              <p>覆盖任务创建、认领、标注、审核和角色切换的核心协作链路。</p>
+            </article>
+            <article>
+              <span>技术栈</span>
+              <strong>React + Spring Boot</strong>
+              <p>前端使用 Vite 与 Ant Design，后端使用 Java 21 与 Spring Boot。</p>
+            </article>
+            <article>
+              <span>AI 扩展</span>
+              <strong>Agent 预审流程</strong>
+              <p>预留并接入 AI 预审、模型配置和独立 Worker 的演进方向。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="landing-about-docs" aria-labelledby="about-readme-title">
+        <div className="landing-about-docs-shell">
+          <aside className="landing-about-toc" aria-label="README 目录">
+            <div className="landing-about-toc-title">README</div>
+            <nav>
+              {README_HEADINGS.map((heading) => (
+                <a
+                  key={`${heading.id}-${heading.text}`}
+                  className={`landing-about-toc-link landing-about-toc-level-${heading.level}`}
+                  href={`#${heading.id}`}
+                >
+                  {heading.text}
+                </a>
+              ))}
+            </nav>
+          </aside>
+
+          <article className="landing-about-readme" aria-labelledby="about-readme-title">
+            <div className="landing-about-readme-header">
+              <span>Repository README</span>
+              <h2 id="about-readme-title">项目说明文档</h2>
+              <p>以下内容直接来自仓库根目录 README.md，便于公开页与项目文档保持同步。</p>
+            </div>
+            <div className="landing-about-markdown">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({ children, node: _node, ...props }) => (
+                    <h1 id={getMarkdownHeadingId(1, children)} {...props}>
+                      {children}
+                    </h1>
+                  ),
+                  h2: ({ children, node: _node, ...props }) => (
+                    <h2 id={getMarkdownHeadingId(2, children)} {...props}>
+                      {children}
+                    </h2>
+                  ),
+                  h3: ({ children, node: _node, ...props }) => (
+                    <h3 id={getMarkdownHeadingId(3, children)} {...props}>
+                      {children}
+                    </h3>
+                  ),
+                  a: ({ children, href, node: _node, ...props }) => (
+                    <a
+                      href={href}
+                      target={href?.startsWith('http') ? '_blank' : undefined}
+                      rel={href?.startsWith('http') ? 'noreferrer' : undefined}
+                      {...props}
+                    >
+                      {children}
+                    </a>
+                  ),
+                  table: ({ children, node: _node, ...props }) => (
+                    <div className="landing-about-table-scroll">
+                      <table {...props}>{children}</table>
+                    </div>
+                  ),
+                }}
+              >
+                {readmeSource}
+              </ReactMarkdown>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <LandingFooter />
+    </main>
   );
 }

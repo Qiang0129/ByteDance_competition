@@ -3,6 +3,7 @@ import {
   ArrowLeftOutlined,
   CheckCircleFilled,
   ClockCircleOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import {
   Alert,
@@ -180,6 +181,36 @@ export default function ReviewerAiWorkbench() {
     } finally {
       setCommittingId(null);
     }
+  }
+
+  function openEscalateDispute(item: AnnotationToReview) {
+    const reason = opinion.trim();
+    if (!reason) {
+      message.warning('升级争议时必须填写具体原因');
+      return;
+    }
+    Modal.confirm({
+      title: '升级为争议样本',
+      content: '升级后该样本将进入「争议样本」页，由 Reviewer 进行终审处理。',
+      okText: '确认升级',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setCommittingId(item.annotationId);
+        try {
+          await reviewerApi.submitReview(item.annotationId, {
+            decision: 'ESCALATE',
+            reason,
+          });
+          removeReviewedItem(item.annotationId);
+          setOpinion('');
+          message.success('已升级为争议样本');
+        } catch (requestError) {
+          message.error(getApiErrorMessage(requestError, '升级争议失败'));
+        } finally {
+          setCommittingId(null);
+        }
+      },
+    });
   }
 
   function openRevise(item: AnnotationToReview) {
@@ -432,6 +463,7 @@ export default function ReviewerAiWorkbench() {
                 onOpinionChange={setOpinion}
                 onReturn={() => void commit(active.annotationId, 'RETURN')}
                 onRevise={() => openRevise(active)}
+                onEscalate={() => openEscalateDispute(active)}
                 onApprove={() => void commit(active.annotationId, 'APPROVE')}
                 committing={committingId === active.annotationId}
                 readOnly={readOnly}
@@ -583,6 +615,7 @@ function AnnotationDetail({
   onOpinionChange,
   onReturn,
   onRevise,
+  onEscalate,
   onApprove,
   committing,
   readOnly,
@@ -592,6 +625,7 @@ function AnnotationDetail({
   onOpinionChange: (v: string) => void;
   onReturn: () => void;
   onRevise: () => void;
+  onEscalate: () => void;
   onApprove: () => void;
   committing?: boolean;
   readOnly?: boolean;
@@ -766,6 +800,12 @@ function AnnotationDetail({
             >
               <span className="ai-wb-action-main">✎ 直接修订</span>
               <span className="ai-wb-action-sub">审核员就地改写并入库</span>
+            </button>
+            <button type="button" className="ai-wb-action is-dispute" onClick={onEscalate} disabled={committing}>
+              <span className="ai-wb-action-main">
+                <ExclamationCircleOutlined /> 升级争议
+              </span>
+              <span className="ai-wb-action-sub">进入争议样本终审</span>
             </button>
             <button type="button" className="ai-wb-action is-approve" onClick={onApprove} disabled={committing}>
               <span className="ai-wb-action-main">✓ 通过 · 入库</span>

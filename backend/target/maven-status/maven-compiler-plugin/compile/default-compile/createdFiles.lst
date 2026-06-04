@@ -7,6 +7,7 @@ com\labelhub\backend\export\ExportRepository.class
 com\labelhub\backend\auth\SecurityConfig.class
 com\labelhub\backend\ai\AiReviewCompleteRequest.class
 com\labelhub\backend\labeler\LabelerOverviewResponse$ReviewDistribution.class
+com\labelhub\backend\ai\AiReviewRepository$DashboardTaskVolumeRecord.class
 com\labelhub\backend\ownerreview\OwnerReviewReviewerResponse.class
 com\labelhub\backend\schema\SchemaDiagnosticResponse.class
 com\labelhub\backend\task\TaskService$AiReviewRuleSelection.class
@@ -15,6 +16,7 @@ com\labelhub\backend\auth\RegisterRequest.class
 com\labelhub\backend\dashboard\DashboardRepository$DisputeStatsRecord.class
 com\labelhub\backend\labeler\LabelerOverviewRepository.class
 com\labelhub\backend\schema\UpdateSchemaDraftRequest.class
+com\labelhub\backend\ai\AiReviewRepository$DashboardKpiRecord.class
 com\labelhub\backend\export\ExportRepository$ExportJobRecord.class
 com\labelhub\backend\ownerreview\OwnerReviewTaskResponse.class
 com\labelhub\backend\ai\AiReviewCancelRequest.class
@@ -34,6 +36,7 @@ com\labelhub\backend\annotation\LabelerAssistantService.class
 com\labelhub\backend\dashboard\SubmissionTimelineMonthResponse.class
 com\labelhub\backend\review\AiReviewResultResponse.class
 com\labelhub\backend\review\ReviewBatchResponse.class
+com\labelhub\backend\ai\AiReviewRepository$DashboardDailyTrendRecord.class
 com\labelhub\backend\auth\UserAccount.class
 com\labelhub\backend\export\ExportService.class
 com\labelhub\backend\export\ExportRepository$ExportOverviewRecord.class
@@ -50,6 +53,7 @@ com\labelhub\backend\task\TaskController.class
 com\labelhub\backend\ai\ToggleAiReviewRuleRequest.class
 com\labelhub\backend\annotation\AnnotationRepository$AssignmentItemRecord.class
 com\labelhub\backend\annotation\AnnotationService$SchemaContext.class
+com\labelhub\backend\ai\AiDailyTrendResponse.class
 com\labelhub\backend\ai\AiReviewBatchDeleteRequest.class
 com\labelhub\backend\dataset\DatasetService.class
 com\labelhub\backend\review\AnnotationToReviewResponse.class
@@ -124,6 +128,7 @@ com\labelhub\backend\ai\AiReviewRepository$AiReviewResultRecord.class
 com\labelhub\backend\annotation\AssignmentPositionResponse.class
 com\labelhub\backend\task\TaskRepository$3.class
 com\labelhub\backend\export\ExportTaskOptionsResponse.class
+com\labelhub\backend\ai\AiTaskVolumeResponse.class
 com\labelhub\backend\dashboard\DashboardIssueFeedbackRepository$IssueFeedbackRecord.class
 com\labelhub\backend\review\ResolveDisputeRequest.class
 com\labelhub\backend\dashboard\TaskProgressResponse.class
@@ -144,6 +149,7 @@ com\labelhub\backend\labeler\LabelerOverviewRepository$AiDecisionCounts.class
 com\labelhub\backend\schema\SchemaDefinitionValidator.class
 com\labelhub\backend\ai\AiModelModelsResponse.class
 com\labelhub\backend\labeler\LabelerOverviewController.class
+com\labelhub\backend\ai\AiReviewRepository$DashboardDecisionCountRecord.class
 com\labelhub\backend\workflow\AuditLogRepository.class
 com\labelhub\backend\dashboard\DashboardService$DateRange.class
 com\labelhub\backend\task\MarketTaskResponse.class
@@ -162,6 +168,7 @@ com\labelhub\backend\ai\AiModelConfigService$ValidConfig.class
 com\labelhub\backend\dashboard\DashboardRepository$ConsistencyCounts.class
 com\labelhub\backend\review\AiReviewTaskSummaryResponse.class
 com\labelhub\backend\ai\AiReviewJobClaimResponse.class
+com\labelhub\backend\ai\AiDashboardKpiResponse.class
 com\labelhub\backend\ai\AiReviewJobResponse.class
 com\labelhub\backend\task\TaskRepository$UserAllocationRecord.class
 com\labelhub\backend\task\TaskDeadlineSettlementService.class
@@ -199,6 +206,7 @@ com\labelhub\backend\dashboard\DashboardIssueFeedbackController.class
 com\labelhub\backend\annotation\BatchSubmitResponse.class
 com\labelhub\backend\dashboard\DashboardRepository$HumanDecisionCounts.class
 com\labelhub\backend\dashboard\DashboardRepository.class
+com\labelhub\backend\ai\AiDecisionDistributionResponse.class
 com\labelhub\backend\task\TaskDeadlineSettlementService$SchemaContext.class
 com\labelhub\backend\dashboard\DashboardOverviewResponse$Deltas.class
 com\labelhub\backend\labeler\LabelerReturnedItemsService.class

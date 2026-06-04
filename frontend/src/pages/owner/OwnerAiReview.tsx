@@ -1135,6 +1135,7 @@ function JobResultDrawer({
       open={open}
       onClose={onClose}
       width={520}
+      className="ai-review-result-drawer"
     >
       {!result || loading ? (
         <Text type="secondary">{loading ? '加载中...' : '暂无结果'}</Text>
@@ -1193,14 +1194,14 @@ function JobResultDrawer({
 
           {/* Evidence */}
           {(result.evidence?.length ?? 0) > 0 && (
-            <Card title="证据 / 引用字段">
-              <Space wrap>
+            <Card title="证据 / 引用字段" className="ai-review-evidence-card">
+              <div className="ai-review-evidence-list">
                 {result.evidence.map((ev) => (
-                  <Tag key={ev} color="processing">
+                  <Tag key={ev} color="processing" className="ai-review-evidence-tag">
                     {ev}
                   </Tag>
                 ))}
-              </Space>
+              </div>
             </Card>
           )}
         </Space>

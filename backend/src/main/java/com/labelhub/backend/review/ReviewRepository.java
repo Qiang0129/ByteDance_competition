@@ -760,6 +760,24 @@ public class ReviewRepository {
         diffJson);
   }
 
+  public boolean hasOpenDispute(long annotationId) {
+    Boolean exists = jdbcTemplate.queryForObject(
+        """
+        SELECT EXISTS(
+          SELECT 1
+          FROM human_reviews hr
+          JOIN annotations an ON an.id = hr.annotation_id
+          WHERE hr.annotation_id = ?
+            AND LOWER(hr.decision) = 'escalate'
+            AND an.status = 'reviewing'
+            AND an.status <> 'voided'
+        )
+        """,
+        Boolean.class,
+        annotationId);
+    return Boolean.TRUE.equals(exists);
+  }
+
   public List<DisputeRecord> listDisputes(String status, int limit, int offset) {
     String statusFilter = "";
     if ("open".equals(status)) {

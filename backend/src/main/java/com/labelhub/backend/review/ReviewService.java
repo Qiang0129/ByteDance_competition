@@ -26,6 +26,7 @@ public class ReviewService {
 
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
   private static final int RETURN_REWORK_WINDOW_HOURS = 48;
+  private static final int AUTO_DISPUTE_REVISION_NO = 3;
 
   private final ReviewRepository reviewRepository;
   private final StateMachineService stateMachineService;
@@ -190,7 +191,7 @@ public class ReviewService {
 
     switch (decision) {
       case "approve" -> approve(reviewer, state, reason, roundNo);
-      case "return" -> returnToLabeler(reviewer, state, reason, roundNo);
+      case "return" -> returnToLabeler(reviewer, state, reason, roundNo, true);
       case "escalate" -> escalate(reviewer, state, reason, roundNo);
       case "revise" -> responseAnnotationId = revise(reviewer, state, reason, request, roundNo);
       default -> throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REVIEW_DECISION", "unsupported review decision");
@@ -259,7 +260,7 @@ public class ReviewService {
     if ("approve".equals(decision)) {
       approve(reviewer, state, reason, roundNo);
     } else if ("return".equals(decision)) {
-      returnToLabeler(reviewer, state, reason, roundNo);
+      returnToLabeler(reviewer, state, reason, roundNo, false);
     }
   }
 
@@ -303,9 +304,14 @@ public class ReviewService {
       AuthenticatedUser reviewer,
       ReviewRepository.AnnotationStateRecord state,
       String reason,
-      int roundNo) {
+      int roundNo,
+      boolean autoEscalateOnFinalReview) {
     if (reason == null || reason.isBlank()) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "RETURN_REASON_REQUIRED", "return reason is required");
+    }
+    if (autoEscalateOnFinalReview && state.revisionNo() >= AUTO_DISPUTE_REVISION_NO) {
+      escalate(reviewer, state, autoDisputeReason(reason), roundNo);
+      return;
     }
     LocalDateTime resubmitDeadline = LocalDateTime.now().plusHours(RETURN_REWORK_WINDOW_HOURS);
     transitionAnnotationToReviewingIfNeeded(reviewer, state);
@@ -347,13 +353,19 @@ public class ReviewService {
       ReviewRepository.AnnotationStateRecord state,
       String reason,
       int roundNo) {
+    if (reason == null || reason.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "DISPUTE_REASON_REQUIRED", "dispute reason is required");
+    }
+    if (reviewRepository.hasOpenDispute(state.annotationId())) {
+      throw new ApiException(HttpStatus.CONFLICT, "DISPUTE_ALREADY_OPEN", "open dispute already exists");
+    }
     transitionAnnotationToReviewingIfNeeded(reviewer, state);
     reviewRepository.createHumanReview(
         state.annotationId(),
         reviewer.id(),
         roundNo,
         "escalate",
-        reason == null || reason.isBlank() ? "escalated to dispute review" : reason,
+        reason,
         null);
     stateMachineService.audit(
         WorkflowEntityType.ANNOTATION,
@@ -367,6 +379,10 @@ public class ReviewService {
         Map.of("annotationId", state.annotationId(), "status", effectiveReviewFromState(state.annotationStatus())),
         Map.of("annotationId", state.annotationId(), "status", "reviewing"),
         null);
+  }
+
+  private String autoDisputeReason(String reason) {
+    return reason + "\n\n多轮返修后再次打回，自动升级争议。";
   }
 
   private long revise(
