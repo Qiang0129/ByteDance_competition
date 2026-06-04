@@ -483,6 +483,10 @@ export function DocsPlaceholder() {
 }
 
 export function AboutPlaceholder() {
+  const readmeBodyRef = useRef<HTMLDivElement | null>(null);
+  const tocRef = useRef<HTMLElement | null>(null);
+  const { message } = App.useApp();
+  const [activeReadmeHeadingId, setActiveReadmeHeadingId] = useState(README_HEADINGS[0]?.id ?? '');
   const intro = useMemo(() => {
     const lines = readmeSource.split(/\r?\n/);
     const firstParagraph = lines.find((line) => {
@@ -491,15 +495,152 @@ export function AboutPlaceholder() {
     });
     return firstParagraph ?? 'Label Hub 是一个面向数据标注协作流程的 Web 平台。';
   }, []);
-  const markdownHeadingCounts = new Map<string, number>();
-
-  const getMarkdownHeadingId = (level: number, children: ReactNode) => {
+  const getMarkdownHeadingId = (children: ReactNode) => {
     const text = getNodeText(children);
-    const key = `${level}:${createHeadingBaseId(text)}`;
-    const occurrence = (markdownHeadingCounts.get(key) ?? 0) + 1;
-    markdownHeadingCounts.set(key, occurrence);
-    return createHeadingId(text, occurrence);
+    return createHeadingId(text);
   };
+
+  const findReadmeHeadingElement = (headingId: string) => {
+    const container = readmeBodyRef.current;
+    if (!container) {
+      return null;
+    }
+
+    return Array.from(container.querySelectorAll<HTMLElement>('[data-readme-heading-id]')).find(
+      (element) => element.dataset.readmeHeadingId === headingId,
+    ) ?? null;
+  };
+
+  const scrollToReadmeHeading = (
+    heading: ReadmeHeading,
+    behavior: ScrollBehavior = 'smooth',
+    updateHash = true,
+  ) => {
+    const container = readmeBodyRef.current;
+    const target = findReadmeHeadingElement(heading.id);
+    if (!container || !target) {
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const nextTop = container.scrollTop + targetRect.top - containerRect.top - 20;
+    container.scrollTo({ top: Math.max(nextTop, 0), behavior });
+    setActiveReadmeHeadingId(heading.id);
+
+    if (updateHash) {
+      window.history.replaceState(null, '', `#${heading.id}`);
+    }
+
+    const toc = tocRef.current;
+    const escapedHeadingId =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(heading.id)
+        : heading.id.replace(/"/g, '\\"');
+    const activeLink = toc?.querySelector<HTMLAnchorElement>(`a[href="#${escapedHeadingId}"]`);
+    activeLink?.scrollIntoView({ block: 'nearest', behavior });
+  };
+
+  const handleReadmeTocClick = (event: MouseEvent<HTMLAnchorElement>, heading: ReadmeHeading) => {
+    event.preventDefault();
+    scrollToReadmeHeading(heading);
+  };
+
+  const handleCopyCodeBlock = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const codeBlock = event.currentTarget
+      .closest('.landing-about-code-block')
+      ?.querySelector('pre');
+    const codeText = codeBlock?.textContent ?? '';
+
+    if (!codeText.trim()) {
+      message.warning('当前代码块没有可复制内容');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(codeText);
+      message.success('代码已复制');
+    } catch {
+      message.warning('当前浏览器不支持自动复制，请手动复制代码');
+    }
+  };
+
+  useEffect(() => {
+    const hashText = decodeURIComponent(window.location.hash.replace(/^#/, ''));
+    if (!hashText) {
+      return;
+    }
+
+    const targetHeading = README_HEADINGS.find(
+      (heading) => heading.id === hashText || heading.text === hashText,
+    );
+    if (!targetHeading) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollToReadmeHeading(targetHeading, 'auto', false);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  useEffect(() => {
+    const container = readmeBodyRef.current;
+    if (!container) {
+      return;
+    }
+
+    let frameId: number | null = null;
+    const updateActiveHeading = () => {
+      frameId = null;
+      const tocHeadingIds = new Set(README_HEADINGS.map((heading) => heading.id));
+      const headings = Array.from(
+        container.querySelectorAll<HTMLElement>('[data-readme-heading-id]'),
+      ).filter((heading) => {
+        const headingId = heading.dataset.readmeHeadingId;
+        return Boolean(headingId && tocHeadingIds.has(headingId));
+      });
+      if (headings.length === 0) {
+        return;
+      }
+
+      const containerTop = container.getBoundingClientRect().top;
+      let nextActiveId = headings[0].dataset.readmeHeadingId ?? '';
+      for (const heading of headings) {
+        const offset = heading.getBoundingClientRect().top - containerTop;
+        if (offset <= 32) {
+          nextActiveId = heading.dataset.readmeHeadingId ?? nextActiveId;
+        } else {
+          break;
+        }
+      }
+
+      setActiveReadmeHeadingId((previousId) => (
+        previousId === nextActiveId ? previousId : nextActiveId
+      ));
+    };
+
+    const handleScroll = () => {
+      if (frameId !== null) {
+        return;
+      }
+      frameId = window.requestAnimationFrame(updateActiveHeading);
+    };
+
+    updateActiveHeading();
+    container.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, []);
 
   usePublicPageClass();
 
@@ -540,14 +681,17 @@ export function AboutPlaceholder() {
 
       <section className="landing-about-docs" aria-labelledby="about-readme-title">
         <div className="landing-about-docs-shell">
-          <aside className="landing-about-toc" aria-label="README 目录">
+          <aside className="landing-about-toc" aria-label="README 目录" ref={tocRef}>
             <div className="landing-about-toc-title">README</div>
             <nav>
               {README_HEADINGS.map((heading) => (
                 <a
                   key={`${heading.id}-${heading.text}`}
-                  className={`landing-about-toc-link landing-about-toc-level-${heading.level}`}
+                  className={`landing-about-toc-link landing-about-toc-level-${heading.level}${
+                    activeReadmeHeadingId === heading.id ? ' is-active' : ''
+                  }`}
                   href={`#${heading.id}`}
+                  onClick={(event) => handleReadmeTocClick(event, heading)}
                 >
                   {heading.text}
                 </a>
@@ -561,44 +705,69 @@ export function AboutPlaceholder() {
               <h2 id="about-readme-title">项目说明文档</h2>
               <p>以下内容直接来自仓库根目录 README.md，便于公开页与项目文档保持同步。</p>
             </div>
-            <div className="landing-about-markdown">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  h1: ({ children, node: _node, ...props }) => (
-                    <h1 id={getMarkdownHeadingId(1, children)} {...props}>
-                      {children}
-                    </h1>
-                  ),
-                  h2: ({ children, node: _node, ...props }) => (
-                    <h2 id={getMarkdownHeadingId(2, children)} {...props}>
-                      {children}
-                    </h2>
-                  ),
-                  h3: ({ children, node: _node, ...props }) => (
-                    <h3 id={getMarkdownHeadingId(3, children)} {...props}>
-                      {children}
-                    </h3>
-                  ),
-                  a: ({ children, href, node: _node, ...props }) => (
-                    <a
-                      href={href}
-                      target={href?.startsWith('http') ? '_blank' : undefined}
-                      rel={href?.startsWith('http') ? 'noreferrer' : undefined}
-                      {...props}
-                    >
-                      {children}
-                    </a>
-                  ),
-                  table: ({ children, node: _node, ...props }) => (
-                    <div className="landing-about-table-scroll">
-                      <table {...props}>{children}</table>
-                    </div>
-                  ),
-                }}
-              >
-                {readmeSource}
-              </ReactMarkdown>
+            <div className="landing-about-readme-body" ref={readmeBodyRef} tabIndex={0}>
+              <div className="landing-about-markdown">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h1: ({ children, node: _node, ...props }) => {
+                      const id = getMarkdownHeadingId(children);
+                      return (
+                        <h1 {...props} id={id} data-readme-heading-id={id}>
+                          {children}
+                        </h1>
+                      );
+                    },
+                    h2: ({ children, node: _node, ...props }) => {
+                      const id = getMarkdownHeadingId(children);
+                      return (
+                        <h2 {...props} id={id} data-readme-heading-id={id}>
+                          {children}
+                        </h2>
+                      );
+                    },
+                    h3: ({ children, node: _node, ...props }) => {
+                      const id = getMarkdownHeadingId(children);
+                      return (
+                        <h3 {...props} id={id} data-readme-heading-id={id}>
+                          {children}
+                        </h3>
+                      );
+                    },
+                    a: ({ children, href, node: _node, ...props }) => (
+                      <a
+                        href={href}
+                        target={href?.startsWith('http') ? '_blank' : undefined}
+                        rel={href?.startsWith('http') ? 'noreferrer' : undefined}
+                        {...props}
+                      >
+                        {children}
+                      </a>
+                    ),
+                    table: ({ children, node: _node, ...props }) => (
+                      <div className="landing-about-table-scroll">
+                        <table {...props}>{children}</table>
+                      </div>
+                    ),
+                    pre: ({ children, node: _node, ...props }) => (
+                      <div className="landing-about-code-block">
+                        <button
+                          type="button"
+                          className="landing-about-code-copy"
+                          onClick={handleCopyCodeBlock}
+                          aria-label="复制代码块"
+                          title="复制代码块"
+                        >
+                          <CopyOutlined />
+                        </button>
+                        <pre {...props}>{children}</pre>
+                      </div>
+                    ),
+                  }}
+                >
+                  {readmeSource}
+                </ReactMarkdown>
+              </div>
             </div>
           </article>
         </div>

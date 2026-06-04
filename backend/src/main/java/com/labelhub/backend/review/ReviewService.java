@@ -208,20 +208,34 @@ public class ReviewService {
       String status,
       Integer page,
       Integer pageSize) {
-    requireReviewer(authentication);
+    AuthenticatedUser reviewer = requireReviewer(authentication);
     String normalizedStatus = normalizeDisputeStatus(status);
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
     List<DisputeItemResponse> items = reviewRepository
         .listDisputes(normalizedStatus, safePageSize, (safePage - 1) * safePageSize)
         .stream()
-        .map(this::toDisputeResponse)
+        .map(record -> toDisputeResponse(record, reviewer))
         .toList();
     return new ReviewerPageResponse<>(
         items,
         safePage,
         safePageSize,
         reviewRepository.countDisputes(normalizedStatus));
+  }
+
+  public DisputeDetailResponse getDisputeDetail(
+      Authentication authentication,
+      long disputeId) {
+    AuthenticatedUser reviewer = requireReviewer(authentication);
+    ReviewRepository.DisputeRecord dispute = reviewRepository.findDispute(disputeId)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "DISPUTE_NOT_FOUND", "dispute not found"));
+    AnnotationToReviewResponse annotation = reviewRepository.findAnnotation(dispute.annotationId())
+        .map(this::toAnnotationResponse)
+        .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ANNOTATION_NOT_FOUND", "annotation not found"));
+    return new DisputeDetailResponse(
+        toDisputeResponse(dispute, reviewer),
+        annotation);
   }
 
   @Transactional
@@ -232,6 +246,12 @@ public class ReviewService {
     AuthenticatedUser reviewer = requireReviewer(authentication);
     ReviewRepository.DisputeRecord dispute = reviewRepository.findDispute(disputeId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "DISPUTE_NOT_FOUND", "dispute not found"));
+    if (dispute.raisedById() == reviewer.id()) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "DISPUTE_SELF_RESOLVE_FORBIDDEN",
+          "the reviewer who raised the dispute cannot resolve it");
+    }
     String resolution = request == null || request.resolution() == null
         ? ""
         : request.resolution().trim().toLowerCase(Locale.ROOT);
@@ -240,20 +260,37 @@ public class ReviewService {
       case "reject" -> new ReviewDecisionRequest("RETURN", request == null ? null : request.note(), null, false, null);
       default -> throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_DISPUTE_RESOLUTION", "unsupported dispute resolution");
     };
-    submitDecisionForReviewer(reviewer, dispute.annotationId(), decision);
+    submitDisputeDecision(reviewer, dispute.annotationId(), decision);
     return reviewRepository.findDispute(disputeId)
-        .map(this::toDisputeResponse)
-        .orElseGet(() -> toDisputeResponse(dispute));
+        .map(record -> toDisputeResponse(record, reviewer))
+        .orElseGet(() -> toDisputeResponse(dispute, reviewer));
   }
 
   private void submitDecisionForReviewer(
       AuthenticatedUser reviewer,
       long annotationId,
       ReviewDecisionRequest request) {
+    applyReviewerDecision(reviewer, annotationId, request, true);
+  }
+
+  private void submitDisputeDecision(
+      AuthenticatedUser reviewer,
+      long annotationId,
+      ReviewDecisionRequest request) {
+    applyReviewerDecision(reviewer, annotationId, request, false);
+  }
+
+  private void applyReviewerDecision(
+      AuthenticatedUser reviewer,
+      long annotationId,
+      ReviewDecisionRequest request,
+      boolean requireAssignment) {
     String decision = normalizeReviewDecision(request.decision());
     ReviewRepository.AnnotationStateRecord state = reviewRepository.lockAnnotationState(annotationId)
         .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ANNOTATION_NOT_FOUND", "annotation not found"));
-    ensureReviewerAssigned(reviewer, annotationId);
+    if (requireAssignment) {
+      ensureReviewerAssigned(reviewer, annotationId);
+    }
     ensureReviewable(state.annotationStatus());
     int roundNo = reviewRepository.nextReviewRound(annotationId);
     String reason = effectiveReason(request);
@@ -615,17 +652,27 @@ public class ReviewService {
     return diff;
   }
 
-  private DisputeItemResponse toDisputeResponse(ReviewRepository.DisputeRecord record) {
+  private DisputeItemResponse toDisputeResponse(
+      ReviewRepository.DisputeRecord record,
+      AuthenticatedUser reviewer) {
+    boolean canResolve = "open".equals(record.status()) && record.raisedById() != reviewer.id();
     return new DisputeItemResponse(
         Long.toString(record.disputeId()),
         Long.toString(record.annotationId()),
         Long.toString(record.taskId()),
         record.taskTitle(),
         record.reason(),
+        Long.toString(record.raisedById()),
         record.raisedBy(),
         formatDateTime(record.raisedAt()),
         record.status(),
+        resolveDisputeEscalationStageLabel(record.revisionNo()),
+        canResolve,
         record.rounds());
+  }
+
+  private String resolveDisputeEscalationStageLabel(int revisionNo) {
+    return revisionNo <= 1 ? "初审升级" : "复审升级";
   }
 
   private AiReviewResultResponse toAiResult(ReviewRepository.AnnotationReviewRecord record) {

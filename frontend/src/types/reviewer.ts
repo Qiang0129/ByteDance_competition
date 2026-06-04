@@ -156,12 +156,23 @@ export interface DisputeItem {
   taskId: string;
   taskTitle: string;
   reason: string;
+  /** 升级争议的 Reviewer ID */
+  raisedById?: string;
   raisedBy: string;
   raisedAt: string;
   /** 当前状态 */
   status: 'open' | 'resolved';
+  /** 升级发生在初审或复审阶段 */
+  escalationStageLabel?: string;
+  /** 当前 Reviewer 是否可终审该争议 */
+  canResolve?: boolean;
   /** 该样本经历的审核轮次 */
   rounds: number;
+}
+
+export interface DisputeDetail {
+  dispute: DisputeItem;
+  annotation: AnnotationToReview;
 }
 
 /** 通用分页 */

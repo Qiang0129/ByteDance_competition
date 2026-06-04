@@ -93,6 +93,13 @@ public class ReviewController {
     return reviewService.listDisputes(authentication, status, page, pageSize);
   }
 
+  @GetMapping("/disputes/{disputeId}")
+  public DisputeDetailResponse getDisputeDetail(
+      Authentication authentication,
+      @PathVariable long disputeId) {
+    return reviewService.getDisputeDetail(authentication, disputeId);
+  }
+
   @PostMapping("/disputes/{disputeId}/resolve")
   public DisputeItemResponse resolveDispute(
       Authentication authentication,

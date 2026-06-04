@@ -6,7 +6,10 @@ public record DisputeItemResponse(
     String taskId,
     String taskTitle,
     String reason,
+    String raisedById,
     String raisedBy,
     String raisedAt,
     String status,
+    String escalationStageLabel,
+    boolean canResolve,
     int rounds) {}

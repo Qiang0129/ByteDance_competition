@@ -8,6 +8,7 @@ import { apiRequest } from './client';
 import type {
   AiReviewTaskSummary,
   AnnotationToReview,
+  DisputeDetail,
   DisputeItem,
   ReviewBatch,
   ReviewerOverview,
@@ -125,6 +126,11 @@ export const reviewerApi = {
     if (params.pageSize) search.set('pageSize', String(params.pageSize));
     const qs = search.toString();
     return apiRequest(`/reviewer/disputes${qs ? `?${qs}` : ''}`);
+  },
+
+  /** 争议样本详情 */
+  getDisputeDetail(disputeId: string): Promise<DisputeDetail> {
+    return apiRequest(`/reviewer/disputes/${disputeId}`);
   },
 
   /** 解决争议样本 */

@@ -22,6 +22,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getApiErrorMessage } from '../../api/client';
 import { reviewerApi } from '../../api/reviewer';
 import { AiAssistantIcon } from '../../components/icons';
+import { toAnswerDisplayEntries } from '../../modules/schema/answerDisplay';
 import { filterVisibleAnswer, LabelHubFormRenderer } from '../../modules/schema';
 import type {
   AiReviewResult,
@@ -631,8 +632,9 @@ function AnnotationDetail({
   readOnly?: boolean;
 }) {
   const ai = item.aiResult;
-  const answerEntries = Object.entries(item.answerJson ?? {});
+  const answerEntries = toAnswerDisplayEntries(item.answerJson, item.schemaFields);
   const prev = item.previousAnswerJson;
+  const previousEntries = toAnswerDisplayEntries(prev, item.schemaFields);
   const hasComparison = !!prev && Object.keys(prev).length > 0;
   const title = pickTitle(item);
   const itemIndex = displayItemIndex(item);
@@ -668,10 +670,10 @@ function AnnotationDetail({
               Revision {item.revisionNo - 1} 提交(已打回)
             </div>
             <div className="ai-wb-answer-fields">
-              {Object.entries(prev!).map(([key, value]) => (
-                <div key={key} className="ai-wb-answer-row">
-                  <span className="ai-wb-answer-key">{key}</span>
-                  <span className="ai-wb-answer-value">{formatAnswerValue(value)}</span>
+              {previousEntries.map((entry) => (
+                <div key={entry.key} className="ai-wb-answer-row">
+                  <span className="ai-wb-answer-key">{entry.label}</span>
+                  <span className="ai-wb-answer-value">{entry.displayValue}</span>
                 </div>
               ))}
             </div>
@@ -681,13 +683,13 @@ function AnnotationDetail({
               Revision {item.revisionNo} 提交(本版 · 修改后)
             </div>
             <div className="ai-wb-answer-fields">
-              {answerEntries.map(([key, value]) => {
-                const changed = !isSameValue(value, prev?.[key]);
+              {answerEntries.map((entry) => {
+                const changed = !isSameValue(entry.value, prev?.[entry.key]);
                 return (
-                  <div key={key} className="ai-wb-answer-row">
-                    <span className="ai-wb-answer-key">{key}</span>
+                  <div key={entry.key} className="ai-wb-answer-row">
+                    <span className="ai-wb-answer-key">{entry.label}</span>
                     <span className={`ai-wb-answer-value${changed ? ' is-changed' : ''}`}>
-                      {formatAnswerValue(value)}
+                      {entry.displayValue}
                     </span>
                   </div>
                 );
@@ -702,10 +704,10 @@ function AnnotationDetail({
             {answerEntries.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无答案数据" />
             ) : (
-              answerEntries.map(([key, value]) => (
-                <div key={key} className="ai-wb-answer-row">
-                  <span className="ai-wb-answer-key">{key}</span>
-                  <span className="ai-wb-answer-value">{formatAnswerValue(value)}</span>
+              answerEntries.map((entry) => (
+                <div key={entry.key} className="ai-wb-answer-row">
+                  <span className="ai-wb-answer-key">{entry.label}</span>
+                  <span className="ai-wb-answer-value">{entry.displayValue}</span>
                 </div>
               ))
             )}

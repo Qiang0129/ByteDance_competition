@@ -181,6 +181,7 @@ com\labelhub\backend\annotation\AnnotationRepository$AnnotationRecord.class
 com\labelhub\backend\ownerreview\OwnerReviewRepository$ConsistencyCounts.class
 com\labelhub\backend\auth\CorsConfig.class
 com\labelhub\backend\ai\AiModelConfigResponse.class
+com\labelhub\backend\review\DisputeDetailResponse.class
 com\labelhub\backend\annotation\AnnotationService$PreparedBatchSubmission.class
 com\labelhub\backend\export\ExportRepository$ExportRowRecord.class
 com\labelhub\backend\task\UpdateTaskStateRequest.class
