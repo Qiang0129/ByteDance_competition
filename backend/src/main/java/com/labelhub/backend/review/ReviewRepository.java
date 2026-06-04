@@ -605,41 +605,107 @@ public class ReviewRepository {
     return jdbcTemplate.query(
         """
         SELECT
-          an.id AS annotation_id,
-          an.revision_no,
-          aj.finished_at AS ai_finished_at,
-          air.decision AS ai_decision,
-          air.total_score AS ai_total_score,
-          air.comment AS ai_comment,
-          hr.decision AS human_decision,
-          hr.reason AS human_reason,
-          hr.created_at AS human_reviewed_at,
-          reviewer.name AS human_reviewer_name
-        FROM annotations an
-        LEFT JOIN ai_review_jobs aj ON aj.id = (
-          SELECT latest_job.id
-          FROM ai_review_jobs latest_job
-          WHERE latest_job.annotation_id = an.id
-            AND latest_job.status = 'succeeded'
-          ORDER BY latest_job.finished_at DESC, latest_job.id DESC
-          LIMIT 1
-        )
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
-        LEFT JOIN human_reviews hr ON hr.id = (
-          SELECT latest_hr.id
-          FROM human_reviews latest_hr
-          WHERE latest_hr.annotation_id = an.id
-          ORDER BY latest_hr.round_no DESC, latest_hr.id DESC
-          LIMIT 1
-        )
-        LEFT JOIN users reviewer ON reviewer.id = hr.reviewer_id
-        WHERE an.assignment_id = ?
-          AND an.status <> 'voided'
-        ORDER BY an.revision_no ASC, an.id ASC
+          timeline.annotation_id,
+          timeline.revision_no,
+          timeline.event_stage,
+          timeline.ai_finished_at,
+          timeline.ai_decision,
+          timeline.ai_total_score,
+          timeline.ai_comment,
+          timeline.human_decision,
+          timeline.human_reason,
+          timeline.human_reviewed_at,
+          timeline.human_reviewer_name
+        FROM (
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'ai_review' AS event_stage,
+            aj.finished_at AS ai_finished_at,
+            air.decision AS ai_decision,
+            air.total_score AS ai_total_score,
+            air.comment AS ai_comment,
+            NULL AS human_decision,
+            NULL AS human_reason,
+            NULL AS human_reviewed_at,
+            NULL AS human_reviewer_name,
+            0 AS event_order,
+            NULL AS human_round_no,
+            NULL AS human_review_id
+          FROM annotations an
+          LEFT JOIN ai_review_jobs aj ON aj.id = (
+            SELECT latest_job.id
+            FROM ai_review_jobs latest_job
+            WHERE latest_job.annotation_id = an.id
+              AND latest_job.status = 'succeeded'
+            ORDER BY latest_job.finished_at DESC, latest_job.id DESC
+            LIMIT 1
+          )
+          LEFT JOIN ai_review_results air ON air.job_id = aj.id
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+
+          UNION ALL
+
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'human_review' AS event_stage,
+            NULL AS ai_finished_at,
+            NULL AS ai_decision,
+            NULL AS ai_total_score,
+            NULL AS ai_comment,
+            hr.decision AS human_decision,
+            hr.reason AS human_reason,
+            hr.created_at AS human_reviewed_at,
+            reviewer.name AS human_reviewer_name,
+            1 AS event_order,
+            hr.round_no AS human_round_no,
+            hr.id AS human_review_id
+          FROM annotations an
+          JOIN human_reviews hr ON hr.annotation_id = an.id
+          LEFT JOIN users reviewer ON reviewer.id = hr.reviewer_id
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+
+          UNION ALL
+
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'human_review' AS event_stage,
+            NULL AS ai_finished_at,
+            NULL AS ai_decision,
+            NULL AS ai_total_score,
+            NULL AS ai_comment,
+            NULL AS human_decision,
+            NULL AS human_reason,
+            NULL AS human_reviewed_at,
+            NULL AS human_reviewer_name,
+            1 AS event_order,
+            NULL AS human_round_no,
+            NULL AS human_review_id
+          FROM annotations an
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM human_reviews pending_hr
+              WHERE pending_hr.annotation_id = an.id
+            )
+        ) timeline
+        ORDER BY
+          timeline.revision_no ASC,
+          timeline.annotation_id ASC,
+          timeline.event_order ASC,
+          timeline.human_reviewed_at ASC,
+          timeline.human_round_no ASC,
+          timeline.human_review_id ASC
         """,
         (rs, rowNum) -> new ReviewTimelineEventRecord(
             rs.getLong("annotation_id"),
             rs.getInt("revision_no"),
+            rs.getString("event_stage"),
             toLocalDateTime(rs.getTimestamp("ai_finished_at")),
             rs.getString("ai_decision"),
             toDouble(rs.getObject("ai_total_score")),
@@ -648,6 +714,8 @@ public class ReviewRepository {
             rs.getString("human_reason"),
             toLocalDateTime(rs.getTimestamp("human_reviewed_at")),
             rs.getString("human_reviewer_name")),
+        assignmentId,
+        assignmentId,
         assignmentId);
   }
 
@@ -1179,6 +1247,7 @@ public class ReviewRepository {
   public record ReviewTimelineEventRecord(
       long annotationId,
       int revisionNo,
+      String eventStage,
       LocalDateTime aiFinishedAt,
       String aiDecision,
       Double aiTotalScore,

@@ -154,7 +154,7 @@ const labelerMenuItems: MenuProps['items'] = [
 /** Reviewer 端导航对齐计划书 4.5 / 4.4 / 4.6:
  * - 工作台:概览
  * - 审核动作:待审队列 / AI 审核 / 争议样本
- * - 报表:审核报表
+ * - 报表已合并到工作概览
  */
 const reviewerMenuItems: MenuProps['items'] = [
   {
@@ -171,12 +171,6 @@ const reviewerMenuItems: MenuProps['items'] = [
       { key: '/reviewer/ai', icon: <AuditOutlined />, label: '待审队列' },
       { key: '/reviewer/disputes', icon: <ExclamationCircleOutlined />, label: '争议样本' },
     ],
-  },
-  {
-    type: 'group',
-    key: 'g-reviewer-reports',
-    label: 'REPORTS',
-    children: [{ key: '/reviewer/reports', icon: <FileTextOutlined />, label: '审核报表' }],
   },
 ];
 
@@ -222,7 +216,6 @@ function resolveSelectedKey(section: RoleSection, pathname: string): string {
     const reviewerKeys = [
       '/reviewer/ai',
       '/reviewer/disputes',
-      '/reviewer/reports',
     ];
     return reviewerKeys.find((key) => pathname.startsWith(key)) ?? '/reviewer';
   }

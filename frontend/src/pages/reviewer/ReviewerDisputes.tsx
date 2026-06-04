@@ -162,13 +162,17 @@ export default function ReviewerDisputes() {
     if (!detail) return;
     setResolving(true);
     try {
-      await reviewerApi.resolveDispute(detail.dispute.disputeId, { resolution, note });
-      const nextItems = items.map((item) =>
-        item.disputeId === detail.dispute.disputeId ? { ...item, status: 'resolved' as const } : item,
-      );
-      setItems(nextItems);
-      setDetail({
-        dispute: { ...detail.dispute, status: 'resolved' },
+      const resolvedDispute = await reviewerApi.resolveDispute(detail.dispute.disputeId, { resolution, note });
+      let refreshedDetail: DisputeDetail | null = null;
+      if (!usingFallback) {
+        try {
+          refreshedDetail = await reviewerApi.getDisputeDetail(resolvedDispute.disputeId);
+        } catch {
+          message.warning('终审已提交，刷新详情失败，请手动刷新页面确认最新时间线');
+        }
+      }
+      const nextDetail = refreshedDetail ?? {
+        dispute: resolvedDispute,
         annotation: {
           ...detail.annotation,
           decision: resolution === 'approve' ? 'APPROVE' : 'RETURN',
@@ -176,7 +180,13 @@ export default function ReviewerDisputes() {
           humanReviewedAt: detail.annotation.humanReviewedAt,
           humanReviewerName: detail.annotation.humanReviewerName,
         },
-      });
+      };
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          item.disputeId === nextDetail.dispute.disputeId ? nextDetail.dispute : item,
+        ),
+      );
+      setDetail(nextDetail);
       setOpinion('');
       message.success(resolution === 'approve' ? '终审通过' : '终审驳回');
     } catch (requestError) {
@@ -331,7 +341,7 @@ export default function ReviewerDisputes() {
           <div className="ai-wb-detail-col">
             <Spin spinning={detailLoading}>
               {detail ? (
-                <DisputeAnnotationDetail annotation={detail.annotation} />
+                <DisputeAnnotationDetail annotation={detail.annotation} dispute={detail.dispute} />
               ) : (
                 <div className="ai-wb-detail-empty">
                   <Empty description="请选择左侧争议样本" />
@@ -364,7 +374,7 @@ export default function ReviewerDisputes() {
                     <div className="ai-wb-timeline-title">
                       审核时间线（第 {displayItemIndex(detail.annotation)} 题）
                     </div>
-                    <ReviewTimeline item={detail.annotation} />
+                    <ReviewTimeline item={detail.annotation} dispute={detail.dispute} />
                   </div>
 
                   <div className="dispute-wb-side-card">
@@ -446,10 +456,17 @@ export default function ReviewerDisputes() {
   );
 }
 
-function DisputeAnnotationDetail({ annotation }: { annotation: AnnotationToReview }) {
+function DisputeAnnotationDetail({
+  annotation,
+  dispute,
+}: {
+  annotation: AnnotationToReview;
+  dispute: DisputeItem;
+}) {
   const title = pickTitle(annotation);
   const stageLabel = reviewStageLabel(annotation.revisionNo);
   const stageColor = reviewStageColor(annotation.revisionNo);
+  const statusMeta = disputeDetailStatusMeta(dispute, annotation);
   const answerEntries = toAnswerDisplayEntries(annotation.answerJson, annotation.schemaFields);
   const payloadEntries = Object.entries(annotation.rawPayload ?? {});
   const ai = annotation.aiResult;
@@ -470,7 +487,7 @@ function DisputeAnnotationDetail({ annotation }: { annotation: AnnotationToRevie
         </div>
         <div className="ai-wb-detail-badges">
           <Tag color={stageColor}>{stageLabel}</Tag>
-          <Tag color="processing">争议处理中</Tag>
+          <Tag color={statusMeta.color}>{statusMeta.label}</Tag>
         </div>
       </div>
 
@@ -567,33 +584,39 @@ function AnswerRows({
   );
 }
 
-function ReviewTimeline({ item }: { item: AnnotationToReview }) {
+function ReviewTimeline({ item, dispute }: { item: AnnotationToReview; dispute?: DisputeItem }) {
   if ((item.reviewTimeline?.length ?? 0) > 0) {
+    const timeline = item.reviewTimeline!;
+    let finalHumanIndex = -1;
+    if (dispute?.status === 'resolved') {
+      timeline.forEach((stage, index) => {
+        const decision = normalizeTimelineDecision(stage.decision);
+        if (stage.stage === 'human_review' && (decision === 'APPROVE' || decision === 'RETURN')) {
+          finalHumanIndex = index;
+        }
+      });
+    }
     return (
       <ul className="ai-wb-timeline">
-        {item.reviewTimeline!.map((stage) => {
-          const color =
-            stage.stage === 'ai_review'
-              ? stage.decision === 'PASS'
-                ? '#22c55e'
-                : stage.decision === 'REJECT'
-                  ? '#ef4444'
-                  : '#f59e0b'
-              : stage.status === 'completed'
-                ? 'var(--lh-primary)'
-                : '#94a3b8';
+        {timeline.map((stage, index) => {
+          const isFinalDisputeDecision = index === finalHumanIndex;
+          const color = timelineStageColor(stage, isFinalDisputeDecision);
           const text =
             stage.stage === 'ai_review'
               ? `${stage.decision ?? '等待预审'}${stage.score == null ? '' : ` · ${stage.score} 分`}${stage.comment ? ` · ${stage.comment}` : ''}`
               : stage.status === 'completed'
-                ? `${stage.decision ?? '已审核'}${stage.reason ? ` · ${stage.reason}` : ''}`
+                ? humanTimelineText(stage, isFinalDisputeDecision)
                 : (stage.comment ?? `等待 Reviewer ${stage.title || '人工审核'}`);
           return (
             <li key={`${stage.stage}-${stage.roundNo}-${stage.occurredAt ?? stage.status}`} className="ai-wb-timeline-item">
               <span className="ai-wb-timeline-dot" style={{ background: color }} />
               <div className="ai-wb-timeline-body">
                 <div className="ai-wb-timeline-meta">
-                  <span className="ai-wb-timeline-who">{stage.title}</span>
+                  <span className="ai-wb-timeline-who">
+                    {stage.stage === 'human_review'
+                      ? humanTimelineTitle(stage, isFinalDisputeDecision)
+                      : stage.title}
+                  </span>
                   <span className="ai-wb-timeline-time">
                     <ClockCircleOutlined /> {stage.occurredAt || stage.actor}
                   </span>
@@ -653,6 +676,64 @@ function buildFallbackTimeline(item: AnnotationToReview) {
     });
   }
   return events;
+}
+
+function disputeDetailStatusMeta(
+  dispute: DisputeItem,
+  annotation: AnnotationToReview,
+): { color: string; label: string } {
+  if (dispute.status === 'resolved') {
+    const decision = normalizeTimelineDecision(annotation.decision);
+    if (decision === 'APPROVE') {
+      return { color: 'success', label: '已解决 · 终审通过' };
+    }
+    if (decision === 'RETURN') {
+      return { color: 'error', label: '已解决 · 终审驳回' };
+    }
+    return { color: 'success', label: '已解决' };
+  }
+  if (dispute.canResolve === false) {
+    return { color: 'processing', label: '需他人终审' };
+  }
+  return { color: 'error', label: '待终审' };
+}
+
+function timelineStageColor(stage: NonNullable<AnnotationToReview['reviewTimeline']>[number], finalDecision: boolean): string {
+  if (stage.stage === 'ai_review') {
+    if (stage.decision === 'PASS') return '#22c55e';
+    if (stage.decision === 'REJECT') return '#ef4444';
+    return '#f59e0b';
+  }
+  const decision = normalizeTimelineDecision(stage.decision);
+  if (finalDecision && decision === 'APPROVE') return '#22c55e';
+  if (finalDecision && decision === 'RETURN') return '#ef4444';
+  if (decision === 'ESCALATE') return '#f59e0b';
+  return stage.status === 'completed' ? 'var(--lh-primary)' : '#94a3b8';
+}
+
+function humanTimelineTitle(stage: NonNullable<AnnotationToReview['reviewTimeline']>[number], finalDecision: boolean): string {
+  const decision = normalizeTimelineDecision(stage.decision);
+  if (finalDecision && decision === 'APPROVE') return '终审通过';
+  if (finalDecision && decision === 'RETURN') return '终审驳回';
+  if (decision === 'ESCALATE') return `${reviewStageLabel(stage.roundNo)}升级`;
+  return stage.title;
+}
+
+function humanTimelineText(stage: NonNullable<AnnotationToReview['reviewTimeline']>[number], finalDecision: boolean): string {
+  const decision = normalizeTimelineDecision(stage.decision);
+  const label =
+    finalDecision && decision === 'APPROVE'
+      ? '终审通过'
+      : finalDecision && decision === 'RETURN'
+        ? '终审驳回'
+        : decision === 'ESCALATE'
+          ? `${reviewStageLabel(stage.roundNo)}升级`
+          : (humanDecisionMeta(decision as AnnotationToReview['decision'])?.label ?? stage.decision ?? '已审核');
+  return `${label}${stage.reason ? ` · ${stage.reason}` : ''}`;
+}
+
+function normalizeTimelineDecision(decision: unknown): string {
+  return decision == null ? '' : String(decision).toUpperCase();
 }
 
 async function loadFallbackDetail(disputeId: string, items: DisputeItem[]): Promise<DisputeDetail> {

@@ -11,8 +11,10 @@ import type {
   DisputeDetail,
   DisputeItem,
   ReviewBatch,
+  ReviewerReportSummary,
   ReviewerOverview,
   ReviewerPageResult,
+  ReviewerReviewDetailExportParams,
   SubmitReviewRequest,
 } from '../types/reviewer';
 
@@ -20,6 +22,24 @@ export const reviewerApi = {
   /** 工作概览 */
   getOverview(rangeDays = 30): Promise<ReviewerOverview> {
     return apiRequest<ReviewerOverview>(`/reviewer/overview?days=${rangeDays}`);
+  },
+
+  /** 审核报表汇总预留:后端接入后由工作概览报表模块使用 */
+  getReportSummary(rangeDays = 30): Promise<ReviewerReportSummary> {
+    return apiRequest<ReviewerReportSummary>(`/reviewer/reports/summary?days=${rangeDays}`);
+  },
+
+  /** 审核明细导出预留:后端接入后返回 CSV Blob */
+  exportReviewDetails(params: ReviewerReviewDetailExportParams = {}): Promise<Blob> {
+    const search = new URLSearchParams();
+    search.set('format', params.format ?? 'csv');
+    search.set('days', String(params.rangeDays ?? 30));
+    if (params.taskId) search.set('taskId', params.taskId);
+    if (params.decision && params.decision !== 'ALL') search.set('decision', params.decision);
+    return apiRequest<Blob>(`/reviewer/reports/export?${search.toString()}`, {
+      headers: { Accept: 'text/csv' },
+      responseType: 'blob',
+    });
   },
 
   /**

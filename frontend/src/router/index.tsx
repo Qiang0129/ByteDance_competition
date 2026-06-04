@@ -26,7 +26,6 @@ import {
   ReviewerAiWorkbench,
   ReviewerDisputes,
   ReviewerOverview,
-  ReviewerReports,
 } from '../pages/reviewer';
 import { AppearanceSettings } from '../pages/settings';
 import ModelSettings from '../pages/aiReviewer/ModelSettings';
@@ -67,7 +66,7 @@ export function AppRoutes() {
         <Route path="/reviewer/ai" element={<ReviewerAi />} />
         <Route path="/reviewer/ai/:taskId" element={<ReviewerAiWorkbench />} />
         <Route path="/reviewer/disputes" element={<ReviewerDisputes />} />
-        <Route path="/reviewer/reports" element={<ReviewerReports />} />
+        <Route path="/reviewer/reports" element={<Navigate to="/reviewer" replace />} />
 
         <Route path="/ai-reviewer" element={<AiReviewerDashboard />} />
         <Route path="/ai-reviewer/jobs" element={<AiReviewerDashboard />} />

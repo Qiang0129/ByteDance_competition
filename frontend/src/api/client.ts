@@ -4,6 +4,7 @@ const AUTH_TOKEN_KEY = 'labelhub_access_token';
 export interface ApiRequestOptions extends RequestInit {
   skipAuth?: boolean;
   token?: string | null;
+  responseType?: 'json' | 'text' | 'blob';
 }
 
 function readPayloadText(payload: unknown, field: 'code' | 'message') {
@@ -67,7 +68,13 @@ export async function apiRequest<TResponse>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<TResponse> {
-  const { skipAuth = false, token, headers: customHeaders, ...requestInit } = options;
+  const {
+    skipAuth = false,
+    token,
+    headers: customHeaders,
+    responseType,
+    ...requestInit
+  } = options;
   const headers = new Headers(customHeaders);
 
   const isFormData =
@@ -88,9 +95,13 @@ export async function apiRequest<TResponse>(
   });
 
   const contentType = response.headers.get('content-type') ?? '';
-  const payload = contentType.includes('application/json')
-    ? await response.json()
-    : await response.text();
+  const payload = responseType === 'blob'
+    ? await response.blob()
+    : responseType === 'text'
+      ? await response.text()
+      : contentType.includes('application/json')
+        ? await response.json()
+        : await response.text();
 
   if (!response.ok) {
     throw new ApiError(response.status, response.statusText, payload);

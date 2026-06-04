@@ -838,18 +838,21 @@ public class ReviewService {
     if (!events.isEmpty()) {
       java.util.ArrayList<ReviewTimelineStageResponse> timeline = new java.util.ArrayList<>();
       for (ReviewRepository.ReviewTimelineEventRecord event : events) {
-        AiReviewResultResponse aiResult = toAiResult(event);
-        timeline.add(new ReviewTimelineStageResponse(
-            event.revisionNo(),
-            "ai_review",
-            "AI预审（Revision " + event.revisionNo() + "）",
-            aiResult == null ? "pending" : "completed",
-            "AI Agent",
-            aiResult == null ? null : aiResult.decision(),
-            aiResult == null ? null : aiResult.total_score(),
-            aiResult == null ? "等待 AI 预审结果" : aiResult.comment(),
-            null,
-            formatDateTime(event.aiFinishedAt())));
+        if ("ai_review".equals(event.eventStage())) {
+          AiReviewResultResponse aiResult = toAiResult(event);
+          timeline.add(new ReviewTimelineStageResponse(
+              event.revisionNo(),
+              "ai_review",
+              "AI预审（Revision " + event.revisionNo() + "）",
+              aiResult == null ? "pending" : "completed",
+              "AI Agent",
+              aiResult == null ? null : aiResult.decision(),
+              aiResult == null ? null : aiResult.total_score(),
+              aiResult == null ? "等待 AI 预审结果" : aiResult.comment(),
+              null,
+              formatDateTime(event.aiFinishedAt())));
+          continue;
+        }
 
         String humanDecision = event.humanDecision() == null
             ? null
@@ -857,7 +860,7 @@ public class ReviewService {
         timeline.add(new ReviewTimelineStageResponse(
             event.revisionNo(),
             "human_review",
-            resolveReviewStageLabel(event.revisionNo()),
+            resolveHumanTimelineTitle(event.revisionNo(), humanDecision),
             humanDecision == null ? "pending" : "completed",
             event.humanReviewerName() == null || event.humanReviewerName().isBlank()
                 ? "Reviewer"
@@ -890,7 +893,7 @@ public class ReviewService {
     ReviewTimelineStageResponse humanStage = new ReviewTimelineStageResponse(
         record.revisionNo(),
         "human_review",
-        resolveReviewStageLabel(record.revisionNo()),
+        resolveHumanTimelineTitle(record.revisionNo(), humanDecision),
         humanDecision == null ? "pending" : "completed",
         record.humanReviewerName() == null || record.humanReviewerName().isBlank()
             ? "Reviewer"
@@ -901,6 +904,13 @@ public class ReviewService {
         record.humanReason(),
         formatDateTime(record.humanReviewedAt()));
     return List.of(aiStage, humanStage);
+  }
+
+  private String resolveHumanTimelineTitle(int revisionNo, String decision) {
+    if ("ESCALATE".equals(decision)) {
+      return revisionNo <= 1 ? "初审升级" : "复审升级";
+    }
+    return resolveReviewStageLabel(revisionNo);
   }
 
   private String resolveReviewStageLabel(int revisionNo) {

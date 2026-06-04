@@ -152,7 +152,7 @@ function PublicHeader({ activeKey }: { activeKey: PublicNavKey }) {
   }, []);
 
   const handleNavClick = (event: MouseEvent<HTMLAnchorElement>, item: (typeof navItems)[number]) => {
-    if (item.key !== 'about' || location.pathname === item.path || !isPlainLeftClick(event)) {
+    if (location.pathname === item.path || !isPlainLeftClick(event)) {
       return;
     }
 
@@ -326,7 +326,12 @@ export default function Landing() {
 
     setRouteTransition({ kind, target, x, y });
     transitionTimerRef.current = window.setTimeout(() => {
-      navigate(target);
+      navigate(target, {
+        state: {
+          fromLandingAuthTransition: true,
+          authTransitionKind: kind,
+        },
+      });
       transitionTimerRef.current = null;
     }, LANDING_ROUTE_ANIMATION_MS);
   };

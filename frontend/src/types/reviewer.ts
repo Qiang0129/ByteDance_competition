@@ -197,3 +197,27 @@ export interface ReviewerOverview {
   /** 抽检覆盖率 */
   samplingCoverage: number;
 }
+
+/** Reviewer 审核报表汇总,后端真实报表接口接入后使用 */
+export interface ReviewerReportSummary {
+  rangeDays: number;
+  approveRate: number;
+  returnRate: number;
+  disputeRate: number;
+  aiConsistencyRate: number;
+  reviewedTotal: number;
+  trend: Array<{
+    label: string;
+    approve: number;
+    return: number;
+    dispute: number;
+  }>;
+}
+
+/** Reviewer 审核明细导出参数 */
+export interface ReviewerReviewDetailExportParams {
+  rangeDays?: number;
+  format?: 'csv';
+  taskId?: string;
+  decision?: ReviewDecision | 'ALL';
+}

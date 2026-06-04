@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRightOutlined,
   AuditOutlined,
+  BarChartOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
+  DownloadOutlined,
   ExclamationCircleFilled,
-  ThunderboltFilled,
+  LineChartOutlined,
 } from '@ant-design/icons';
 import {
   App as AntdApp,
@@ -15,11 +17,24 @@ import {
   Empty,
   Progress,
   Row,
+  Segmented,
   Space,
   Tag,
   Typography,
 } from 'antd';
 import { useNavigate } from 'react-router-dom';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 import { AiAssistantIcon } from '../../components/icons';
 
@@ -43,14 +58,55 @@ const sampleOverview: ReviewerOverviewMeta = {
   samplingCoverage: 0.12,
 };
 
+type ReviewerReportTrendPoint = {
+  date: string;
+  pass: number;
+  return: number;
+  dispute: number;
+  total: number;
+};
+
+const reviewerReportTrend7: ReviewerReportTrendPoint[] = [
+  { date: '2026-05-29', pass: 0, return: 0, dispute: 0, total: 0 },
+  { date: '2026-05-30', pass: 30, return: 2, dispute: 1, total: 33 },
+  { date: '2026-05-31', pass: 27, return: 7, dispute: 1, total: 35 },
+  { date: '2026-06-01', pass: 5, return: 2, dispute: 0, total: 7 },
+  { date: '2026-06-02', pass: 14, return: 1, dispute: 0, total: 15 },
+  { date: '2026-06-03', pass: 0, return: 0, dispute: 0, total: 0 },
+  { date: '2026-06-04', pass: 0, return: 0, dispute: 0, total: 0 },
+];
+
+const reviewerReportTrend30: ReviewerReportTrendPoint[] = Array.from({ length: 30 }, (_, index) => {
+  const date = new Date(Date.UTC(2026, 4, 6 + index)).toISOString().slice(0, 10);
+  const pass = index % 7 === 0 ? 0 : 8 + ((index * 7) % 18);
+  const returned = index % 6 === 0 ? 1 : (index * 3) % 6;
+  const dispute = index % 9 === 0 ? 2 : index % 5 === 0 ? 1 : 0;
+  return {
+    date,
+    pass,
+    return: returned,
+    dispute,
+    total: pass + returned + dispute,
+  };
+});
+
+const reviewerReportTrendColors = {
+  pass: '#22c55e',
+  return: '#f59e0b',
+  dispute: '#ef4444',
+  total: '#94a3b8',
+};
+
 export default function ReviewerOverview() {
   const navigate = useNavigate();
   const themeColors = useThemeColors();
+  const { message } = AntdApp.useApp();
   const [overview, setOverview] = useState<ReviewerOverviewMeta>(sampleOverview);
   const [batches, setBatches] = useState<ReviewBatch[]>([]);
   const [usingFallback, setUsingFallback] = useState(true);
   const [loading, setLoading] = useState(true);
-  AntdApp.useApp();
+  const [reportDays, setReportDays] = useState<7 | 30>(7);
+  const [reportChartType, setReportChartType] = useState<'line' | 'bar'>('bar');
 
   useEffect(() => {
     let cancelled = false;
@@ -121,6 +177,49 @@ export default function ReviewerOverview() {
     [overview],
   );
 
+  const reportStats = useMemo(() => {
+    const reviewedToday = overview.todayApproved + overview.todayReturned + overview.todayDisputes;
+    const approveRate = reviewedToday === 0 ? 0 : overview.todayApproved / reviewedToday;
+    const returnRate = reviewedToday === 0 ? 0 : overview.todayReturned / reviewedToday;
+    const disputeRate = reviewedToday === 0 ? 0 : overview.todayDisputes / reviewedToday;
+    return [
+      {
+        key: 'approve',
+        label: '通过率',
+        value: `${(approveRate * 100).toFixed(1)}%`,
+        color: '#22c55e',
+        icon: <CheckCircleFilled />,
+      },
+      {
+        key: 'return',
+        label: '打回率',
+        value: `${(returnRate * 100).toFixed(1)}%`,
+        color: '#f59e0b',
+        icon: <CloseCircleFilled />,
+      },
+      {
+        key: 'dispute',
+        label: '争议率',
+        value: `${(disputeRate * 100).toFixed(1)}%`,
+        color: '#ef4444',
+        icon: <ExclamationCircleFilled />,
+      },
+      {
+        key: 'ai',
+        label: 'AI 一致率',
+        value: `${(overview.consistencyRate * 100).toFixed(1)}%`,
+        color: '#2f7bff',
+        icon: <AiAssistantIcon />,
+      },
+    ];
+  }, [overview]);
+
+  const reportTrendData = reportDays === 7 ? reviewerReportTrend7 : reviewerReportTrend30;
+
+  function handleExportDetails() {
+    message.info('审核明细导出接口已预留，后端接入后可导出 CSV。');
+  }
+
   return (
     <Space direction="vertical" size="large" className="page-stack reviewer-overview">
       <div className="page-title-row">
@@ -183,9 +282,6 @@ export default function ReviewerOverview() {
                         <Space size={8}>
                           <span className="reviewer-batch-title">{batch.taskTitle}</span>
                           <Tag className="reviewer-batch-type">{batch.taskType}</Tag>
-                          <Tag color={batch.priority === 'high' ? 'red' : 'default'}>
-                            {batch.priority === 'high' ? '高优先级' : '普通'}
-                          </Tag>
                         </Space>
                         <Button
                           type="primary"
@@ -238,51 +334,176 @@ export default function ReviewerOverview() {
                 color="#a855f7"
               />
             </Space>
-            <div className="reviewer-quality-tip">
-              <ThunderboltFilled /> 一致率低于 90% 时建议复盘审核标准;抽检覆盖率小于 10% 时升级到全量审核。
-            </div>
           </Card>
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={12}>
-          <Card title="质量规则与接口预留">
-            <Typography.Paragraph type="secondary">
-              后端落地后,Reviewer 端将通过下列接口拉取队列、AI 结果与争议样本,并提交审核结论。前端调用方已在 <code>api/reviewer.ts</code> 中预留。
-            </Typography.Paragraph>
-            <Space wrap size={6}>
-              <Tag color="blue">GET /reviewer/batches</Tag>
-              <Tag color="blue">GET /reviewer/batches/{'{id}'}/annotations</Tag>
-              <Tag color="green">POST /reviewer/annotations/{'{id}'}/decision</Tag>
-              <Tag color="purple">GET /reviewer/disputes</Tag>
-              <Tag color="orange">POST /reviewer/disputes/{'{id}'}/resolve</Tag>
-            </Space>
-          </Card>
-        </Col>
+      <Card
+        title="审核报表"
+        extra={
+          <Button type="primary" icon={<DownloadOutlined />} onClick={handleExportDetails}>
+            导出审核明细
+          </Button>
+        }
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Row gutter={[16, 16]}>
+            {reportStats.map((stat) => (
+              <Col xs={12} md={6} key={stat.key}>
+                <Card className="reviewer-kpi reviewer-report-kpi">
+                  <div
+                    className="reviewer-kpi-icon"
+                    style={{ background: `${stat.color}15`, color: stat.color }}
+                  >
+                    {stat.icon}
+                  </div>
+                  <div className="reviewer-kpi-value">{stat.value}</div>
+                  <div className="reviewer-kpi-title">{stat.label}</div>
+                </Card>
+              </Col>
+            ))}
+          </Row>
 
-        <Col xs={24} xl={12}>
-          <Card title="工作建议">
-            <Space direction="vertical" size={10} style={{ width: '100%' }}>
-              <Tip
-                icon={<AiAssistantIcon />}
-                color="#2f7bff"
-                text="优先处理 AI 标记 NEED_HUMAN_REVIEW 的条目,这部分信号最强。"
-              />
-              <Tip
-                icon={<ExclamationCircleFilled />}
-                color="#ef4444"
-                text="争议样本走单独流程:进入「争议样本」页用终审决定。"
-              />
-              <Tip
-                icon={<CheckCircleFilled />}
-                color="#22c55e"
-                text="审核通过后任务自动进入 ACCEPTED → 可被 Owner 导出。"
-              />
-            </Space>
+          <Card
+            title="每日审核量趋势"
+            extra={
+              <Space size={8}>
+                <Segmented
+                  size="small"
+                  value={reportDays}
+                  onChange={(v) => setReportDays(v as 7 | 30)}
+                  options={[
+                    { label: '近 7 天', value: 7 },
+                    { label: '近 30 天', value: 30 },
+                  ]}
+                />
+                <Segmented
+                  size="small"
+                  value={reportChartType}
+                  onChange={(v) => setReportChartType(v as 'line' | 'bar')}
+                  options={[
+                    { label: '折线图', value: 'line', icon: <LineChartOutlined /> },
+                    { label: '柱状图', value: 'bar', icon: <BarChartOutlined /> },
+                  ]}
+                />
+              </Space>
+            }
+          >
+            <ResponsiveContainer width="100%" height={280}>
+              {reportChartType === 'line' ? (
+                <LineChart data={reportTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="pass"
+                    name="通过"
+                    stroke={reviewerReportTrendColors.pass}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="return"
+                    name="打回"
+                    stroke={reviewerReportTrendColors.return}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="dispute"
+                    name="争议"
+                    stroke={reviewerReportTrendColors.dispute}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="total"
+                    name="总量"
+                    stroke={reviewerReportTrendColors.total}
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                  />
+                </LineChart>
+              ) : (
+                <BarChart
+                  data={reportTrendData}
+                  margin={{ top: 10, right: 12, left: -12, bottom: 0 }}
+                  barGap={2}
+                  barCategoryGap="24%"
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 12, fill: '#94a3b8' }}
+                    axisLine={{ stroke: '#e2e8f0' }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 12, fill: '#94a3b8' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
+                    contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+                  />
+                  <Bar
+                    dataKey="pass"
+                    name="通过"
+                    fill={reviewerReportTrendColors.pass}
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={14}
+                  />
+                  <Bar
+                    dataKey="return"
+                    name="打回"
+                    fill={reviewerReportTrendColors.return}
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={14}
+                  />
+                  <Bar
+                    dataKey="dispute"
+                    name="争议"
+                    fill={reviewerReportTrendColors.dispute}
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={14}
+                  />
+                  <Bar
+                    dataKey="total"
+                    name="总量"
+                    fill={reviewerReportTrendColors.total}
+                    radius={[3, 3, 0, 0]}
+                    maxBarSize={14}
+                  />
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+            {reportChartType === 'bar' && (
+              <div className="bar-legend">
+                <span>
+                  <i className="dot" style={{ background: reviewerReportTrendColors.pass }} />通过
+                </span>
+                <span>
+                  <i className="dot" style={{ background: reviewerReportTrendColors.return }} />打回
+                </span>
+                <span>
+                  <i className="dot" style={{ background: reviewerReportTrendColors.dispute }} />争议
+                </span>
+                <span>
+                  <i className="dot" style={{ background: reviewerReportTrendColors.total }} />总量
+                </span>
+              </div>
+            )}
           </Card>
-        </Col>
-      </Row>
+        </Space>
+      </Card>
     </Space>
   );
 }
@@ -307,25 +528,6 @@ function QualityRow({
       <div className="reviewer-quality-bar">
         <span style={{ width: `${ratio * 100}%`, background: color }} />
       </div>
-    </div>
-  );
-}
-
-function Tip({
-  icon,
-  text,
-  color,
-}: {
-  icon: React.ReactNode;
-  text: string;
-  color: string;
-}) {
-  return (
-    <div className="reviewer-tip-row">
-      <span className="reviewer-tip-icon" style={{ background: `${color}15`, color }}>
-        {icon}
-      </span>
-      <span className="reviewer-tip-text">{text}</span>
     </div>
   );
 }

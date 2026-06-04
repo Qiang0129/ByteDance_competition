@@ -18,6 +18,10 @@ type DemoLoginSource = LoginRole | 'allRoles';
 type LoginSource = 'manual' | DemoLoginSource;
 
 type SignupFormValues = Pick<RegisterRequest, 'username' | 'password'>;
+type LandingAuthTransitionState = {
+  fromLandingAuthTransition?: boolean;
+  authTransitionKind?: AuthMode;
+};
 
 const roleOptions: Array<{ label: string; value: LoginRole }> = [
   { label: '任务方', value: 'owner' },
@@ -42,6 +46,7 @@ const demoAccounts: Array<{
 
 const SIGNUP_HASH = '#signup';
 const LOGIN_HASH = '#login';
+const LOGIN_ENTRY_ANIMATION_MS = 560;
 
 function resolveModeFromHash(hash: string): AuthMode {
   return hash === SIGNUP_HASH ? 'signup' : 'login';
@@ -60,8 +65,14 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { message } = App.useApp();
+  const landingTransitionState = location.state as LandingAuthTransitionState | null;
+  const initialEntryKind =
+    landingTransitionState?.fromLandingAuthTransition === true
+      ? landingTransitionState.authTransitionKind ?? resolveModeFromHash(window.location.hash)
+      : null;
   // 登录/注册模式:仅控制翻转动画与左侧标题文案
   const [mode, setMode] = useState<AuthMode>(() => resolveModeFromHash(window.location.hash));
+  const [entryKind, setEntryKind] = useState<AuthMode | null>(initialEntryKind);
   // 登录成功后的离场动画状态:开启后页面淡出,过渡结束再跳转
   const [leaving, setLeaving] = useState(false);
   const [signingIn, setSigningIn] = useState<LoginSource | null>(null);
@@ -69,6 +80,24 @@ export default function Login() {
   useEffect(() => {
     setMode(resolveModeFromHash(location.hash));
   }, [location.hash]);
+
+  useEffect(() => {
+    if (!entryKind) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setEntryKind(null);
+      navigate(`${location.pathname}${location.search}${location.hash}`, {
+        replace: true,
+        state: null,
+      });
+    }, LOGIN_ENTRY_ANIMATION_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [entryKind, location.hash, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +159,11 @@ export default function Login() {
   };
 
   return (
-    <main className={`login-page${leaving ? ' is-leaving' : ''}`}>
+    <main
+      className={`login-page${leaving ? ' is-leaving' : ''}${
+        entryKind ? ` is-entering-from-landing is-entering-${entryKind}` : ''
+      }`}
+    >
       {/* 右上角装饰圆球 */}
       <span className="login-blob login-blob-large" aria-hidden />
       <span className="login-blob login-blob-small" aria-hidden />
