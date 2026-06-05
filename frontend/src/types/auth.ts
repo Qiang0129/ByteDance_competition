@@ -10,6 +10,7 @@ export interface RegisterRequest {
   username: string;
   password: string;
   role?: Exclude<UserRole, 'admin' | 'system_agent' | 'ai_reviewer'>;
+  inviteToken?: string;
 }
 
 export interface AuthUser {
@@ -29,4 +30,15 @@ export interface LoginResponse {
 export interface CurrentUserResponse {
   user: AuthUser;
   permissions: string[];
+}
+
+export interface CreateReviewerInvitationResponse {
+  token: string;
+  expiresAt: string;
+}
+
+export interface ReviewerInvitationValidationResponse {
+  valid: boolean;
+  reason?: 'invalid' | 'expired' | 'used' | null;
+  expiresAt?: string | null;
 }

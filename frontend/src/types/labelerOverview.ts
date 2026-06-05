@@ -9,6 +9,7 @@ export interface LabelerOverview {
     submittedToday: number;
     returnedItems: number;
     avgDurationSec: number;
+    todayReward: number;
   };
   todayProgress: {
     target: number;
@@ -28,6 +29,7 @@ export interface LabelerOverview {
   };
   recentBatches: LabelerOverviewRecentBatch[];
   supportedItemTypes: LabelerOverviewSupportedItemType[];
+  pendingTypeDistribution: LabelerOverviewPendingTypeDistribution[];
 }
 
 export interface LabelerOverviewRecentBatch {
@@ -47,4 +49,10 @@ export interface LabelerOverviewRecentBatch {
 export interface LabelerOverviewSupportedItemType {
   key: string;
   label: string;
+}
+
+export interface LabelerOverviewPendingTypeDistribution {
+  key: string;
+  label: string;
+  count: number;
 }

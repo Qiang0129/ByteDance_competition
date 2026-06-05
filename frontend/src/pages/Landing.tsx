@@ -15,6 +15,8 @@ import {
   DownloadOutlined,
   FileTextOutlined,
   FileWordOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
   GithubOutlined,
   InfoCircleOutlined,
   LinkOutlined,
@@ -720,11 +722,15 @@ function PublicPlaceholderPage({
 }
 
 export function DocsPlaceholder() {
+  const docsPreviewRef = useRef<HTMLElement | null>(null);
+  const docsWorkbenchRef = useRef<HTMLElement | null>(null);
   const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('project');
   const [activeResourceId, setActiveResourceId] = useState(docsResources[0]?.id ?? '');
   const [docsPanelMode, setDocsPanelMode] = useState<DocsPanelMode>('categories');
   const [docsPanelTransition, setDocsPanelTransition] = useState<DocsPanelTransition>('forward');
-  const [docsJumpTransition, setDocsJumpTransition] = useState(false);
+  const [pendingDocsQuickScroll, setPendingDocsQuickScroll] = useState(false);
+  const [isDocsSidebarCollapsed, setIsDocsSidebarCollapsed] = useState(false);
+  const [isDocsPreviewFullscreen, setIsDocsPreviewFullscreen] = useState(false);
   const activeResource = docsResources.find((resource) => resource.id === activeResourceId) ?? docsResources[0];
   const visibleResources = docsResources.filter((resource) => resource.category === activeCategory);
   const activeCategoryMeta = docsCategories.find((category) => category.key === activeCategory) ?? docsCategories[0];
@@ -732,16 +738,42 @@ export function DocsPlaceholder() {
   usePublicPageClass();
 
   useEffect(() => {
-    if (!docsJumpTransition) {
+    if (
+      !pendingDocsQuickScroll ||
+      activeCategory !== 'technical' ||
+      activeResourceId !== 'api-docs-local' ||
+      docsPanelMode !== 'resources'
+    ) {
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      setDocsJumpTransition(false);
-    }, PUBLIC_NAV_ANIMATION_MS + 120);
+    const firstFrame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        docsWorkbenchRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+        setPendingDocsQuickScroll(false);
+      });
+    });
 
-    return () => window.clearTimeout(timer);
-  }, [docsJumpTransition]);
+    return () => window.cancelAnimationFrame(firstFrame);
+  }, [activeCategory, activeResourceId, docsPanelMode, pendingDocsQuickScroll]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const preview = docsPreviewRef.current;
+      if (document.fullscreenElement) {
+        setIsDocsPreviewFullscreen(Boolean(preview && document.fullscreenElement === preview));
+        return;
+      }
+
+      setIsDocsPreviewFullscreen(false);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   const selectCategory = (category: DocsCategoryKey) => {
     setActiveCategory(category);
@@ -767,18 +799,40 @@ export function DocsPlaceholder() {
   };
 
   const handleQuickStart = () => {
-    setDocsJumpTransition(true);
+    setPendingDocsQuickScroll(true);
     setActiveCategory('technical');
     setActiveResourceId('api-docs-local');
     setDocsPanelTransition('forward');
     setDocsPanelMode('resources');
+  };
 
-    window.setTimeout(() => {
-      document.getElementById('docs-workbench')?.scrollIntoView({
-        block: 'start',
-        behavior: 'smooth',
-      });
-    }, 160);
+  const toggleDocsPreviewFullscreen = async () => {
+    const preview = docsPreviewRef.current;
+    if (!preview) {
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement === preview) {
+        await document.exitFullscreen();
+        setIsDocsPreviewFullscreen(false);
+        return;
+      }
+
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      }
+
+      if (preview.requestFullscreen) {
+        await preview.requestFullscreen();
+        setIsDocsPreviewFullscreen(true);
+        return;
+      }
+    } catch {
+      // Some browser contexts reject Fullscreen API; use fixed-position fullscreen fallback.
+    }
+
+    setIsDocsPreviewFullscreen((value) => !value);
   };
 
   return (
@@ -832,79 +886,98 @@ export function DocsPlaceholder() {
         </div>
       </section>
 
-      {docsJumpTransition ? (
-        <div className="landing-docs-jump-transition" aria-hidden="true">
-          <span />
-        </div>
-      ) : null}
-
-      <section id="docs-workbench" className="landing-docs-workbench" aria-label="文档浏览工作台">
+      <section
+        id="docs-workbench"
+        ref={docsWorkbenchRef}
+        className={`landing-docs-workbench${isDocsSidebarCollapsed ? ' is-sidebar-collapsed' : ''}`}
+        aria-label="文档浏览工作台"
+      >
         <aside className="landing-docs-sidebar" aria-label="文档分类">
-          <div
-            key={docsPanelMode}
-            className={`landing-docs-panel landing-docs-panel-${docsPanelMode} is-${docsPanelTransition}`}
-          >
-            {docsPanelMode === 'categories' ? (
-              <>
-                <div className="landing-docs-sidebar-title">资源分类</div>
-                <nav className="landing-docs-category-list" aria-label="资源分类">
-                  {docsCategories.map((category) => {
-                    const categoryResources = docsResources.filter((resource) => resource.category === category.key);
-                    return (
-                      <button
-                        key={category.key}
-                        type="button"
-                        className={`landing-docs-category${activeCategory === category.key ? ' is-active' : ''}`}
-                        onClick={() => selectCategory(category.key)}
-                      >
-                        <span>{category.label}</span>
-                        <small>{category.description}</small>
-                        <em>{categoryResources.length}</em>
-                      </button>
-                    );
-                  })}
-                </nav>
-              </>
-            ) : (
-              <>
-                <div className="landing-docs-resource-panel-head">
-                  <button type="button" className="landing-docs-back-button" onClick={backToCategories}>
-                    <ArrowLeftOutlined />
-                    返回
-                  </button>
-                  <div>
-                    <span>{activeCategoryMeta.label}</span>
-                    <small>{activeCategoryMeta.description}</small>
-                  </div>
-                  <strong>{visibleResources.length}</strong>
-                </div>
-                <div className="landing-docs-resource-list landing-docs-resource-list-in-sidebar">
-                  {visibleResources.map((resource) => (
-                    <button
-                      key={resource.id}
-                      type="button"
-                      className={`landing-docs-resource${activeResource.id === resource.id ? ' is-active' : ''}${
-                        resource.status === 'missing' ? ' is-missing' : ''
-                      }`}
-                      onClick={() => setActiveResourceId(resource.id)}
-                    >
-                      <span className="landing-docs-resource-icon" aria-hidden="true">
-                        {getDocsResourceIcon(resource.kind)}
-                      </span>
-                      <span className="landing-docs-resource-text">
-                        <strong>{resource.title}</strong>
-                        <small>{resource.description}</small>
-                      </span>
-                      <span className="landing-docs-resource-badge">{resource.badge}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+          <div className="landing-docs-sidebar-header">
+            <div className="landing-docs-sidebar-title">
+              {docsPanelMode === 'resources' ? activeCategoryMeta.label : '资源分类'}
+            </div>
+            <button
+              type="button"
+              className="landing-docs-sidebar-toggle"
+              onClick={() => setIsDocsSidebarCollapsed((value) => !value)}
+              aria-label={isDocsSidebarCollapsed ? '展开文档侧边栏' : '收起文档侧边栏'}
+              aria-expanded={!isDocsSidebarCollapsed}
+              title={isDocsSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+            >
+              {isDocsSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            </button>
           </div>
+          {!isDocsSidebarCollapsed ? (
+            <div
+              key={docsPanelMode}
+              className={`landing-docs-panel landing-docs-panel-${docsPanelMode} is-${docsPanelTransition}`}
+            >
+              {docsPanelMode === 'categories' ? (
+                <>
+                  <nav className="landing-docs-category-list" aria-label="资源分类">
+                    {docsCategories.map((category) => {
+                      const categoryResources = docsResources.filter((resource) => resource.category === category.key);
+                      return (
+                        <button
+                          key={category.key}
+                          type="button"
+                          className={`landing-docs-category${activeCategory === category.key ? ' is-active' : ''}`}
+                          onClick={() => selectCategory(category.key)}
+                        >
+                          <span>{category.label}</span>
+                          <small>{category.description}</small>
+                          <em>{categoryResources.length}</em>
+                        </button>
+                      );
+                    })}
+                  </nav>
+                </>
+              ) : (
+                <>
+                  <div className="landing-docs-resource-panel-head">
+                    <button type="button" className="landing-docs-back-button" onClick={backToCategories}>
+                      <ArrowLeftOutlined />
+                      返回
+                    </button>
+                    <div>
+                      <span>{activeCategoryMeta.label}</span>
+                      <small>{activeCategoryMeta.description}</small>
+                    </div>
+                    <strong>{visibleResources.length}</strong>
+                  </div>
+                  <div className="landing-docs-resource-list landing-docs-resource-list-in-sidebar">
+                    {visibleResources.map((resource) => (
+                      <button
+                        key={resource.id}
+                        type="button"
+                        className={`landing-docs-resource${activeResource.id === resource.id ? ' is-active' : ''}${
+                          resource.status === 'missing' ? ' is-missing' : ''
+                        }`}
+                        onClick={() => setActiveResourceId(resource.id)}
+                      >
+                        <span className="landing-docs-resource-icon" aria-hidden="true">
+                          {getDocsResourceIcon(resource.kind)}
+                        </span>
+                        <span className="landing-docs-resource-text">
+                          <strong>{resource.title}</strong>
+                          <small>{resource.description}</small>
+                        </span>
+                        <span className="landing-docs-resource-badge">{resource.badge}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
         </aside>
 
-        <article className="landing-docs-preview" aria-labelledby="docs-preview-title">
+        <article
+          ref={docsPreviewRef}
+          className={`landing-docs-preview${isDocsPreviewFullscreen ? ' is-fullscreen' : ''}`}
+          aria-labelledby="docs-preview-title"
+        >
           <header className="landing-docs-preview-head">
             <div>
               <span className="landing-docs-preview-kicker">{activeResource.meta}</span>
@@ -912,6 +985,16 @@ export function DocsPlaceholder() {
               <p>{activeResource.description}</p>
             </div>
             <div className="landing-docs-preview-actions">
+              <button
+                type="button"
+                className="landing-docs-action-link landing-docs-fullscreen-button"
+                onClick={toggleDocsPreviewFullscreen}
+                aria-label={isDocsPreviewFullscreen ? '退出全屏观看文档' : '全屏观看文档'}
+                title={isDocsPreviewFullscreen ? '退出全屏' : '全屏观看'}
+              >
+                {isDocsPreviewFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                {isDocsPreviewFullscreen ? '退出全屏' : '全屏'}
+              </button>
               {activeResource.externalUrl ? (
                 <a
                   className="landing-docs-action-link"
@@ -1022,8 +1105,80 @@ function DocxPreviewPane({ resource }: { resource: DocsResource }) {
     }
 
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
+    let resizeFallback = false;
+    let animationFrame = 0;
+    let nestedAnimationFrame = 0;
+    const getDocxPageFrames = () => {
+      const directPages = Array.from(container.children).filter(
+        (child): child is HTMLElement => child instanceof HTMLElement && child.matches('section.landing-docx-rendered'),
+      );
+
+      directPages.forEach((page) => {
+        const frame = document.createElement('div');
+        frame.className = 'landing-docx-page-frame';
+        container.insertBefore(frame, page);
+        frame.appendChild(page);
+      });
+
+      return Array.from(container.querySelectorAll<HTMLElement>('.landing-docx-page-frame'));
+    };
+
+    const updateDocxScale = () => {
+      const previewBody = container.closest<HTMLElement>('.landing-docs-preview-body');
+      const pageFrames = getDocxPageFrames();
+      if (!previewBody || pageFrames.length === 0) {
+        return;
+      }
+
+      const pageSizes = pageFrames
+        .map((frame) => {
+          const page = frame.querySelector<HTMLElement>('section.landing-docx-rendered');
+          if (!page) {
+            return null;
+          }
+          const width = page.scrollWidth || page.offsetWidth || page.getBoundingClientRect().width;
+          const height = page.scrollHeight || page.offsetHeight || page.getBoundingClientRect().height;
+          return width && height ? { frame, width, height } : null;
+        })
+        .filter((size): size is { frame: HTMLElement; width: number; height: number } => Boolean(size));
+
+      if (pageSizes.length === 0) {
+        return;
+      }
+
+      const sourcePageWidth = Math.max(...pageSizes.map((size) => size.width));
+      const availableWidth = Math.max(previewBody.clientWidth - 56, 320);
+      const scale = Math.min(1.45, availableWidth / sourcePageWidth);
+      container.style.setProperty('--landing-docx-page-width', `${sourcePageWidth}px`);
+      container.style.setProperty('--landing-docx-scale', scale.toFixed(4));
+
+      pageSizes.forEach(({ frame, width, height }) => {
+        frame.style.width = `${Math.ceil(width * scale)}px`;
+        frame.style.height = `${Math.ceil(height * scale)}px`;
+        frame.style.setProperty('--landing-docx-page-source-width', `${width}px`);
+        frame.style.setProperty('--landing-docx-page-source-height', `${height}px`);
+      });
+    };
+
+    const observeDocxWidth = () => {
+      const previewBody = container.closest<HTMLElement>('.landing-docs-preview-body');
+      updateDocxScale();
+
+      if (previewBody && typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(updateDocxScale);
+        resizeObserver.observe(previewBody);
+        return;
+      }
+
+      resizeFallback = true;
+      window.addEventListener('resize', updateDocxScale);
+    };
+
     setLoading(true);
     setError(null);
+    container.style.setProperty('--landing-docx-scale', '1');
+    container.style.removeProperty('--landing-docx-page-width');
     container.innerHTML = '';
 
     fetch(resource.fileUrl)
@@ -1043,6 +1198,13 @@ function DocxPreviewPane({ resource }: { resource: DocsResource }) {
       .then(() => {
         if (!cancelled) {
           setLoading(false);
+          animationFrame = window.requestAnimationFrame(() => {
+            nestedAnimationFrame = window.requestAnimationFrame(() => {
+              if (!cancelled) {
+                observeDocxWidth();
+              }
+            });
+          });
         }
       })
       .catch((reason: unknown) => {
@@ -1056,6 +1218,16 @@ function DocxPreviewPane({ resource }: { resource: DocsResource }) {
 
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
+      if (resizeFallback) {
+        window.removeEventListener('resize', updateDocxScale);
+      }
+      if (animationFrame) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+      if (nestedAnimationFrame) {
+        window.cancelAnimationFrame(nestedAnimationFrame);
+      }
     };
   }, [resource.fileUrl, retryKey]);
 

@@ -35,6 +35,20 @@ public class DashboardController {
     return dashboardService.getTaskProgressChart(authentication);
   }
 
+  @GetMapping("/task-milestones")
+  public DashboardItemsResponse<TaskMilestoneResponse> getTaskMilestones(
+      Authentication authentication,
+      @RequestParam(required = false) Integer limit) {
+    return dashboardService.getTaskMilestones(authentication, limit);
+  }
+
+  @GetMapping("/deadline-alerts")
+  public DashboardItemsResponse<DeadlineAlertResponse> getDeadlineAlerts(
+      Authentication authentication,
+      @RequestParam(required = false) Integer limit) {
+    return dashboardService.getDeadlineAlerts(authentication, limit);
+  }
+
   @GetMapping("/role-users")
   public DashboardItemsResponse<DashboardRoleUserResponse> getRoleUsers(
       Authentication authentication,

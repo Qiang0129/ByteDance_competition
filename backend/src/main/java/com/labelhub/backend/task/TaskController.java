@@ -99,6 +99,11 @@ public class TaskController {
         pageSize);
   }
 
+  @GetMapping("/market/tasks/stats")
+  public MarketTaskStatsResponse getMarketTaskStats(Authentication authentication) {
+    return taskService.getMarketTaskStats(authentication);
+  }
+
   @PostMapping("/tasks/{taskId}/claim")
   public AssignmentResponse claimTask(
       Authentication authentication,

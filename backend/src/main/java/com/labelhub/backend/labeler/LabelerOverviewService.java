@@ -39,7 +39,8 @@ public class LabelerOverviewService {
         repository.countActiveTasks(labeler.id()),
         submittedToday,
         repository.countReturnedItems(labeler.id()),
-        avgDurationSec);
+        avgDurationSec,
+        roundMoney(repository.sumTodayRewardEstimate(labeler.id())));
     LabelerOverviewResponse.TodayProgress todayProgress = new LabelerOverviewResponse.TodayProgress(
         DAILY_TARGET,
         submittedToday,
@@ -60,6 +61,9 @@ public class LabelerOverviewService {
         repository.listSupportedMediaTypes(labeler.id()).stream()
             .filter(value -> value != null && !value.isBlank())
             .map(this::toSupportedItemType)
+            .toList(),
+        repository.listPendingTypeDistribution(labeler.id()).stream()
+            .map(this::toPendingTypeDistribution)
             .toList());
   }
 
@@ -96,6 +100,15 @@ public class LabelerOverviewService {
       default -> key;
     };
     return new LabelerOverviewResponse.SupportedItemType(key, label);
+  }
+
+  private LabelerOverviewResponse.PendingTypeDistribution toPendingTypeDistribution(
+      LabelerOverviewRepository.PendingTypeRecord record) {
+    LabelerOverviewResponse.SupportedItemType type = toSupportedItemType(record.mediaType());
+    return new LabelerOverviewResponse.PendingTypeDistribution(
+        type.key(),
+        type.label(),
+        record.count());
   }
 
   private int progressPercent(long submittedToday) {

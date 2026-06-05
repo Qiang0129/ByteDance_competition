@@ -1420,18 +1420,24 @@ function RawPayloadView({ payload }: { payload: AssignmentItem['rawPayload'] }) 
 }
 
 function LabelerAnswerInsights({ item }: { item: AssignmentItem }) {
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const contribution = item.contribution ?? {
     submittedCount: 0,
     approvedCount: 0,
     returnedCount: 0,
+    rejectedCount: 0,
+    disputedCount: 0,
   };
   const contributionItems = [
     { key: 'submitted', label: '已提交', tone: 'blue', value: contribution.submittedCount },
     { key: 'approved', label: '通过', tone: 'green', value: contribution.approvedCount },
     { key: 'returned', label: '打回', tone: 'red', value: contribution.returnedCount },
+    { key: 'rejected', label: '拒绝', tone: 'rose', value: contribution.rejectedCount ?? 0 },
+    { key: 'disputed', label: '争议', tone: 'orange', value: contribution.disputedCount ?? 0 },
   ];
   const maxContribution = Math.max(1, ...contributionItems.map((entry) => entry.value));
   const history = item.itemHistory ?? [];
+  const historyPreview = history.slice(0, 3);
 
   return (
     <Card className="answer-section answer-insights-card">
@@ -1472,45 +1478,79 @@ function LabelerAnswerInsights({ item }: { item: AssignmentItem }) {
         </div>
 
         <div className="answer-insights-block">
-          <Typography.Title level={5} className="answer-insights-title">
-            本题历史
-          </Typography.Title>
-          {history.length > 0 ? (
-            <ol className="answer-history-timeline">
-              {history.map((entry) => (
-                <li key={entry.id} className={`answer-history-item is-${resolveHistoryTone(entry)}`}>
-                  <span className="answer-history-dot" />
-                  <div className="answer-history-content">
-                    <div className="answer-history-meta">
-                      <span className="answer-history-title">{entry.title}</span>
-                      <span className="answer-history-time">{entry.occurredAt || '当前'}</span>
-                    </div>
-                    <div className="answer-history-main">
-                      <span>{entry.actor}</span>
-                      {entry.decision ? (
-                        <Tag className="answer-history-tag">{historyDecisionLabel(entry.decision)}</Tag>
-                      ) : null}
-                      {typeof entry.score === 'number' ? (
-                        <Tag className="answer-history-score">AI {entry.score}</Tag>
-                      ) : null}
-                    </div>
-                    {entry.reason || entry.comment ? (
-                      <div className="answer-history-reason">{entry.reason || entry.comment}</div>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <div className="answer-history-empty">
-              <Typography.Text type="secondary">
-                暂无本题历史记录
-              </Typography.Text>
-            </div>
-          )}
+          <div className="answer-insights-title-row">
+            <Typography.Title level={5} className="answer-insights-title">
+              本题历史
+            </Typography.Title>
+            <Button type="link" size="small" className="answer-history-all" onClick={() => setHistoryDrawerOpen(true)}>
+              全部
+            </Button>
+          </div>
+          <div className="answer-history-preview">
+            <AnswerHistoryTimeline entries={historyPreview} compact />
+          </div>
         </div>
       </div>
+
+      <Drawer
+        title="本题历史"
+        open={historyDrawerOpen}
+        onClose={() => setHistoryDrawerOpen(false)}
+        width={420}
+        className="answer-history-drawer"
+      >
+        <Typography.Paragraph type="secondary" className="answer-history-drawer-meta">
+          {item.taskTitle} · 第 {item.position.index} / {item.position.total} 题
+        </Typography.Paragraph>
+        <AnswerHistoryTimeline entries={history} />
+      </Drawer>
     </Card>
+  );
+}
+
+function AnswerHistoryTimeline({
+  entries,
+  compact = false,
+}: {
+  entries: LabelerItemHistory[];
+  compact?: boolean;
+}) {
+  if (entries.length === 0) {
+    return (
+      <div className="answer-history-empty">
+        <Typography.Text type="secondary">
+          暂无本题历史记录
+        </Typography.Text>
+      </div>
+    );
+  }
+
+  return (
+    <ol className={`answer-history-timeline${compact ? ' is-compact' : ''}`}>
+      {entries.map((entry) => (
+        <li key={entry.id} className={`answer-history-item is-${resolveHistoryTone(entry)}`}>
+          <span className="answer-history-dot" />
+          <div className="answer-history-content">
+            <div className="answer-history-meta">
+              <span className="answer-history-title">{entry.title}</span>
+              <span className="answer-history-time">{entry.occurredAt || '当前'}</span>
+            </div>
+            <div className="answer-history-main">
+              <span>{entry.actor}</span>
+              {entry.decision ? (
+                <Tag className="answer-history-tag">{historyDecisionLabel(entry.decision)}</Tag>
+              ) : null}
+              {typeof entry.score === 'number' ? (
+                <Tag className="answer-history-score">AI {entry.score}</Tag>
+              ) : null}
+            </div>
+            {entry.reason || entry.comment ? (
+              <div className="answer-history-reason">{entry.reason || entry.comment}</div>
+            ) : null}
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 

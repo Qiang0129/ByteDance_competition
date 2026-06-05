@@ -33,6 +33,7 @@ import {
   Typography,
   Switch,
 } from 'antd';
+import type { FormProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import { getApiErrorMessage } from '../../api/client';
@@ -89,6 +90,40 @@ interface AllocationFormValue {
 }
 
 const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm';
+const UNTITLED_DRAFT_TITLE_PREFIX = '未命名任务草稿';
+
+function createUntitledDraftTitle() {
+  return `${UNTITLED_DRAFT_TITLE_PREFIX} ${dayjs().format('MM-DD HH:mm')}`;
+}
+
+function isAutoNamedDraftTask(record: OwnerTaskRow) {
+  return record.state === 'draft' && record.title.trim().startsWith(UNTITLED_DRAFT_TITLE_PREFIX);
+}
+
+const publishFormFieldTabs: Record<string, string> = {
+  title: 'basic',
+  tags: 'basic',
+  reward: 'basic',
+  deadline: 'basic',
+  schemaVersionId: 'basic',
+  aiReviewEnabled: 'basic',
+  aiReviewRuleId: 'basic',
+  llmAssistEnabled: 'basic',
+  datasetId: 'scope',
+  itemSelectionMode: 'scope',
+  selectedItemIds: 'scope',
+  strategy: 'distribution',
+  maxClaimPerUser: 'distribution',
+  assignedLabelerIds: 'distribution',
+  labelerAllocations: 'distribution',
+  reviewerAssignmentMode: 'review',
+  reviewerAllocations: 'review',
+};
+
+function resolvePublishFormTab(namePath: readonly (string | number)[] | undefined) {
+  const rootName = String(namePath?.[0] ?? '');
+  return publishFormFieldTabs[rootName] ?? 'basic';
+}
 
 const labelingStatusMeta: Record<LabelingStatus, { label: string; color: string; icon: React.ReactNode }> = {
   draft: { label: '草稿', color: 'default', icon: <span className="state-dot dot-draft" /> },
@@ -435,20 +470,26 @@ export default function OwnerTasks() {
     {
       title: '任务',
       dataIndex: 'title',
-      render: (_value, record) => (
-        <div className="owner-task-title">
-          <div className="owner-task-name-row">
-            <span className="owner-task-name">{record.title}</span>
-            <span className="owner-task-name-separator">·</span>
-            <Tag className="owner-task-total-quota">
-              总配额 {record.quotaTotal.toLocaleString()}
-            </Tag>
+      render: (_value, record) => {
+        const autoNamedDraft = isAutoNamedDraftTask(record);
+        return (
+          <div className="owner-task-title">
+            <div className="owner-task-name-row">
+              <span className={`owner-task-name${autoNamedDraft ? ' owner-task-name-auto-draft' : ''}`}>
+                {record.title}
+              </span>
+              {autoNamedDraft ? <Tag className="owner-task-auto-draft-tag">自动命名</Tag> : null}
+              <span className="owner-task-name-separator">·</span>
+              <Tag className="owner-task-total-quota">
+                总配额 {record.quotaTotal.toLocaleString()}
+              </Tag>
+            </div>
+            <div className="owner-task-meta">
+              {record.taskId} · Owner: {record.owner} · 创建于 {record.createdAt}
+            </div>
           </div>
-          <div className="owner-task-meta">
-            {record.taskId} · Owner: {record.owner} · 创建于 {record.createdAt}
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: '审核状态',
@@ -763,8 +804,13 @@ export default function OwnerTasks() {
       values.strategy === 'assigned' ? toAllocationPayload(values.labelerAllocations) : [];
     const reviewerAllocations =
       values.reviewerAssignmentMode === 'manual' ? toAllocationPayload(values.reviewerAllocations) : [];
+    const draftTitleFallback =
+      activeRow?.state === 'draft' && activeRow.title.trim().startsWith(UNTITLED_DRAFT_TITLE_PREFIX)
+        ? activeRow.title.trim()
+        : createUntitledDraftTitle();
+    const title = values.title?.trim() || (status === 'draft' ? draftTitleFallback : '');
     return {
-      title: values.title.trim(),
+      title,
       tags: values.tags ?? [],
       reward: values.reward?.trim(),
       quota: totalItems || values.quota || undefined,
@@ -786,6 +832,26 @@ export default function OwnerTasks() {
       llmAssistEnabled: values.llmAssistEnabled ?? true,
       status,
     };
+  }
+
+  async function saveTask(values: PublishFormValues, targetState: TaskState) {
+    setSubmitting(true);
+    try {
+      const payload = buildTaskPayload(values, targetState);
+      if (activeRow) {
+        await ownerApi.updateTask(activeRow.taskId, payload);
+        message.success(targetState === 'published' ? '任务已更新并发布' : '任务内容已保存');
+      } else {
+        await ownerApi.createTask(payload);
+        message.success(targetState === 'published' ? '任务已发布' : '任务草稿已保存');
+      }
+      closeDrawer();
+      await Promise.all([loadTasks(), loadDatasets()]);
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '任务保存失败'));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function secondarySubmitState() {
@@ -859,23 +925,24 @@ export default function OwnerTasks() {
       setActiveFormTab('review');
       return;
     }
-    setSubmitting(true);
-    try {
-      const payload = buildTaskPayload(values, targetState);
-      if (activeRow) {
-        await ownerApi.updateTask(activeRow.taskId, payload);
-        message.success(targetState === 'published' ? '任务已更新并发布' : '任务内容已保存');
-      } else {
-        await ownerApi.createTask(payload);
-        message.success(targetState === 'published' ? '任务已发布' : '任务草稿已保存');
-      }
-      closeDrawer();
-      await Promise.all([loadTasks(), loadDatasets()]);
-    } catch (error) {
-      message.error(getApiErrorMessage(error, '任务保存失败'));
-    } finally {
-      setSubmitting(false);
+    await saveTask(values, targetState);
+  }
+
+  async function handleSaveDraft() {
+    const targetState = secondarySubmitState();
+    submitStateRef.current = targetState;
+    if (targetState !== 'draft') {
+      form.submit();
+      return;
     }
+    await saveTask(form.getFieldsValue(true) as PublishFormValues, targetState);
+  }
+
+  function handlePublishFailed({ errorFields }: Parameters<NonNullable<FormProps<PublishFormValues>['onFinishFailed']>>[0]) {
+    const firstError = errorFields[0];
+    const firstMessage = firstError?.errors?.[0];
+    setActiveFormTab(resolvePublishFormTab(firstError?.name));
+    message.error(firstMessage ? `请完善任务配置：${firstMessage}` : '请完善任务配置后再提交');
   }
 
   return (
@@ -978,10 +1045,7 @@ export default function OwnerTasks() {
             <Button
               loading={submitting}
               disabled={detailLoading}
-              onClick={() => {
-                submitStateRef.current = secondarySubmitState();
-                form.submit();
-              }}
+              onClick={() => void handleSaveDraft()}
             >
               {!activeRow || activeRow.state === 'draft' ? '存为草稿' : '保存更改'}
             </Button>
@@ -1014,6 +1078,7 @@ export default function OwnerTasks() {
           requiredMark={false}
           disabled={detailLoading}
           onFinish={handlePublishFinish}
+          onFinishFailed={handlePublishFailed}
         >
           <Tabs
             className="owner-task-form-tabs"

@@ -300,7 +300,36 @@ public class AnnotationRepository {
                 AND returned_an.status <> 'voided'
                 AND LOWER(returned_hr.decision) IN ('return', 'returned', 'reject', 'rejected')
             ) THEN a.id
-          END) AS returned_count
+          END) AS returned_count,
+          COUNT(DISTINCT CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM annotations disputed_an
+              JOIN human_reviews escalate_hr ON escalate_hr.annotation_id = disputed_an.id
+              WHERE disputed_an.assignment_id = a.id
+                AND disputed_an.status <> 'voided'
+                AND LOWER(escalate_hr.decision) = 'escalate'
+            ) THEN a.id
+          END) AS disputed_count,
+          COUNT(DISTINCT CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM annotations rejected_an
+              JOIN human_reviews escalate_hr ON escalate_hr.annotation_id = rejected_an.id
+              WHERE rejected_an.assignment_id = a.id
+                AND rejected_an.status <> 'voided'
+                AND LOWER(escalate_hr.decision) = 'escalate'
+                AND LOWER(COALESCE((
+                  SELECT latest_after_escalate.decision
+                  FROM human_reviews latest_after_escalate
+                  WHERE latest_after_escalate.annotation_id = rejected_an.id
+                    AND latest_after_escalate.created_at >= escalate_hr.created_at
+                    AND latest_after_escalate.id <> escalate_hr.id
+                  ORDER BY latest_after_escalate.created_at DESC, latest_after_escalate.id DESC
+                  LIMIT 1
+                ), '')) IN ('return', 'returned', 'reject', 'rejected')
+            ) THEN a.id
+          END) AS rejected_count
         FROM assignments a
         JOIN tasks t ON t.id = a.task_id
         WHERE a.labeler_id = ?
@@ -311,10 +340,12 @@ public class AnnotationRepository {
         (rs, rowNum) -> new LabelerContributionRecord(
             rs.getLong("submitted_count"),
             rs.getLong("approved_count"),
-            rs.getLong("returned_count")),
+            rs.getLong("returned_count"),
+            rs.getLong("rejected_count"),
+            rs.getLong("disputed_count")),
         labelerId,
         taskId);
-    return record == null ? new LabelerContributionRecord(0, 0, 0) : record;
+    return record == null ? new LabelerContributionRecord(0, 0, 0, 0, 0) : record;
   }
 
   public List<LabelerItemHistoryRecord> listLabelerItemHistory(long assignmentId) {
@@ -795,7 +826,9 @@ public class AnnotationRepository {
   public record LabelerContributionRecord(
       long submittedCount,
       long approvedCount,
-      long returnedCount) {}
+      long returnedCount,
+      long rejectedCount,
+      long disputedCount) {}
 
   public record LabelerItemHistoryRecord(
       long annotationId,

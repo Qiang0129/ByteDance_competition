@@ -97,7 +97,7 @@ const ownerMenuItems: MenuProps['items'] = [
   {
     type: 'group',
     key: 'g-owner-produce',
-    label: '数据生产',
+    label: 'DATA PRODUCTION',
     children: [
       { key: '/owner/datasets', icon: <DatabaseOutlined />, label: '数据集' },
       { key: '/owner/templates', icon: <AppstoreOutlined />, label: '模板搭建' },
@@ -107,7 +107,7 @@ const ownerMenuItems: MenuProps['items'] = [
   {
     type: 'group',
     key: 'g-owner-review',
-    label: '审核与质检',
+    label: 'REVIEW & QA',
     children: [
       { key: '/owner/ai-review', icon: <AiAssistantIcon />, label: 'AI 预审规则' },
       { key: '/owner/review', icon: <AuditOutlined />, label: '人工审核' },
@@ -116,7 +116,7 @@ const ownerMenuItems: MenuProps['items'] = [
   {
     type: 'group',
     key: 'g-owner-deliver',
-    label: '数据交付',
+    label: 'DATA DELIVERY',
     children: [
       { key: '/owner/dashboard', icon: <DashboardOutlined />, label: '数据看板' },
       { key: '/owner/export', icon: <ExportOutlined />, label: '导出中心' },

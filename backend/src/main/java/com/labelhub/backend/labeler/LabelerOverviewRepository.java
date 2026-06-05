@@ -163,6 +163,25 @@ public class LabelerOverviewRepository {
         labelerId);
   }
 
+  public double sumTodayRewardEstimate(long labelerId) {
+    return queryDouble(
+        """
+        SELECT COALESCE(SUM(
+          COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0)
+        ), 0)
+        FROM annotations an
+        JOIN assignments a ON a.id = an.assignment_id
+        JOIN tasks t ON t.id = a.task_id
+        WHERE a.labeler_id = ?
+          AND a.status <> 'voided'
+          AND an.status <> 'voided'
+          AND t.deleted_at IS NULL
+          AND COALESCE(an.submitted_at, an.created_at) >= CURRENT_DATE()
+          AND COALESCE(an.submitted_at, an.created_at) < DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+        """,
+        labelerId);
+  }
+
   public long countAiPassedToday(long labelerId) {
     return queryLong(
         """
@@ -339,6 +358,27 @@ public class LabelerOverviewRepository {
         labelerId);
   }
 
+  public List<PendingTypeRecord> listPendingTypeDistribution(long labelerId) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          COALESCE(NULLIF(i.media_type, ''), 'text') AS media_type,
+          COUNT(*) AS item_count
+        FROM assignments a
+        JOIN tasks t ON t.id = a.task_id
+        JOIN items i ON i.id = a.item_id
+        WHERE a.labeler_id = ?
+          AND a.status IN ('claimed', 'returned')
+          AND t.deleted_at IS NULL
+        GROUP BY COALESCE(NULLIF(i.media_type, ''), 'text')
+        ORDER BY item_count DESC, media_type ASC
+        """,
+        (rs, rowNum) -> new PendingTypeRecord(
+            rs.getString("media_type"),
+            rs.getLong("item_count")),
+        labelerId);
+  }
+
   private long queryLong(String sql, Object... args) {
     Number value = jdbcTemplate.queryForObject(sql, Number.class, args);
     return value == null ? 0L : value.longValue();
@@ -383,4 +423,8 @@ public class LabelerOverviewRepository {
       LocalDateTime deadline,
       Double rewardPerItem,
       LocalDateTime updatedAt) {}
+
+  public record PendingTypeRecord(
+      String mediaType,
+      long count) {}
 }

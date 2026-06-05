@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   BarChartOutlined,
   ClockCircleOutlined,
+  CopyOutlined,
   DownloadOutlined,
   FlagOutlined,
   LineChartOutlined,
@@ -24,7 +25,7 @@ import {
   Drawer,
   Empty,
   List,
-  Modal,
+  Popover,
   Row,
   Segmented,
   Select,
@@ -49,17 +50,20 @@ import {
 } from 'recharts';
 
 import { getApiErrorMessage } from '../../api/client';
+import { authApi } from '../../api/auth';
 import { dashboardApi } from '../../api/dashboard';
 import { AiAssistantIcon } from '../../components/icons';
 import type {
   DashboardOverview,
   DashboardRoleUser,
+  DeadlineAlert,
   DisputeStats,
   IssueFeedback,
   LabelerPerformance,
   ReviewDistribution,
   RoleBreakdown,
   SubmissionTimelineMonth,
+  TaskMilestone,
   TaskProgress,
 } from '../../types/dashboard';
 
@@ -74,6 +78,8 @@ interface DashboardData {
   overview: DashboardOverview;
   taskProgress: TaskProgress[];
   taskProgressChart: TaskProgress[];
+  taskMilestones: TaskMilestone[];
+  deadlineAlerts: DeadlineAlert[];
   review: ReviewDistribution;
   performance: LabelerPerformance[];
   timeline: SubmissionTimelineMonth[];
@@ -106,6 +112,25 @@ const roleUserTitles: Record<RoleUserKind, string> = {
   reviewer: '审核人员',
 };
 
+type RoleUserState = {
+  items: DashboardRoleUser[];
+  loading: boolean;
+  error: string | null;
+  loaded: boolean;
+};
+
+type ReviewerInviteState = {
+  link: string | null;
+  expiresAt: string | null;
+  loading: boolean;
+  error: string | null;
+};
+
+const createInitialRoleUserState = (): Record<RoleUserKind, RoleUserState> => ({
+  labeler: { items: [], loading: false, error: null, loaded: false },
+  reviewer: { items: [], loading: false, error: null, loaded: false },
+});
+
 function issueStatusLabel(status: string) {
   if (status === 'open') return '待查看';
   if (status === 'viewed') return '已查看';
@@ -125,11 +150,19 @@ export default function OwnerDashboard() {
   const [issueTotal, setIssueTotal] = useState(0);
   const [issueLoading, setIssueLoading] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
-  const [roleUserOpen, setRoleUserOpen] = useState(false);
-  const [roleUserKind, setRoleUserKind] = useState<RoleUserKind>('labeler');
-  const [roleUsers, setRoleUsers] = useState<DashboardRoleUser[]>([]);
-  const [roleUserLoading, setRoleUserLoading] = useState(false);
-  const [roleUserError, setRoleUserError] = useState<string | null>(null);
+  const [roleUserState, setRoleUserState] = useState<Record<RoleUserKind, RoleUserState>>(
+    createInitialRoleUserState,
+  );
+  const [reviewerInvite, setReviewerInvite] = useState<ReviewerInviteState>({
+    link: null,
+    expiresAt: null,
+    loading: false,
+    error: null,
+  });
+  const roleUserLoadingRef = useRef<Record<RoleUserKind, boolean>>({
+    labeler: false,
+    reviewer: false,
+  });
 
   const loadIssueFeedback = useCallback(async (options: { markViewed?: boolean; includeViewed?: boolean } = {}) => {
     setIssueLoading(true);
@@ -185,6 +218,8 @@ export default function OwnerDashboard() {
         overview,
         taskProgress,
         taskProgressChart,
+        taskMilestones,
+        deadlineAlerts,
         review,
         performance,
         timeline,
@@ -196,6 +231,8 @@ export default function OwnerDashboard() {
         dashboardApi.getOverview(range),
         dashboardApi.getTaskProgress(),
         dashboardApi.getTaskProgressChart(),
+        dashboardApi.getTaskMilestones(),
+        dashboardApi.getDeadlineAlerts(),
         dashboardApi.getReviewDistribution({ year: reviewYear }),
         dashboardApi.getLabelerPerformance(range),
         dashboardApi.getSubmissionTimeline(),
@@ -208,6 +245,8 @@ export default function OwnerDashboard() {
         overview,
         taskProgress: taskProgress.items ?? [],
         taskProgressChart: taskProgressChart.items ?? [],
+        taskMilestones: taskMilestones.items ?? [],
+        deadlineAlerts: deadlineAlerts.items ?? [],
         review,
         performance: performance.items ?? [],
         timeline: timeline.items ?? [],
@@ -237,25 +276,74 @@ export default function OwnerDashboard() {
     void loadIssueFeedback({ markViewed: true, includeViewed: true });
   };
 
-  const loadRoleUsers = useCallback(async (role: RoleUserKind) => {
-    setRoleUserLoading(true);
-    setRoleUserError(null);
+  const loadRoleUsers = useCallback(async (role: RoleUserKind, options: { force?: boolean } = {}) => {
+    const force = options.force ?? false;
+    const currentRole = roleUserState[role];
+    if (roleUserLoadingRef.current[role] || (!force && currentRole.loaded)) return;
+    roleUserLoadingRef.current[role] = true;
+    setRoleUserState((current) => ({
+      ...current,
+      [role]: {
+        ...current[role],
+        loading: true,
+        error: null,
+      },
+    }));
     try {
       const result = await dashboardApi.getRoleUsers(role);
-      setRoleUsers(result.items ?? []);
+      setRoleUserState((current) => ({
+        ...current,
+        [role]: {
+          items: result.items ?? [],
+          loading: false,
+          error: null,
+          loaded: true,
+        },
+      }));
     } catch (error) {
-      setRoleUsers([]);
-      setRoleUserError(getApiErrorMessage(error, '角色人员加载失败,请稍后重试'));
+      setRoleUserState((current) => ({
+        ...current,
+        [role]: {
+          ...current[role],
+          loading: false,
+          error: getApiErrorMessage(error, '角色人员加载失败,请稍后重试'),
+          loaded: true,
+        },
+      }));
     } finally {
-      setRoleUserLoading(false);
+      roleUserLoadingRef.current[role] = false;
+    }
+  }, [roleUserState]);
+
+  const createReviewerInvite = useCallback(async () => {
+    setReviewerInvite((current) => ({ ...current, loading: true, error: null }));
+    try {
+      const result = await authApi.createReviewerInvitation();
+      const link = `${window.location.origin}/login?reviewerInvite=${encodeURIComponent(result.token)}#signup`;
+      setReviewerInvite({
+        link,
+        expiresAt: result.expiresAt,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      setReviewerInvite((current) => ({
+        ...current,
+        loading: false,
+        error: getApiErrorMessage(error, '审核员邀请链接生成失败'),
+      }));
     }
   }, []);
 
-  const openRoleUsers = useCallback((role: RoleUserKind) => {
-    setRoleUserKind(role);
-    setRoleUserOpen(true);
-    void loadRoleUsers(role);
-  }, [loadRoleUsers]);
+  const copyReviewerInvite = useCallback(async () => {
+    if (!reviewerInvite.link) return;
+    try {
+      await navigator.clipboard.writeText(reviewerInvite.link);
+      message.success('邀请链接已复制');
+    } catch {
+      message.error('复制失败，请手动复制邀请链接');
+    }
+  }, [message, reviewerInvite.link]);
 
   const downloadReviewReport = useCallback(async () => {
     setReviewReportDownloading(true);
@@ -303,7 +391,11 @@ export default function OwnerDashboard() {
               issueTotal={issueTotal}
               issueLoading={issueLoading}
               onOpenFeedback={openIssueFeedback}
-              onOpenRoleUsers={openRoleUsers}
+              roleUserState={roleUserState}
+              onLoadRoleUsers={loadRoleUsers}
+              reviewerInvite={reviewerInvite}
+              onCreateReviewerInvite={createReviewerInvite}
+              onCopyReviewerInvite={copyReviewerInvite}
             />
 
             <Row gutter={[16, 16]}>
@@ -334,10 +426,10 @@ export default function OwnerDashboard() {
                 />
               </Col>
               <Col xs={24} md={12} xl={6}>
-                <TaskTimelineCard items={data.taskProgress} />
+                <TaskTimelineCard items={data.taskMilestones} />
               </Col>
               <Col xs={24} md={12} xl={6}>
-                <DeadlineAlertCard items={data.taskProgress} />
+                <DeadlineAlertCard items={data.deadlineAlerts} />
               </Col>
             </Row>
 
@@ -361,15 +453,6 @@ export default function OwnerDashboard() {
         onClose={() => setFeedbackOpen(false)}
         onRetry={() => loadIssueFeedback({ markViewed: true, includeViewed: true })}
         previewSize={ISSUE_FEEDBACK_PREVIEW_SIZE}
-      />
-      <RoleUsersModal
-        open={roleUserOpen}
-        role={roleUserKind}
-        items={roleUsers}
-        loading={roleUserLoading}
-        error={roleUserError}
-        onClose={() => setRoleUserOpen(false)}
-        onRetry={() => loadRoleUsers(roleUserKind)}
       />
     </>
   );
@@ -470,13 +553,21 @@ function KpiRow({
   issueTotal,
   issueLoading,
   onOpenFeedback,
-  onOpenRoleUsers,
+  roleUserState,
+  onLoadRoleUsers,
+  reviewerInvite,
+  onCreateReviewerInvite,
+  onCopyReviewerInvite,
 }: {
   overview: DashboardOverview;
   issueTotal: number;
   issueLoading: boolean;
   onOpenFeedback: () => void;
-  onOpenRoleUsers: (role: RoleUserKind) => void;
+  roleUserState: Record<RoleUserKind, RoleUserState>;
+  onLoadRoleUsers: (role: RoleUserKind, options?: { force?: boolean }) => void;
+  reviewerInvite: ReviewerInviteState;
+  onCreateReviewerInvite: () => void;
+  onCopyReviewerInvite: () => void;
 }) {
   const { kpis } = overview;
   const cards: KpiCardItem[] = [
@@ -540,15 +631,36 @@ function KpiRow({
         <Col key={card.key} xs={12} md={8} xl={4}>
           <Card className="dashboard-kpi" style={{ background: card.bg }}>
             {card.kind === 'role' ? (
-              <button
-                type="button"
-                className="dashboard-kpi-icon dashboard-kpi-icon-button"
-                style={{ background: card.iconBg }}
-                onClick={() => onOpenRoleUsers(card.roleUsers)}
-                aria-label={`查看${card.title}`}
+              <Popover
+                trigger="hover"
+                placement="bottomLeft"
+                arrow={false}
+                mouseEnterDelay={0.12}
+                mouseLeaveDelay={0.12}
+                overlayClassName="dashboard-role-users-popover"
+                onOpenChange={(open) => {
+                  if (open) void onLoadRoleUsers(card.roleUsers);
+                }}
+                content={(
+                  <RoleUsersPopoverContent
+                    role={card.roleUsers}
+                    state={roleUserState[card.roleUsers]}
+                    onRetry={() => onLoadRoleUsers(card.roleUsers, { force: true })}
+                    reviewerInvite={card.roleUsers === 'reviewer' ? reviewerInvite : undefined}
+                    onCreateReviewerInvite={onCreateReviewerInvite}
+                    onCopyReviewerInvite={onCopyReviewerInvite}
+                  />
+                )}
               >
-                {card.icon}
-              </button>
+                <button
+                  type="button"
+                  className="dashboard-kpi-icon dashboard-kpi-icon-trigger"
+                  style={{ background: card.iconBg }}
+                  aria-label={`悬停查看${card.title}人员列表`}
+                >
+                  {card.icon}
+                </button>
+              </Popover>
             ) : (
               <div className="dashboard-kpi-icon" style={{ background: card.iconBg }}>
                 {card.icon}
@@ -691,91 +803,113 @@ function IssueFeedbackDrawer({
   );
 }
 
-function RoleUsersModal({
-  open,
+function RoleUsersPopoverContent({
   role,
-  items,
-  loading,
-  error,
-  onClose,
+  state,
   onRetry,
+  reviewerInvite,
+  onCreateReviewerInvite,
+  onCopyReviewerInvite,
 }: {
-  open: boolean;
   role: RoleUserKind;
-  items: DashboardRoleUser[];
-  loading: boolean;
-  error: string | null;
-  onClose: () => void;
+  state: RoleUserState;
   onRetry: () => void;
+  reviewerInvite?: ReviewerInviteState;
+  onCreateReviewerInvite: () => void;
+  onCopyReviewerInvite: () => void;
 }) {
+  const title = roleUserTitles[role];
   return (
-    <Modal
-      title={roleUserTitles[role]}
-      open={open}
-      onCancel={onClose}
-      footer={null}
-      width={560}
-      rootClassName="dashboard-role-users-glass-root"
-      className="dashboard-role-users-glass-modal"
-      destroyOnHidden
-    >
-      <Space direction="vertical" size={16} className="dashboard-role-users-modal">
+    <div className="dashboard-role-users-popover-content">
+      <div className="dashboard-role-users-popover-head">
+        <Typography.Text strong>{title}</Typography.Text>
         <Typography.Text type="secondary">
-          当前共有 {items.length} 名{roleUserTitles[role]}。
+          {state.loading && !state.loaded ? '加载中' : `共 ${state.items.length} 人`}
         </Typography.Text>
-        {error ? (
-          <Alert
-            type="error"
-            showIcon
-            message={`${roleUserTitles[role]}加载失败`}
-            description={error}
-            action={
-              <Button size="small" danger onClick={() => void onRetry()}>
-                重试
-              </Button>
-            }
-          />
-        ) : null}
-        {!error ? (
-          <List<DashboardRoleUser>
-            className="dashboard-role-users-list"
-            loading={loading}
-            dataSource={items}
-            locale={{
-              emptyText: (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={`暂无${roleUserTitles[role]}`}
-                />
-              ),
-            }}
-            renderItem={(item) => (
-              <List.Item className="dashboard-role-users-item">
-                <List.Item.Meta
-                  avatar={<Avatar icon={<UserOutlined />} className="dashboard-role-users-avatar" />}
-                  title={
-                    <Space wrap size={8}>
-                      <Typography.Text strong>{item.name || item.username}</Typography.Text>
-                      <Tag color="green">{item.status}</Tag>
-                    </Space>
-                  }
-                  description={
-                    <Space direction="vertical" size={6}>
-                      <Typography.Text type="secondary">@{item.username}</Typography.Text>
-                      <Space wrap size={[6, 4]}>
-                        {item.roles.map((userRole) => (
-                          <Tag key={userRole}>{userRole}</Tag>
-                        ))}
-                      </Space>
-                    </Space>
-                  }
-                />
-              </List.Item>
-            )}
-          />
-        ) : null}
-      </Space>
-    </Modal>
+      </div>
+      {state.error ? (
+        <div className="dashboard-role-users-popover-error">
+          <Typography.Text type="danger">{state.error}</Typography.Text>
+          <Button size="small" danger onClick={() => void onRetry()}>
+            重试
+          </Button>
+        </div>
+      ) : (
+        <List<DashboardRoleUser>
+          className="dashboard-role-users-popover-list"
+          loading={state.loading}
+          dataSource={state.items}
+          locale={{
+            emptyText: (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={`暂无${title}`}
+              />
+            ),
+          }}
+          renderItem={(item) => (
+            <List.Item className="dashboard-role-users-popover-item">
+              <Avatar icon={<UserOutlined />} className="dashboard-role-users-popover-avatar" />
+              <div className="dashboard-role-users-popover-main">
+                <Space wrap size={8}>
+                  <Typography.Text strong>{item.name || item.username}</Typography.Text>
+                  <Tag color="green">{item.status}</Tag>
+                </Space>
+                <Typography.Text type="secondary" className="dashboard-role-users-popover-username">
+                  @{item.username}
+                </Typography.Text>
+                <Space wrap size={[6, 4]} className="dashboard-role-users-popover-tags">
+                  {item.roles.map((userRole) => (
+                    <Tag key={userRole}>{userRole}</Tag>
+                  ))}
+                </Space>
+              </div>
+            </List.Item>
+          )}
+        />
+      )}
+      {role === 'reviewer' && reviewerInvite ? (
+        <div className="dashboard-role-users-invite">
+          <div className="dashboard-role-users-invite-head">
+            <Typography.Text strong>审核员邀请</Typography.Text>
+            <Button
+              size="small"
+              type="primary"
+              loading={reviewerInvite.loading}
+              onClick={() => void onCreateReviewerInvite()}
+            >
+              生成链接
+            </Button>
+          </div>
+          <Typography.Text type="secondary" className="dashboard-role-users-invite-desc">
+            链接 24 小时内有效，注册成功后失效。
+          </Typography.Text>
+          {reviewerInvite.error ? (
+            <Typography.Text type="danger" className="dashboard-role-users-invite-error">
+              {reviewerInvite.error}
+            </Typography.Text>
+          ) : null}
+          {reviewerInvite.link ? (
+            <div className="dashboard-role-users-invite-link">
+              <Typography.Text ellipsis title={reviewerInvite.link}>
+                {reviewerInvite.link}
+              </Typography.Text>
+              <Button
+                size="small"
+                icon={<CopyOutlined />}
+                onClick={() => void onCopyReviewerInvite()}
+                aria-label="复制审核员邀请链接"
+              />
+            </div>
+          ) : null}
+          {reviewerInvite.expiresAt ? (
+            <Typography.Text type="secondary" className="dashboard-role-users-invite-expire">
+              过期时间：{reviewerInvite.expiresAt}
+            </Typography.Text>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -973,8 +1107,15 @@ function RoleDonutCard({ roles }: { roles: RoleBreakdown[] }) {
     value: role.memberCount,
     color: roleColors[idx % roleColors.length],
   }));
+  if (total === 0) {
+    return (
+      <Card className="dashboard-card" title="标注员任务类型分布">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务类型分布" />
+      </Card>
+    );
+  }
   return (
-    <Card className="dashboard-card" title="标注员角色分布">
+    <Card className="dashboard-card" title="标注员任务类型分布">
       <div style={{ position: 'relative', width: '100%', height: 150 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -1001,7 +1142,7 @@ function RoleDonutCard({ roles }: { roles: RoleBreakdown[] }) {
         </ResponsiveContainer>
         <div className="donut-center-text">
           <div className="donut-center-total small">{total}</div>
-          <div className="donut-center-sub">Active</div>
+          <div className="donut-center-sub">Active Labelers</div>
         </div>
       </div>
       <ul className="role-legend">
@@ -1030,6 +1171,19 @@ function DisputeStatsCard({
 }) {
   const sampling = Math.max(0, Math.min(1, disputes30.samplingRatio));
   const consistency = Math.max(0, Math.min(1, disputes30.consistencyRate));
+  const hasDisputeData =
+    disputes7.disputed > 0 ||
+    disputes14.disputed > 0 ||
+    disputes30.disputed > 0 ||
+    disputes30.samplingRatio > 0 ||
+    disputes30.consistencyRate > 0;
+  if (!hasDisputeData) {
+    return (
+      <Card className="dashboard-card" title="争议样本 & 抽检">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无争议或抽检数据" />
+      </Card>
+    );
+  }
   return (
     <Card className="dashboard-card" title="争议样本 & 抽检">
       <div className="dispute-grid">
@@ -1067,28 +1221,36 @@ function DisputeStatsCard({
 }
 
 /* ============ 任务节点时间线 ============ */
-function TaskTimelineCard({ items }: { items: TaskProgress[] }) {
-  // 抽几条任务,展示从发布 → AI 预审 → 人工审核 → 终评的关键节点
-  const sample = items.slice(0, 4);
-  const phases = ['已发布', 'AI 预审', '人工审核', '已交付'];
+function TaskTimelineCard({ items }: { items: TaskMilestone[] }) {
+  const phases: Array<{ key: TaskMilestone['currentPhase']; label: string }> = [
+    { key: 'published', label: '已发布' },
+    { key: 'ai_review', label: 'AI 预审' },
+    { key: 'human_review', label: '人工审核' },
+    { key: 'delivered', label: '已交付' },
+  ];
+  if (items.length === 0) {
+    return (
+      <Card className="dashboard-card" title="任务关键节点">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务节点数据" />
+      </Card>
+    );
+  }
   return (
     <Card className="dashboard-card" title="任务关键节点">
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
-        {sample.map((task, idx) => {
-          // 当前阶段:用 approved 比例粗估,真实数据来自后端
-          const ratio = task.approved / Math.max(1, task.total);
-          const phaseIdx = ratio >= 0.8 ? 3 : ratio >= 0.4 ? 2 : ratio >= 0.1 ? 1 : 0;
+        {items.map((task) => {
+          const phaseIdx = Math.max(0, phases.findIndex((phase) => phase.key === task.currentPhase));
           return (
             <div key={task.taskId} className="timeline-row">
               <div className="timeline-head">
                 <span className="timeline-task-id">{task.taskId}</span>
-                <Tag>{phases[phaseIdx]}</Tag>
+                <Tag>{phases[phaseIdx]?.label ?? '已发布'}</Tag>
               </div>
               <div className="timeline-task-title">{task.title}</div>
               <div className="timeline-bar">
-                {phases.map((_, i) => (
+                {phases.map((phase, i) => (
                   <span
-                    key={i}
+                    key={phase.key}
                     className={`timeline-dot ${i <= phaseIdx ? 'is-done' : ''}`}
                   />
                 ))}
@@ -1102,22 +1264,21 @@ function TaskTimelineCard({ items }: { items: TaskProgress[] }) {
 }
 
 /* ============ 任务截止预警 ============ */
-function DeadlineAlertCard({ items }: { items: TaskProgress[] }) {
-  // 演示数据:挑出 pending > 0 的任务并标记紧急级别(真实数据走 GET /dashboard/overview deadlines)
-  const alerts = items
-    .filter((t) => t.pending > 0)
-    .slice(0, 4)
-    .map((t, idx) => ({
-      taskId: t.taskId,
-      title: t.title,
-      pending: t.pending,
-      hoursLeft: 48 - idx * 12,
-    }));
+function DeadlineAlertCard({ items }: { items: DeadlineAlert[] }) {
+  if (items.length === 0) {
+    return (
+      <Card className="dashboard-card" title="临近截止预警">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无临近截止任务" />
+      </Card>
+    );
+  }
   return (
     <Card className="dashboard-card" title="临近截止预警">
       <Space direction="vertical" size={10} style={{ width: '100%' }}>
-        {alerts.map((alert) => {
-          const tone = alert.hoursLeft <= 12 ? 'critical' : alert.hoursLeft <= 24 ? 'warn' : 'normal';
+        {items.map((alert) => {
+          const tone = alert.riskLevel === 'critical' || alert.riskLevel === 'warn'
+            ? alert.riskLevel
+            : 'normal';
           return (
             <div key={alert.taskId} className={`deadline-row tone-${tone}`}>
               <div className="deadline-icon">
@@ -1128,6 +1289,7 @@ function DeadlineAlertCard({ items }: { items: TaskProgress[] }) {
                 <div className="deadline-sub">
                   剩余 {alert.pending} 条 · 还有 {alert.hoursLeft} 小时
                 </div>
+                <div className="deadline-sub">截止 {alert.deadline}</div>
               </div>
               <Button type="link" size="small">
                 跟进

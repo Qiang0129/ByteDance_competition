@@ -17,6 +17,7 @@ import type {
   DashboardOverview,
   DashboardPageResult,
   DashboardRoleUser,
+  DeadlineAlert,
   DisputeStats,
   IssueFeedback,
   IssueFeedbackStatus,
@@ -24,6 +25,7 @@ import type {
   ReviewDistribution,
   RoleBreakdown,
   SubmissionTimelineMonth,
+  TaskMilestone,
   TaskProgress,
 } from '../types/dashboard';
 
@@ -92,6 +94,14 @@ export const dashboardApi = {
 
   getTaskProgressChart(): Promise<{ items: TaskProgress[] }> {
     return apiRequest('/dashboard/task-progress-chart');
+  },
+
+  getTaskMilestones(limit = 4): Promise<{ items: TaskMilestone[] }> {
+    return apiRequest(`/dashboard/task-milestones?limit=${encodeURIComponent(limit)}`);
+  },
+
+  getDeadlineAlerts(limit = 4): Promise<{ items: DeadlineAlert[] }> {
+    return apiRequest(`/dashboard/deadline-alerts?limit=${encodeURIComponent(limit)}`);
   },
 
   getRoleUsers(role: 'labeler' | 'reviewer'): Promise<{ items: DashboardRoleUser[] }> {

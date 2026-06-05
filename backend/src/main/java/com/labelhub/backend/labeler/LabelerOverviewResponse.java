@@ -8,7 +8,8 @@ public record LabelerOverviewResponse(
     TodayProgress todayProgress,
     ReviewDistribution reviewDistribution,
     List<RecentBatch> recentBatches,
-    List<SupportedItemType> supportedItemTypes) {
+    List<SupportedItemType> supportedItemTypes,
+    List<PendingTypeDistribution> pendingTypeDistribution) {
 
   public record HeroStats(
       long weeklySubmitted,
@@ -19,7 +20,8 @@ public record LabelerOverviewResponse(
       long activeTasks,
       long submittedToday,
       long returnedItems,
-      long avgDurationSec) {}
+      long avgDurationSec,
+      double todayReward) {}
 
   public record TodayProgress(
       int target,
@@ -53,4 +55,9 @@ public record LabelerOverviewResponse(
   public record SupportedItemType(
       String key,
       String label) {}
+
+  public record PendingTypeDistribution(
+      String key,
+      String label,
+      long count) {}
 }

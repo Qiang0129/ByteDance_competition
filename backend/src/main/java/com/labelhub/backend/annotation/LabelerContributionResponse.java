@@ -3,4 +3,6 @@ package com.labelhub.backend.annotation;
 public record LabelerContributionResponse(
     long submittedCount,
     long approvedCount,
-    long returnedCount) {}
+    long returnedCount,
+    long rejectedCount,
+    long disputedCount) {}

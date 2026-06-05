@@ -39,6 +39,7 @@ import { AiAssistantIcon } from '../../components/icons';
 import type {
   AssignStrategy,
   MarketTask,
+  MarketTaskStats,
   MarketTasksQuery,
   TaskMediaType,
 } from '../../types/labeler';
@@ -81,6 +82,12 @@ const sortOptions: Array<{
   { label: '截止快 -> 慢', value: 'deadline' },
   { label: '剩余额度多 -> 少', value: 'quota' },
 ];
+
+const emptyMarketStats: MarketTaskStats = {
+  availableTasks: 0,
+  avgRewardPerItem: 0,
+  expiringSoonTasks: 0,
+};
 
 const strategyMeta: Record<AssignStrategy, { label: string; color: string }> = {
   'first-come': { label: '先到先得', color: 'blue' },
@@ -217,6 +224,7 @@ export default function TaskMarket() {
   const [sortBy, setSortBy] =
     useState<NonNullable<MarketTasksQuery['sortBy']>>('publishedAt');
   const [tasks, setTasks] = useState<MarketTask[]>([]);
+  const [stats, setStats] = useState<MarketTaskStats>(emptyMarketStats);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [activeTask, setActiveTask] = useState<MarketTask | null>(null);
@@ -235,21 +243,26 @@ export default function TaskMarket() {
     return Array.isArray(response.items) ? response.items : [];
   }, []);
 
+  const fetchMarketStats = useCallback(() => labelerApi.getMarketTaskStats(), []);
+
   const loadTasks = useCallback(async () => {
     setLoading(true);
     setLoadError('');
     try {
-      applyMarketTasks(await fetchMarketTasks());
+      const [items, marketStats] = await Promise.all([fetchMarketTasks(), fetchMarketStats()]);
+      applyMarketTasks(items);
+      setStats(marketStats);
     } catch (error) {
       const text = getApiErrorMessage(error, '任务市场加载失败');
       setLoadError(text);
       setTasks([]);
+      setStats(emptyMarketStats);
       setActiveTask(null);
       message.error(text);
     } finally {
       setLoading(false);
     }
-  }, [applyMarketTasks, fetchMarketTasks, message]);
+  }, [applyMarketTasks, fetchMarketStats, fetchMarketTasks, message]);
 
   useEffect(() => {
     let cancelled = false;
@@ -259,14 +272,16 @@ export default function TaskMarket() {
       setLoadError('');
 
       try {
-        const items = await fetchMarketTasks();
+        const [items, marketStats] = await Promise.all([fetchMarketTasks(), fetchMarketStats()]);
         if (cancelled) return;
         applyMarketTasks(items);
+        setStats(marketStats);
       } catch (error) {
         if (cancelled) return;
         const text = getApiErrorMessage(error, '任务市场加载失败');
         setLoadError(text);
         setTasks([]);
+        setStats(emptyMarketStats);
         setActiveTask(null);
         message.error(text);
       } finally {
@@ -280,7 +295,7 @@ export default function TaskMarket() {
     return () => {
       cancelled = true;
     };
-  }, [applyMarketTasks, fetchMarketTasks, message]);
+  }, [applyMarketTasks, fetchMarketStats, fetchMarketTasks, message]);
 
   const filteredTasks = useMemo(() => {
     let list = tasks.slice();
@@ -341,16 +356,6 @@ export default function TaskMarket() {
     return list;
   }, [aiReview, keyword, mediaType, sortBy, strategy, taskType, tasks]);
 
-  const stats = useMemo(() => {
-    const claimable = filteredTasks.filter(
-      (task) => task.claimable ?? ((task.remainingQuota ?? 0) > 0 && !task.expired),
-    );
-    const totalReward = claimable.reduce((sum, task) => sum + (task.rewardPerItem ?? 0), 0);
-    const avgReward = claimable.length === 0 ? 0 : totalReward / claimable.length;
-    const expiringSoon = claimable.filter((task) => deadlineRemaining(task.deadline).soon).length;
-    return { available: claimable.length, avgReward, expiringSoon };
-  }, [filteredTasks]);
-
   function resetFilters() {
     setKeyword('');
     setTaskType('');
@@ -361,14 +366,19 @@ export default function TaskMarket() {
   }
 
   async function handleClaim(task: MarketTask) {
-    if (task.claimable === false || task.expired || deadlineRemaining(task.deadline).expired) {
-      message.warning(task.statusLabel ?? '该任务已截止，无法认领。');
+    if (task.expired || deadlineRemaining(task.deadline).expired || task.statusLabel === '已截止') {
+      message.warning('该任务已截止，无法继续作答。');
       return;
     }
 
     if (task.claimedByMe) {
       message.info('你已经认领过该任务，正在前往「我的任务」。');
       navigate('/labeler/my-tasks');
+      return;
+    }
+
+    if (task.claimable === false) {
+      message.warning(task.statusLabel ?? '该任务已截止，无法认领。');
       return;
     }
 
@@ -382,7 +392,9 @@ export default function TaskMarket() {
       await labelerApi.claimTask(task.taskId);
       message.success('认领成功，已加入「我的任务」。');
       try {
-        applyMarketTasks(await fetchMarketTasks());
+        const [items, marketStats] = await Promise.all([fetchMarketTasks(), fetchMarketStats()]);
+        applyMarketTasks(items);
+        setStats(marketStats);
       } catch (refreshError) {
         setTasks((previous) =>
           previous.map((current) =>
@@ -400,6 +412,11 @@ export default function TaskMarket() {
         message.warning(
           getApiErrorMessage(refreshError, '认领成功，但最新配额刷新失败，请刷新页面查看。'),
         );
+        try {
+          setStats(await fetchMarketStats());
+        } catch {
+          setStats(emptyMarketStats);
+        }
       }
     } catch (error) {
       message.error(getClaimErrorMessage(error));
@@ -430,7 +447,7 @@ export default function TaskMarket() {
             </div>
             <div>
               <div className="market-kpi-label">可领任务</div>
-              <div className="market-kpi-value">{stats.available}</div>
+              <div className="market-kpi-value">{stats.availableTasks}</div>
             </div>
           </Card>
         </Col>
@@ -444,7 +461,7 @@ export default function TaskMarket() {
             </div>
             <div>
               <div className="market-kpi-label">平均单价</div>
-              <div className="market-kpi-value">¥{stats.avgReward.toFixed(2)}</div>
+              <div className="market-kpi-value">¥{stats.avgRewardPerItem.toFixed(2)}</div>
             </div>
           </Card>
         </Col>
@@ -458,7 +475,7 @@ export default function TaskMarket() {
             </div>
             <div>
               <div className="market-kpi-label">即将截止(48h)</div>
-              <div className="market-kpi-value">{stats.expiringSoon}</div>
+              <div className="market-kpi-value">{stats.expiringSoonTasks}</div>
             </div>
           </Card>
         </Col>
@@ -557,18 +574,26 @@ export default function TaskMarket() {
                 type="primary"
                 loading={claimingId === activeTask.taskId}
                 disabled={
-                  activeTask.claimable === false ||
-                  (activeTask.remainingQuota ?? 0) === 0 ||
                   activeTask.expired ||
-                  deadlineRemaining(activeTask.deadline).expired
+                  deadlineRemaining(activeTask.deadline).expired ||
+                  activeTask.statusLabel === '已截止' ||
+                  (
+                    !activeTask.claimedByMe &&
+                    (
+                      activeTask.claimable === false ||
+                      (activeTask.remainingQuota ?? 0) === 0
+                    )
+                  )
                 }
                 onClick={() => void handleClaim(activeTask)}
               >
-                {activeTask.expired || activeTask.statusLabel === '已截止'
-                  ? '已截止'
-                  : activeTask.claimedByMe
-                    ? '去作答'
-                    : '立即认领'}
+                {activeTask.expired ||
+                deadlineRemaining(activeTask.deadline).expired ||
+                activeTask.statusLabel === '已截止'
+                      ? '已截止'
+                    : activeTask.claimedByMe
+                      ? '去作答'
+                      : '立即认领'}
               </Button>
             </div>
           ) : null
@@ -598,6 +623,7 @@ function TaskCard({
   const exhausted = remaining === 0;
   const expired = task.expired || deadline.expired || task.statusLabel === '已截止';
   const claimable = task.claimable ?? (!expired && !exhausted);
+  const canGoToClaimedTask = !!task.claimedByMe && !expired;
   const statusTag = resolveMarketCardStatusTag(task, expired, exhausted);
 
   return (
@@ -679,7 +705,7 @@ function TaskCard({
         block
         className="market-claim-btn"
         loading={claiming}
-        disabled={!claimable}
+        disabled={expired || (!canGoToClaimedTask && !claimable)}
         onClick={(event) => {
           event.stopPropagation();
           onClaim();
@@ -690,8 +716,8 @@ function TaskCard({
           : task.claimedByMe
             ? '去作答'
             : exhausted
-            ? '配额已用尽'
-            : '立即认领'}
+              ? '配额已用尽'
+              : '立即认领'}
       </Button>
     </Card>
   );

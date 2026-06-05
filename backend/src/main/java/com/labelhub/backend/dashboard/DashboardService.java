@@ -85,6 +85,51 @@ public class DashboardService {
     return buildTaskProgressResponse(owner.id(), 12);
   }
 
+  public DashboardItemsResponse<TaskMilestoneResponse> getTaskMilestones(
+      Authentication authentication,
+      Integer limit) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    settleExpiredTasks();
+    int safeLimit = normalizeLimit(limit, 4, 12);
+    List<TaskMilestoneResponse> items = repository.listTaskMilestones(owner.id(), safeLimit).stream()
+        .map(record -> {
+          long total = Math.max(record.total(), 0);
+          long approved = Math.max(record.approved(), 0);
+          long returned = Math.max(record.returned(), 0);
+          long pending = Math.max(total - approved - returned, 0);
+          return new TaskMilestoneResponse(
+              Long.toString(record.taskId()),
+              blankToDefault(record.title(), "标注任务"),
+              total,
+              approved,
+              returned,
+              pending,
+              blankToDefault(record.status(), "unknown"),
+              blankToDefault(record.reviewStatus(), "not_started"),
+              resolveTaskPhase(record.status(), record.reviewStatus(), pending));
+        })
+        .toList();
+    return new DashboardItemsResponse<>(items);
+  }
+
+  public DashboardItemsResponse<DeadlineAlertResponse> getDeadlineAlerts(
+      Authentication authentication,
+      Integer limit) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    settleExpiredTasks();
+    int safeLimit = normalizeLimit(limit, 4, 12);
+    List<DeadlineAlertResponse> items = repository.listDeadlineAlerts(owner.id(), safeLimit).stream()
+        .map(record -> new DeadlineAlertResponse(
+            Long.toString(record.taskId()),
+            blankToDefault(record.title(), "标注任务"),
+            Math.max(record.pending(), 0),
+            formatDateTime(record.deadline()),
+            Math.max(record.hoursLeft(), 0),
+            deadlineRiskLevel(record.hoursLeft())))
+        .toList();
+    return new DashboardItemsResponse<>(items);
+  }
+
   private DashboardItemsResponse<TaskProgressResponse> buildTaskProgressResponse(long ownerId, int limit) {
     List<TaskProgressResponse> items = repository.listTaskProgress(ownerId, limit).stream()
         .map(record -> {
@@ -303,6 +348,42 @@ public class DashboardService {
     return normalized;
   }
 
+  private int normalizeLimit(Integer limit, int defaultLimit, int maxLimit) {
+    int normalized = limit == null ? defaultLimit : limit;
+    if (normalized < 1 || normalized > maxLimit) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_DASHBOARD_LIMIT",
+          "dashboard limit is out of range");
+    }
+    return normalized;
+  }
+
+  private String resolveTaskPhase(String status, String reviewStatus, long pending) {
+    String normalizedStatus = status == null ? "" : status.trim().toLowerCase(Locale.ROOT);
+    String normalizedReview = reviewStatus == null ? "" : reviewStatus.trim().toLowerCase(Locale.ROOT);
+    if (List.of("ended", "exported", "delivered").contains(normalizedStatus) || pending == 0) {
+      return "delivered";
+    }
+    if (normalizedReview.startsWith("human_") || "completed".equals(normalizedReview)) {
+      return "human_review";
+    }
+    if ("ai_prereviewing".equals(normalizedReview)) {
+      return "ai_review";
+    }
+    return "published";
+  }
+
+  private String deadlineRiskLevel(long hoursLeft) {
+    if (hoursLeft <= 12) {
+      return "critical";
+    }
+    if (hoursLeft <= 24) {
+      return "warn";
+    }
+    return "normal";
+  }
+
   private DashboardRepository.AiDecisionCounts safeAiCounts(DashboardRepository.AiDecisionCounts counts) {
     return counts == null ? new DashboardRepository.AiDecisionCounts(0, 0, 0, 0) : counts;
   }
@@ -389,6 +470,10 @@ public class DashboardService {
 
   private String blankToDefault(String value, String fallback) {
     return value == null || value.isBlank() ? fallback : value;
+  }
+
+  private String formatDateTime(LocalDateTime value) {
+    return value == null ? null : value.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
   }
 
   private void settleExpiredTasks() {

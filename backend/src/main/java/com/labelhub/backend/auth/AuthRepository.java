@@ -2,6 +2,7 @@ package com.labelhub.backend.auth;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -115,6 +116,63 @@ public class AuthRepository {
 
   public UserAccount createUser(String username, String displayName, String passwordHash, String roleCode) {
     long userId = insertUser(username, displayName, passwordHash);
+    grantRole(userId, roleCode);
+    return findUserById(userId)
+        .orElseThrow(() -> new IllegalStateException("failed to load created user"));
+  }
+
+  public long createReviewerInvitation(String tokenHash, long createdBy, LocalDateTime expiresAt) {
+    KeyHolder keyHolder = new GeneratedKeyHolder();
+    jdbcTemplate.update(connection -> {
+      var statement = connection.prepareStatement(
+          """
+          INSERT INTO reviewer_invitations (token_hash, created_by, expires_at)
+          VALUES (?, ?, ?)
+          """,
+          new String[] {"id"});
+      statement.setString(1, tokenHash);
+      statement.setLong(2, createdBy);
+      statement.setObject(3, expiresAt);
+      return statement;
+    }, keyHolder);
+
+    Number key = keyHolder.getKey();
+    if (key == null) {
+      throw new IllegalStateException("failed to create reviewer invitation");
+    }
+    return key.longValue();
+  }
+
+  public Optional<ReviewerInvitationRecord> findReviewerInvitationByTokenHash(String tokenHash) {
+    List<ReviewerInvitationRecord> records = jdbcTemplate.query(
+        """
+        SELECT id, token_hash, created_by, expires_at, used_at, used_by
+        FROM reviewer_invitations
+        WHERE token_hash = ?
+        """,
+        (rs, rowNum) -> new ReviewerInvitationRecord(
+            rs.getLong("id"),
+            rs.getString("token_hash"),
+            rs.getLong("created_by"),
+            rs.getObject("expires_at", LocalDateTime.class),
+            rs.getObject("used_at", LocalDateTime.class),
+            nullableLong(rs, "used_by")),
+        tokenHash);
+    return records.stream().findFirst();
+  }
+
+  public int markReviewerInvitationUsed(long invitationId, long userId) {
+    return jdbcTemplate.update(
+        """
+        UPDATE reviewer_invitations
+        SET used_at = CURRENT_TIMESTAMP, used_by = ?
+        WHERE id = ? AND used_at IS NULL
+        """,
+        userId,
+        invitationId);
+  }
+
+  private void grantRole(long userId, String roleCode) {
     jdbcTemplate.update(
         """
         INSERT INTO user_roles (user_id, role_id)
@@ -122,8 +180,6 @@ public class AuthRepository {
         """,
         userId,
         roleCode);
-    return findUserById(userId)
-        .orElseThrow(() -> new IllegalStateException("failed to load created user"));
   }
 
   public void upsertDemoUser(String username, String displayName, String passwordHash, String... roleCodes) {
@@ -175,5 +231,10 @@ public class AuthRepository {
       throw new IllegalStateException("failed to create demo user");
     }
     return key.longValue();
+  }
+
+  private Long nullableLong(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
+    long value = rs.getLong(column);
+    return rs.wasNull() ? null : value;
   }
 }

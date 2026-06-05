@@ -1,5 +1,13 @@
 import { apiRequest, clearAuthToken, setAuthToken } from './client';
-import type { AuthUser, CurrentUserResponse, LoginRequest, LoginResponse, RegisterRequest } from '../types/auth';
+import type {
+  AuthUser,
+  CreateReviewerInvitationResponse,
+  CurrentUserResponse,
+  LoginRequest,
+  LoginResponse,
+  RegisterRequest,
+  ReviewerInvitationValidationResponse,
+} from '../types/auth';
 
 const AUTH_USER_KEY = 'labelhub_current_user';
 
@@ -65,5 +73,18 @@ export const authApi = {
       body: JSON.stringify(payload),
       skipAuth: true,
     });
+  },
+
+  createReviewerInvitation(): Promise<CreateReviewerInvitationResponse> {
+    return apiRequest<CreateReviewerInvitationResponse>('/auth/reviewer-invitations', {
+      method: 'POST',
+    });
+  },
+
+  validateReviewerInvitation(token: string): Promise<ReviewerInvitationValidationResponse> {
+    return apiRequest<ReviewerInvitationValidationResponse>(
+      `/auth/reviewer-invitations/validate?token=${encodeURIComponent(token)}`,
+      { skipAuth: true },
+    );
   },
 };

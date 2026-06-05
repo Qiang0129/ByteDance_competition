@@ -24,7 +24,6 @@ import {
   RightOutlined,
   RiseOutlined,
   ShopOutlined,
-  ThunderboltFilled,
 } from '@ant-design/icons';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -35,8 +34,8 @@ import { AiAssistantIcon } from '../../components/icons';
 import { useThemeColors } from '../../theme/useThemeColors';
 import type {
   LabelerOverview,
+  LabelerOverviewPendingTypeDistribution,
   LabelerOverviewRecentBatch,
-  LabelerOverviewSupportedItemType,
 } from '../../types/labelerOverview';
 
 interface KpiItem {
@@ -121,16 +120,15 @@ export default function LabelerOverview() {
         trendUp: data.kpis.returnedItems === 0,
       },
       {
-        key: 'avg-time',
-        title: '平均耗时',
-        value: data.kpis.avgDurationSec,
-        suffix: '秒/条',
-        icon: <ThunderboltFilled />,
-        accent: '#a855f7',
-        trend: data.todayProgress.avgDurationSec > 0
-          ? `今日均值 ${data.todayProgress.avgDurationSec} 秒`
-          : '暂无今日耗时',
-        trendUp: data.todayProgress.avgDurationSec > 0,
+        key: 'today-reward',
+        title: '今日奖励',
+        value: `¥${data.kpis.todayReward.toFixed(2)}`,
+        icon: <CheckCircleFilled />,
+        accent: '#16a34a',
+        trend: data.kpis.submittedToday > 0
+          ? `今日提交 ${data.kpis.submittedToday} 条`
+          : '暂无今日提交',
+        trendUp: data.kpis.todayReward > 0,
       },
     ];
   }, [data]);
@@ -368,14 +366,14 @@ export default function LabelerOverview() {
               </div>
             </Card>
 
-            <Card className="overview-types-card" title="支持的题目类型">
+            <Card className="overview-types-card" title="待处理类型分布">
               <Typography.Paragraph type="secondary" className="types-desc">
-                当前已领取任务覆盖的媒体类型,来自后端 `items.media_type` 聚合。
+                当前仍需作答或返修的题目,按媒体类型聚合。
               </Typography.Paragraph>
-              {data.supportedItemTypes.length === 0 ? (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无题目类型" />
+              {data.pendingTypeDistribution.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待处理题目" />
               ) : (
-                <SupportedTypes items={data.supportedItemTypes} />
+                <PendingTypeDistribution items={data.pendingTypeDistribution} />
               )}
               <div className="types-hint">
                 <Avatar
@@ -383,7 +381,7 @@ export default function LabelerOverview() {
                   icon={<AiAssistantIcon />}
                   style={{ background: 'var(--lh-primary-bg-12)', color: 'var(--lh-primary)' }}
                 />
-                <span>提交后由 AI Agent 入队评分,最终由审核员裁决。</span>
+                <span>优先处理数量较多或临近截止的题目类型。</span>
               </div>
             </Card>
           </Space>
@@ -473,7 +471,7 @@ function ShortcutTile({
   );
 }
 
-function SupportedTypes({ items }: { items: LabelerOverviewSupportedItemType[] }) {
+function PendingTypeDistribution({ items }: { items: LabelerOverviewPendingTypeDistribution[] }) {
   return (
     <div className="types-list">
       {items.map((type) => {
@@ -484,7 +482,9 @@ function SupportedTypes({ items }: { items: LabelerOverviewSupportedItemType[] }
             className="types-pill"
             style={{ color: tone, background: `${tone}15` }}
           >
-            <CheckCircleFilled /> {type.label}
+            <CheckCircleFilled />
+            <span>{type.label}</span>
+            <strong>{type.count}</strong>
           </span>
         );
       })}

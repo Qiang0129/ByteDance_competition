@@ -1,16 +1,27 @@
 package com.labelhub.backend.auth;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Base64;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
 
   private static final List<String> LOGIN_ROLES =
       List.of("owner", "labeler", "reviewer", "ai_reviewer", "system_agent");
+  private static final int REVIEWER_INVITE_TTL_HOURS = 24;
+  private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
   private final AuthProperties authProperties;
   private final AuthRepository authRepository;
@@ -77,12 +88,20 @@ public class AuthService {
         principal.permissions());
   }
 
+  @Transactional
   public AuthUserResponse register(RegisterRequest request) {
     String username = request.username().trim();
-    String role = normalizeRegisterRole(request.role());
+    String inviteToken = normalizeInviteToken(request.inviteToken());
+    ReviewerInvitationRecord invitation = null;
+    String role = "labeler";
 
     if (authRepository.usernameExists(username)) {
       throw new ApiException(HttpStatus.CONFLICT, "USERNAME_EXISTS", "username already exists");
+    }
+
+    if (inviteToken != null) {
+      invitation = requireUsableReviewerInvitation(inviteToken);
+      role = "reviewer";
     }
 
     UserAccount user = authRepository.createUser(
@@ -90,7 +109,31 @@ public class AuthService {
         username,
         passwordEncoder.encode(request.password()),
         role);
+    if (invitation != null) {
+      int marked = authRepository.markReviewerInvitationUsed(invitation.id(), user.id());
+      if (marked == 0) {
+        throw new ApiException(HttpStatus.CONFLICT, "INVITATION_USED", "invitation has already been used");
+      }
+    }
     return toAuthUser(user, authRepository.findRoleCodes(user.id()));
+  }
+
+  public CreateReviewerInvitationResponse createReviewerInvitation(Authentication authentication) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    String token = generateInviteToken();
+    LocalDateTime expiresAt = LocalDateTime.now().plusHours(REVIEWER_INVITE_TTL_HOURS);
+    authRepository.createReviewerInvitation(hashToken(token), owner.id(), expiresAt);
+    return new CreateReviewerInvitationResponse(token, formatDateTime(expiresAt));
+  }
+
+  public ReviewerInvitationValidationResponse validateReviewerInvitation(String token) {
+    String inviteToken = normalizeInviteToken(token);
+    if (inviteToken == null) {
+      return new ReviewerInvitationValidationResponse(false, "invalid", null);
+    }
+    return authRepository.findReviewerInvitationByTokenHash(hashToken(inviteToken))
+        .map(this::toInvitationValidationResponse)
+        .orElseGet(() -> new ReviewerInvitationValidationResponse(false, "invalid", null));
   }
 
   public void logout(String authorizationHeader) {
@@ -117,18 +160,68 @@ public class AuthService {
     return normalizedRole;
   }
 
-  private String normalizeRegisterRole(String role) {
-    if (role == null || role.isBlank()) {
-      return "labeler";
-    }
-    return normalizeRole(role);
-  }
-
   private AuthenticatedUser requirePrincipal(Authentication authentication) {
     if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedUser principal)) {
       throw unauthorized("missing or invalid token");
     }
     return principal;
+  }
+
+  private AuthenticatedUser requireOwner(Authentication authentication) {
+    AuthenticatedUser principal = requirePrincipal(authentication);
+    if (!principal.roles().contains("owner")) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "owner role is required");
+    }
+    return principal;
+  }
+
+  private ReviewerInvitationRecord requireUsableReviewerInvitation(String token) {
+    ReviewerInvitationRecord invitation = authRepository.findReviewerInvitationByTokenHash(hashToken(token))
+        .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "INVALID_INVITATION", "invalid invitation"));
+    if (invitation.usedAt() != null) {
+      throw new ApiException(HttpStatus.CONFLICT, "INVITATION_USED", "invitation has already been used");
+    }
+    if (invitation.expiresAt().isBefore(LocalDateTime.now())) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVITATION_EXPIRED", "invitation has expired");
+    }
+    return invitation;
+  }
+
+  private ReviewerInvitationValidationResponse toInvitationValidationResponse(ReviewerInvitationRecord invitation) {
+    if (invitation.usedAt() != null) {
+      return new ReviewerInvitationValidationResponse(false, "used", formatDateTime(invitation.expiresAt()));
+    }
+    if (invitation.expiresAt().isBefore(LocalDateTime.now())) {
+      return new ReviewerInvitationValidationResponse(false, "expired", formatDateTime(invitation.expiresAt()));
+    }
+    return new ReviewerInvitationValidationResponse(true, null, formatDateTime(invitation.expiresAt()));
+  }
+
+  private String normalizeInviteToken(String token) {
+    if (token == null || token.isBlank()) {
+      return null;
+    }
+    return token.trim();
+  }
+
+  private String generateInviteToken() {
+    byte[] bytes = new byte[32];
+    SECURE_RANDOM.nextBytes(bytes);
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+  }
+
+  private String hashToken(String token) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hash);
+    } catch (NoSuchAlgorithmException error) {
+      throw new IllegalStateException("SHA-256 is not available", error);
+    }
+  }
+
+  private String formatDateTime(LocalDateTime dateTime) {
+    return dateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
   }
 
   private ApiException unauthorized(String message) {

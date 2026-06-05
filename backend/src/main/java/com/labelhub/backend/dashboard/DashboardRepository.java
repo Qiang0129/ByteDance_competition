@@ -220,6 +220,153 @@ public class DashboardRepository {
         limit);
   }
 
+  public List<TaskMilestoneRecord> listTaskMilestones(long ownerId, int limit) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          t.id AS task_id,
+          t.title,
+          t.status,
+          t.deadline,
+          COALESCE(item_counts.total_items, t.quota, assignment_counts.total_assignments, 0) AS total,
+          COALESCE(assignment_counts.approved, 0) AS approved,
+          COALESCE(assignment_counts.returned, 0) AS returned,
+          CASE
+            WHEN COALESCE(review_metrics.human_pending_count, 0) > 0
+              AND COALESCE(review_metrics.max_next_round, 1) >= 3 THEN 'human_final_review'
+            WHEN COALESCE(review_metrics.human_pending_count, 0) > 0
+              AND COALESCE(review_metrics.max_next_round, 1) = 2 THEN 'human_second_review'
+            WHEN COALESCE(review_metrics.human_pending_count, 0) > 0 THEN 'human_first_review'
+            WHEN COALESCE(review_metrics.ai_reviewing_count, 0) > 0 THEN 'ai_prereviewing'
+            WHEN COALESCE(review_metrics.completed_count, 0) > 0 THEN 'completed'
+            ELSE 'not_started'
+          END AS review_status
+        FROM tasks t
+        LEFT JOIN (
+          SELECT task_id, COUNT(*) AS total_items
+          FROM items
+          GROUP BY task_id
+        ) item_counts ON item_counts.task_id = t.id
+        LEFT JOIN (
+          SELECT
+            task_id,
+            COUNT(*) AS total_assignments,
+            SUM(CASE WHEN status IN ('accepted', 'exported') THEN 1 ELSE 0 END) AS approved,
+            SUM(CASE WHEN status = 'returned' THEN 1 ELSE 0 END) AS returned,
+            MAX(updated_at) AS latest_assignment_at
+          FROM assignments
+          WHERE status <> 'voided'
+          GROUP BY task_id
+        ) assignment_counts ON assignment_counts.task_id = t.id
+        LEFT JOIN (
+          SELECT
+            rows_by_task.task_id,
+            COUNT(DISTINCT CASE WHEN rows_by_task.annotation_status = 'ai_reviewing'
+              THEN rows_by_task.annotation_id END) AS ai_reviewing_count,
+            COUNT(DISTINCT CASE WHEN rows_by_task.annotation_status IN ('submitted', 'reviewing')
+              THEN rows_by_task.annotation_id END) AS human_pending_count,
+            MAX(CASE WHEN rows_by_task.annotation_status IN ('submitted', 'reviewing')
+              THEN rows_by_task.next_round ELSE 0 END) AS max_next_round,
+            COUNT(DISTINCT CASE
+              WHEN rows_by_task.annotation_status IN ('accepted', 'returned', 'revised', 'exported')
+                OR rows_by_task.assignment_status IN ('accepted', 'exported', 'returned')
+              THEN rows_by_task.annotation_id END) AS completed_count
+          FROM (
+            SELECT
+              a.task_id,
+              a.status AS assignment_status,
+              an.id AS annotation_id,
+              an.status AS annotation_status,
+              COALESCE(MAX(hr.round_no), 0) + 1 AS next_round
+            FROM assignments a
+            JOIN annotations an ON an.assignment_id = a.id
+            LEFT JOIN human_reviews hr ON hr.annotation_id = an.id
+            WHERE a.status <> 'voided'
+              AND an.status <> 'voided'
+              AND an.id = (
+                SELECT latest.id
+                FROM annotations latest
+                WHERE latest.assignment_id = a.id
+                  AND latest.status <> 'voided'
+                ORDER BY latest.revision_no DESC, latest.id DESC
+                LIMIT 1
+              )
+            GROUP BY a.task_id, a.status, an.id, an.status
+          ) rows_by_task
+          GROUP BY rows_by_task.task_id
+        ) review_metrics ON review_metrics.task_id = t.id
+        WHERE t.owner_id = ?
+          AND t.deleted_at IS NULL
+        ORDER BY COALESCE(assignment_counts.latest_assignment_at, t.updated_at) DESC, t.id DESC
+        LIMIT ?
+        """,
+        (rs, rowNum) -> new TaskMilestoneRecord(
+            rs.getLong("task_id"),
+            rs.getString("title"),
+            rs.getString("status"),
+            toLocalDateTime(rs.getTimestamp("deadline")),
+            rs.getLong("total"),
+            rs.getLong("approved"),
+            rs.getLong("returned"),
+            rs.getString("review_status")),
+        ownerId,
+        limit);
+  }
+
+  public List<DeadlineAlertRecord> listDeadlineAlerts(long ownerId, int limit) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          t.id AS task_id,
+          t.title,
+          t.deadline,
+          COALESCE(item_counts.total_items, t.quota, assignment_counts.total_assignments, 0) AS total,
+          COALESCE(assignment_counts.approved, 0) AS approved,
+          COALESCE(assignment_counts.returned, 0) AS returned,
+          TIMESTAMPDIFF(HOUR, CURRENT_TIMESTAMP, t.deadline) AS hours_left
+        FROM tasks t
+        LEFT JOIN (
+          SELECT task_id, COUNT(*) AS total_items
+          FROM items
+          GROUP BY task_id
+        ) item_counts ON item_counts.task_id = t.id
+        LEFT JOIN (
+          SELECT
+            task_id,
+            COUNT(*) AS total_assignments,
+            SUM(CASE WHEN status IN ('accepted', 'exported') THEN 1 ELSE 0 END) AS approved,
+            SUM(CASE WHEN status = 'returned' THEN 1 ELSE 0 END) AS returned
+          FROM assignments
+          WHERE status <> 'voided'
+          GROUP BY task_id
+        ) assignment_counts ON assignment_counts.task_id = t.id
+        WHERE t.owner_id = ?
+          AND t.deleted_at IS NULL
+          AND t.status NOT IN ('draft', 'ended')
+          AND t.deadline IS NOT NULL
+          AND t.deadline > CURRENT_TIMESTAMP
+          AND (
+            COALESCE(item_counts.total_items, t.quota, assignment_counts.total_assignments, 0)
+            - COALESCE(assignment_counts.approved, 0)
+            - COALESCE(assignment_counts.returned, 0)
+          ) > 0
+        ORDER BY t.deadline ASC, (
+          COALESCE(item_counts.total_items, t.quota, assignment_counts.total_assignments, 0)
+          - COALESCE(assignment_counts.approved, 0)
+          - COALESCE(assignment_counts.returned, 0)
+        ) DESC, t.id DESC
+        LIMIT ?
+        """,
+        (rs, rowNum) -> new DeadlineAlertRecord(
+            rs.getLong("task_id"),
+            rs.getString("title"),
+            toLocalDateTime(rs.getTimestamp("deadline")),
+            Math.max(rs.getLong("total") - rs.getLong("approved") - rs.getLong("returned"), 0),
+            Math.max(rs.getLong("hours_left"), 0)),
+        ownerId,
+        limit);
+  }
+
   public HumanDecisionCounts countHumanDecisions(long ownerId, LocalDateTime start, LocalDateTime end) {
     return jdbcTemplate.queryForObject(
         """
@@ -524,6 +671,10 @@ public class DashboardRepository {
         .toList();
   }
 
+  private static LocalDateTime toLocalDateTime(Timestamp timestamp) {
+    return timestamp == null ? null : timestamp.toLocalDateTime();
+  }
+
   private String allocatedReviewerFilter(String reviewAlias, String assignmentAlias) {
     return """
           AND EXISTS (
@@ -565,6 +716,23 @@ public class DashboardRepository {
       long total,
       long approved,
       long returned) {}
+
+  public record TaskMilestoneRecord(
+      long taskId,
+      String title,
+      String status,
+      LocalDateTime deadline,
+      long total,
+      long approved,
+      long returned,
+      String reviewStatus) {}
+
+  public record DeadlineAlertRecord(
+      long taskId,
+      String title,
+      LocalDateTime deadline,
+      long pending,
+      long hoursLeft) {}
 
   public record LabelerPerformanceRecord(
       long labelerId,

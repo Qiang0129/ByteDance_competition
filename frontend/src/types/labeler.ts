@@ -74,6 +74,13 @@ export interface MarketTask {
   statusLabel?: string;
 }
 
+/** 任务市场顶部 KPI,由后端按当前标注员真实可领取状态统计 */
+export interface MarketTaskStats {
+  availableTasks: number;
+  avgRewardPerItem: number;
+  expiringSoonTasks: number;
+}
+
 /** 用户已经认领的标注作业项 */
 export interface Assignment {
   assignmentId: string;
@@ -222,6 +229,8 @@ export interface LabelerContribution {
   submittedCount: number;
   approvedCount: number;
   returnedCount: number;
+  rejectedCount?: number;
+  disputedCount?: number;
 }
 
 export type LabelerItemHistoryType = 'submit' | 'ai_review' | 'human_review' | 'rework';

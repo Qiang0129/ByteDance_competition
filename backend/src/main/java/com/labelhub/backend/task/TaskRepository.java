@@ -204,6 +204,14 @@ public class TaskRepository {
         orderBy + " LIMIT ? OFFSET ?");
   }
 
+  public List<TaskRecord> listMarketTaskCandidates() {
+    QueryParts query = buildMarketWhere(null, null, null, null, null);
+    return queryTasks(
+        query.whereClause(),
+        query.args(),
+        "ORDER BY t.published_at DESC, t.created_at DESC");
+  }
+
   public boolean lockTask(long taskId) {
     List<Long> ids = jdbcTemplate.query(
         "SELECT id FROM tasks WHERE id = ? FOR UPDATE",

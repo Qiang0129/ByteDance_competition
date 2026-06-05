@@ -27,6 +27,7 @@ public class SecurityConfig {
             .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/register").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/auth/reviewer-invitations/validate").permitAll()
             .requestMatchers(
                 "/swagger-ui.html",
                 "/swagger-ui/**",

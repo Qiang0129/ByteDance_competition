@@ -38,6 +38,29 @@ export interface TaskProgress {
   pending: number;
 }
 
+export type TaskMilestonePhase = 'published' | 'ai_review' | 'human_review' | 'delivered';
+
+export interface TaskMilestone {
+  taskId: string;
+  title: string;
+  total: number;
+  approved: number;
+  returned: number;
+  pending: number;
+  status: string;
+  reviewStatus: string;
+  currentPhase: TaskMilestonePhase;
+}
+
+export interface DeadlineAlert {
+  taskId: string;
+  title: string;
+  pending: number;
+  deadline: string;
+  hoursLeft: number;
+  riskLevel: 'normal' | 'warn' | 'critical' | string;
+}
+
 /** 审核分布(用于环形图) */
 export interface ReviewDistribution {
   aiPass: number;

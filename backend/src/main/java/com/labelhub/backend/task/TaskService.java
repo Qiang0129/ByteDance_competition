@@ -320,6 +320,35 @@ public class TaskService {
     return new PageResponse<>(items, safePage, safePageSize, total);
   }
 
+  public MarketTaskStatsResponse getMarketTaskStats(Authentication authentication) {
+    AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
+    List<TaskRecord> candidates = taskRepository.listMarketTaskCandidates();
+    long availableTasks = 0;
+    long expiringSoonTasks = 0;
+    double rewardTotal = 0D;
+    LocalDateTime now = LocalDateTime.now();
+    LocalDateTime soonBoundary = now.plusHours(48);
+
+    for (TaskRecord task : candidates) {
+      TaskMetadata metadata = readMetadata(task.rewardRuleJson());
+      if (!isMarketTaskAvailableForLabeler(task, metadata, labeler.id())) {
+        continue;
+      }
+      availableTasks++;
+      rewardTotal += metadata.rewardPerItem() == null ? 0D : metadata.rewardPerItem();
+      if (task.deadline() != null && task.deadline().isAfter(now) && !task.deadline().isAfter(soonBoundary)) {
+        expiringSoonTasks++;
+      }
+    }
+
+    double avgRewardPerItem = availableTasks == 0 ? 0D : rewardTotal / availableTasks;
+    return new MarketTaskStatsResponse(
+        availableTasks,
+        roundMoney(avgRewardPerItem),
+        expiringSoonTasks);
+  }
+
   @Transactional
   public AssignmentResponse claimTask(Authentication authentication, long taskId) {
     AuthenticatedUser labeler = requireLabeler(authentication);
@@ -1103,6 +1132,29 @@ public class TaskService {
         && !isDeadlineExpired(task.deadline());
   }
 
+  private boolean isMarketTaskAvailableForLabeler(TaskRecord task, TaskMetadata metadata, long labelerId) {
+    if (!canCreateMoreAssignments(task)) {
+      return false;
+    }
+
+    if ("assigned".equals(metadata.resolvedStrategy())) {
+      return taskRepository.findAssignmentForLabelerTask(task.id(), labelerId)
+          .filter(assignment -> "claimed".equals(assignment.status()) || "returned".equals(assignment.status()))
+          .isPresent();
+    }
+
+    long taskRemaining = resolveAssignableRemaining(task.id(), task.quota());
+    if (taskRemaining <= 0) {
+      return false;
+    }
+
+    if ("quota".equals(metadata.resolvedStrategy()) && metadata.resolvedMaxClaimPerUser() != null) {
+      long current = taskRepository.countLabelerTaskAssignments(task.id(), labelerId);
+      return metadata.resolvedMaxClaimPerUser() - current > 0;
+    }
+    return true;
+  }
+
   private boolean isDeadlineExpired(LocalDateTime deadline) {
     return deadline != null && !deadline.isAfter(LocalDateTime.now());
   }
@@ -1693,6 +1745,10 @@ public class TaskService {
 
   private String formatDateTime(LocalDateTime dateTime) {
     return dateTime == null ? "" : DATE_TIME.format(dateTime);
+  }
+
+  private double roundMoney(double value) {
+    return Math.round(value * 100.0) / 100.0;
   }
 
   private record SchemaSelection(long id, int version, String label) {}

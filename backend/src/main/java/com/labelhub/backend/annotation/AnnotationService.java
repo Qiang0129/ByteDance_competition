@@ -127,7 +127,9 @@ public class AnnotationService {
         new LabelerContributionResponse(
             contribution.submittedCount(),
             contribution.approvedCount(),
-            contribution.returnedCount()),
+            contribution.returnedCount(),
+            contribution.rejectedCount(),
+            contribution.disputedCount()),
         itemHistory);
   }
 

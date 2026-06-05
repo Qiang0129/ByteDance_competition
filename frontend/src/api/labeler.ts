@@ -19,6 +19,7 @@ import type {
   LabelerDraft,
   LabelerReturnedItem,
   MarketTask,
+  MarketTaskStats,
   MarketTasksQuery,
   PageResult,
   ReportIssueRequest,
@@ -76,6 +77,11 @@ export const labelerApi = {
   /** 任务市场:浏览已发布且未结束的任务 */
   listMarketTasks(query?: MarketTasksQuery): Promise<PageResult<MarketTask>> {
     return apiRequest<PageResult<MarketTask>>(`/market/tasks${toQueryString(query)}`);
+  },
+
+  /** 任务市场 KPI:当前标注员可领取任务、平均单价和 48 小时内截止任务数 */
+  getMarketTaskStats(): Promise<MarketTaskStats> {
+    return apiRequest<MarketTaskStats>('/market/tasks/stats');
   },
 
   /** 认领任务中的一个标注项,后端按 task_id+item_id 唯一约束保证不重复 */

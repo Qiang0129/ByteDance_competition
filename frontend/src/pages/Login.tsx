@@ -4,17 +4,16 @@ import {
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { App, Button, Form, Input, Select } from 'antd';
+import { App, Button, Form, Input } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { authApi, clearStoredAuthUser, getStoredAuthUser } from '../api/auth';
 import { clearAuthToken, getAuthToken } from '../api/client';
-import type { LoginRequest, RegisterRequest, UserRole } from '../types/auth';
+import type { LoginRequest, RegisterRequest } from '../types/auth';
 import { resolveLandingPath } from '../utils/authNavigation';
 
 type AuthMode = 'login' | 'signup';
-type LoginRole = Exclude<UserRole, 'admin' | 'system_agent'>;
-type DemoLoginSource = LoginRole | 'allRoles';
+type DemoLoginSource = 'owner' | 'labeler' | 'reviewer' | 'ai_reviewer' | 'allRoles';
 type LoginSource = 'manual' | DemoLoginSource;
 
 type SignupFormValues = Pick<RegisterRequest, 'username' | 'password'>;
@@ -23,30 +22,23 @@ type LandingAuthTransitionState = {
   authTransitionKind?: AuthMode;
 };
 
-const roleOptions: Array<{ label: string; value: LoginRole }> = [
-  { label: '任务方', value: 'owner' },
-  { label: '标注员', value: 'labeler' },
-  { label: '人工审核员', value: 'reviewer' },
-  { label: 'AI 审核员', value: 'ai_reviewer' },
-];
-
 const demoAccounts: Array<{
   source: DemoLoginSource;
-  role: LoginRole;
   label: string;
   username: string;
   password: string;
 }> = [
-  { source: 'allRoles', role: 'owner', label: '全部角色', username: 'demo', password: 'demo123' },
-  { source: 'owner', role: 'owner', label: '任务方', username: 'owner', password: 'owner123' },
-  { source: 'labeler', role: 'labeler', label: '标注员', username: 'labeler', password: 'labeler123' },
-  { source: 'reviewer', role: 'reviewer', label: '人工审核员', username: 'reviewer', password: 'reviewer123' },
-  { source: 'ai_reviewer', role: 'ai_reviewer', label: 'AI 审核员', username: 'ai_reviewer', password: 'ai_reviewer123' },
+  { source: 'allRoles', label: '全部角色', username: 'demo', password: 'demo123' },
+  { source: 'owner', label: '任务方', username: 'owner', password: 'owner123' },
+  { source: 'labeler', label: '标注员', username: 'labeler', password: 'labeler123' },
+  { source: 'reviewer', label: '人工审核员', username: 'reviewer', password: 'reviewer123' },
+  { source: 'ai_reviewer', label: 'AI 审核员', username: 'ai_reviewer', password: 'ai_reviewer123' },
 ];
 
 const SIGNUP_HASH = '#signup';
 const LOGIN_HASH = '#login';
 const LOGIN_ENTRY_ANIMATION_MS = 560;
+const REVIEWER_INVITE_QUERY_KEY = 'reviewerInvite';
 
 function resolveModeFromHash(hash: string): AuthMode {
   return hash === SIGNUP_HASH ? 'signup' : 'login';
@@ -58,6 +50,22 @@ function replaceAuthHash(mode: AuthMode) {
   }
   const hash = mode === 'signup' ? SIGNUP_HASH : LOGIN_HASH;
   const nextUrl = `${window.location.pathname}${window.location.search}${hash}`;
+  window.history.replaceState(window.history.state, '', nextUrl);
+}
+
+function resolveReviewerInviteToken(search: string) {
+  const value = new URLSearchParams(search).get(REVIEWER_INVITE_QUERY_KEY);
+  return value && value.trim() ? value.trim() : null;
+}
+
+function replaceReviewerInviteSearch() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  params.delete(REVIEWER_INVITE_QUERY_KEY);
+  const query = params.toString();
+  const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${LOGIN_HASH}`;
   window.history.replaceState(window.history.state, '', nextUrl);
 }
 
@@ -76,6 +84,31 @@ export default function Login() {
   // 登录成功后的离场动画状态:开启后页面淡出,过渡结束再跳转
   const [leaving, setLeaving] = useState(false);
   const [signingIn, setSigningIn] = useState<LoginSource | null>(null);
+  const reviewerInviteToken = resolveReviewerInviteToken(location.search);
+
+  useEffect(() => {
+    if (!reviewerInviteToken) {
+      return undefined;
+    }
+    let cancelled = false;
+    setMode('signup');
+    void authApi.validateReviewerInvitation(reviewerInviteToken).then((result) => {
+      if (cancelled || result.valid) return;
+      const reasonText = result.reason === 'expired'
+        ? '审核员邀请链接已过期'
+        : result.reason === 'used'
+          ? '审核员邀请链接已被使用'
+          : '审核员邀请链接无效';
+      message.warning(reasonText);
+    }).catch(() => {
+      if (!cancelled) {
+        message.warning('审核员邀请链接校验失败，提交注册时会再次校验');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [message, reviewerInviteToken]);
 
   useEffect(() => {
     setMode(resolveModeFromHash(location.hash));
@@ -134,7 +167,7 @@ export default function Login() {
     setSigningIn(source);
     try {
       const response = await authApi.login(values);
-      const landingPath = resolveLandingPath(response.user.roles, values.role);
+      const landingPath = resolveLandingPath(response.user.roles);
       message.success('登录成功');
       setLeaving(true);
       // 等离场动画跑完再跳转,避免直接 navigate 造成"闪一下"
@@ -149,9 +182,18 @@ export default function Login() {
 
   const handleSignupFinish = async (values: SignupFormValues) => {
     try {
-      await authApi.register({ ...values, role: 'labeler' });
-      replaceAuthHash('login');
-      message.success('账号创建成功，请登录');
+      await authApi.register({
+        ...values,
+        role: 'labeler',
+        inviteToken: reviewerInviteToken ?? undefined,
+      });
+      if (reviewerInviteToken) {
+        replaceReviewerInviteSearch();
+        message.success('审核员账号创建成功，请使用人工审核员身份登录');
+      } else {
+        replaceAuthHash('login');
+        message.success('账号创建成功，请登录');
+      }
       setMode('login');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '注册失败');
@@ -213,7 +255,6 @@ export default function Login() {
 
               <Form<LoginRequest>
                 layout="vertical"
-                initialValues={{ role: 'owner' }}
                 onFinish={(values) => void handleLoginFinish(values)}
                 requiredMark={false}
               >
@@ -240,19 +281,6 @@ export default function Login() {
                     placeholder="密码"
                     size="large"
                     autoComplete="current-password"
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  name="role"
-                  rules={[{ required: true, message: '请选择角色' }]}
-                >
-                  <Select
-                    className="login-input login-input-select"
-                    options={roleOptions}
-                    size="large"
-                    suffixIcon={<TeamOutlined />}
-                    placeholder="选择角色"
                   />
                 </Form.Item>
 
@@ -284,7 +312,6 @@ export default function Login() {
                           {
                             username: account.username,
                             password: account.password,
-                            role: account.role,
                           },
                           account.source,
                         );
