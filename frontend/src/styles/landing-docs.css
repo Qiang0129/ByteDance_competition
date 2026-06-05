@@ -21,12 +21,31 @@
   overflow: hidden;
   border-radius: 14px;
   background:
-    radial-gradient(circle at 86% 12%, rgba(58, 187, 255, 0.58), transparent 24%),
-    radial-gradient(circle at 67% 32%, rgba(88, 132, 255, 0.46), transparent 31%),
-    radial-gradient(circle at 10% 10%, rgba(36, 214, 211, 0.68), transparent 30%),
-    radial-gradient(circle at 15% 84%, rgba(239, 61, 156, 0.42), transparent 24%),
-    linear-gradient(135deg, #d9fbff 0%, #eaf5ff 45%, #f3e5ff 100%);
+    radial-gradient(ellipse 38% 54% at 93% 8%, rgba(236, 72, 153, 0.36), transparent 66%),
+    radial-gradient(ellipse 44% 52% at 66% 12%, rgba(99, 102, 241, 0.28), transparent 66%),
+    radial-gradient(ellipse 46% 40% at 50% 31%, rgba(255, 255, 255, 0.38), transparent 68%),
+    radial-gradient(ellipse 48% 54% at 10% 9%, rgba(45, 212, 191, 0.62), transparent 66%),
+    radial-gradient(ellipse 54% 46% at 14% 86%, rgba(236, 72, 153, 0.46), transparent 70%),
+    radial-gradient(ellipse 62% 44% at 54% 78%, rgba(88, 132, 255, 0.38), transparent 72%),
+    linear-gradient(118deg, #c9fbfa 0%, #eaf7ff 43%, #f5e7ff 69%, #ffe7f2 100%);
+  background-size:
+    150% 150%,
+    145% 145%,
+    130% 130%,
+    150% 150%,
+    155% 155%,
+    145% 145%,
+    100% 100%;
+  background-position:
+    100% 0,
+    70% 8%,
+    50% 24%,
+    0 0,
+    0 100%,
+    45% 100%,
+    0 0;
   box-shadow: 0 0 0 1px rgba(203, 213, 225, 0.22);
+  animation: landing-docs-hero-frost-shift 28s ease-in-out infinite alternate;
 }
 
 .landing-docs-page .landing-docs-hero-inner {
@@ -43,14 +62,17 @@
   z-index: 0;
   pointer-events: none;
   content: '';
-  opacity: 0.58;
+  opacity: 0.86;
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.05 0 0 0 0 0.45 0 0 0 0 0.68 0 0 0 .62 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='.72'/%3E%3C/svg%3E"),
-    radial-gradient(circle at 84% 14%, rgba(236, 72, 153, 0.2), transparent 28%),
-    radial-gradient(circle at 15% 20%, rgba(20, 184, 166, 0.16), transparent 28%);
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.85' numOctaves='5' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.05 0 0 0 0 0.34 0 0 0 0 0.78 0 0 0 .56 0'/%3E%3C/filter%3E%3Crect width='96' height='96' filter='url(%23n)' opacity='.88'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 48% 56% at 84% 12%, rgba(236, 72, 153, 0.18), transparent 66%),
+    radial-gradient(ellipse 54% 58% at 13% 13%, rgba(20, 184, 166, 0.2), transparent 62%),
+    radial-gradient(ellipse 52% 42% at 42% 78%, rgba(79, 70, 229, 0.24), transparent 68%),
+    radial-gradient(ellipse 44% 34% at 12% 88%, rgba(236, 72, 153, 0.22), transparent 70%);
   background-repeat: repeat, no-repeat, no-repeat;
-  background-size: 220px 220px, 100% 100%, 100% 100%;
+  background-size: 96px 96px, 100% 100%, 100% 100%, 100% 100%, 100% 100%;
   mix-blend-mode: multiply;
+  animation: landing-docs-hero-grain-drift 36s ease-in-out infinite alternate;
 }
 
 .landing-docs-hero-inner::after {
@@ -63,11 +85,58 @@
   background: linear-gradient(180deg, transparent, rgba(248, 250, 252, 0.58));
 }
 
-.landing-docs-hero-content {
+@keyframes landing-docs-hero-frost-shift {
+  0% {
+    background-position:
+      100% 0,
+      70% 8%,
+      50% 24%,
+      0 0,
+      0 100%,
+      45% 100%,
+      0 0;
+  }
+  100% {
+    background-position:
+      86% 8%,
+      62% 0,
+      56% 30%,
+      7% 4%,
+      8% 90%,
+      52% 88%,
+      0 0;
+  }
+}
+
+@keyframes landing-docs-hero-grain-drift {
+  0% {
+    background-position:
+      0 0,
+      84% 12%,
+      13% 13%,
+      42% 78%,
+      12% 88%;
+  }
+  100% {
+    background-position:
+      42px -28px,
+      76% 18%,
+      18% 8%,
+      48% 72%,
+      8% 82%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-docs-hero-inner,
+  .landing-docs-hero-inner::before {
+    animation: none !important;
+  }
+}.landing-docs-hero-content {
   position: relative;
   z-index: 2;
-  width: min(640px, calc(100% - 48px));
-  padding: 96px 0 0 48px;
+  width: min(720px, calc(100% - 48px));
+  padding: 78px 0 0 48px;
 }
 
 .landing-docs-hero-badge {
@@ -76,13 +145,13 @@
   gap: 8px;
   height: 34px;
   padding: 0 14px;
-  border: 1px solid rgba(236, 72, 153, 0.5);
+  border: 1px solid rgba(24, 144, 255, 0.5);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.32);
-  color: #e11d8d;
+  color: #1890ff;
   font-size: 13px;
   font-weight: 800;
-  box-shadow: 0 10px 30px rgba(236, 72, 153, 0.12);
+  box-shadow: 0 10px 30px rgba(24, 144, 255, 0.12);
   backdrop-filter: blur(12px);
 }
 
@@ -95,12 +164,12 @@
 }
 
 .landing-docs-hero h1 {
-  margin: 32px 0 0;
+  margin: 32px 0 48px;
   color: #5c3a4a;
-  font-size: clamp(42px, 3.45vw, 48px);
-  line-height: 1.15;
-  font-weight: 650;
-  letter-spacing: 0;
+  font-size: 48px;
+  line-height: 1.25;
+  font-weight: 500;
+  letter-spacing: normal;
 }
 
 .landing-docs-hero h1 span {
@@ -152,25 +221,24 @@
 
 .landing-docs-hero-action:hover {
   color: #111827;
-  border-color: rgba(45, 140, 255, 0.34);
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow:
-    0 18px 40px rgba(71, 85, 105, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  border-color: rgba(148, 163, 184, 0.5);
+  background: transparent;
+  box-shadow: 0 18px 40px rgba(71, 85, 105, 0.18);
   transform: translateY(-2px);
 }
 
 .landing-docs-hero-action.is-primary {
-  border-color: rgba(236, 72, 153, 0.5);
-  background: linear-gradient(135deg, #f1439b, #d827a1);
+  border-color: rgba(24, 144, 255, 0.5);
+  background: linear-gradient(135deg, #40a9ff, #096dd9);
   color: #ffffff;
-  box-shadow: 0 18px 42px rgba(225, 43, 160, 0.28);
+  box-shadow: 0 18px 42px rgba(24, 144, 255, 0.28);
 }
 
 .landing-docs-hero-action.is-primary:hover {
   color: #ffffff;
-  border-color: rgba(236, 72, 153, 0.62);
-  background: linear-gradient(135deg, #f549a4, #d322a0);
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.85;
 }
 
 .landing-docs-hero-screenshot {
@@ -846,7 +914,7 @@
 
   .landing-docs-hero-content {
     width: min(640px, calc(100% - 40px));
-    padding: 76px 0 0 36px;
+    padding: 64px 0 0 36px;
   }
 
   .landing-docs-hero-screenshot {

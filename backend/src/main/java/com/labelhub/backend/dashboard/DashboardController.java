@@ -30,6 +30,13 @@ public class DashboardController {
     return dashboardService.getTaskProgress(authentication);
   }
 
+  @GetMapping("/role-users")
+  public DashboardItemsResponse<DashboardRoleUserResponse> getRoleUsers(
+      Authentication authentication,
+      @RequestParam String role) {
+    return dashboardService.getRoleUsers(authentication, role);
+  }
+
   @GetMapping("/review-distribution")
   public ReviewDistributionResponse getReviewDistribution(
       Authentication authentication,

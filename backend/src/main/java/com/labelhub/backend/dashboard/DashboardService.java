@@ -93,6 +93,22 @@ public class DashboardService {
     return new DashboardItemsResponse<>(items);
   }
 
+  public DashboardItemsResponse<DashboardRoleUserResponse> getRoleUsers(
+      Authentication authentication,
+      String role) {
+    requireOwner(authentication);
+    String safeRole = normalizeRoleUserQuery(role);
+    List<DashboardRoleUserResponse> items = repository.listActiveUsersByRole(safeRole).stream()
+        .map(record -> new DashboardRoleUserResponse(
+            Long.toString(record.userId()),
+            blankToDefault(record.username(), "-"),
+            blankToDefault(record.name(), record.username()),
+            blankToDefault(record.status(), "-"),
+            record.roles()))
+        .toList();
+    return new DashboardItemsResponse<>(items);
+  }
+
   public ReviewDistributionResponse getReviewDistribution(Authentication authentication, String range, Integer year) {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
@@ -228,6 +244,14 @@ public class DashboardService {
     }
     LocalDateTime end = LocalDate.now().plusDays(1).atStartOfDay();
     return new DateRange(end.minusDays(days), end);
+  }
+
+  private String normalizeRoleUserQuery(String role) {
+    String normalized = role == null ? "" : role.trim().toLowerCase(Locale.ROOT);
+    if (!"labeler".equals(normalized) && !"reviewer".equals(normalized)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_ROLE", "仅支持查询标注员或审核员列表");
+    }
+    return normalized;
   }
 
   private DateRange reviewDistributionRange(String range, Integer year) {

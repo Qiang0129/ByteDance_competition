@@ -72,6 +72,15 @@ export interface RoleBreakdown {
   memberCount: number;
 }
 
+/** Owner KPI 角色人数弹窗条目 */
+export interface DashboardRoleUser {
+  id: string;
+  username: string;
+  name: string;
+  status: string;
+  roles: string[];
+}
+
 /** 争议样本统计 */
 export interface DisputeStats {
   rangeDays: 7 | 14 | 30;

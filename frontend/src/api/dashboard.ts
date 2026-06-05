@@ -16,6 +16,7 @@ import { ApiError, apiRequest, buildApiUrl, getAuthToken } from './client';
 import type {
   DashboardOverview,
   DashboardPageResult,
+  DashboardRoleUser,
   DisputeStats,
   IssueFeedback,
   IssueFeedbackStatus,
@@ -87,6 +88,10 @@ export const dashboardApi = {
 
   getTaskProgress(): Promise<{ items: TaskProgress[] }> {
     return apiRequest('/dashboard/task-progress');
+  },
+
+  getRoleUsers(role: 'labeler' | 'reviewer'): Promise<{ items: DashboardRoleUser[] }> {
+    return apiRequest(`/dashboard/role-users?role=${encodeURIComponent(role)}`);
   },
 
   getReviewDistribution(params: ReviewDistributionParams = '30d'): Promise<ReviewDistribution> {

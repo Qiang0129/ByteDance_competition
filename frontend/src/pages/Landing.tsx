@@ -18,6 +18,8 @@ import {
   GithubOutlined,
   InfoCircleOutlined,
   LinkOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   PictureOutlined,
   ReadOutlined,
   ReloadOutlined,
@@ -791,9 +793,9 @@ export function DocsPlaceholder() {
               <span>数据标注文档中心</span>
             </div>
             <h1 id="docs-title">
-              沉淀项目文档，
+              沉淀项目文档，管理数据资产，
               <br />
-              连接 <span>标注流程.</span>
+              连接 <span>标注.</span>
             </h1>
             <div className="landing-docs-hero-actions" aria-label="文档中心快捷入口">
               <button className="landing-docs-hero-action is-primary" type="button" onClick={handleQuickStart}>
@@ -1133,6 +1135,7 @@ export function AboutPlaceholder() {
   const tocRef = useRef<HTMLElement | null>(null);
   const { message } = App.useApp();
   const [activeReadmeHeadingId, setActiveReadmeHeadingId] = useState(README_HEADINGS[0]?.id ?? '');
+  const [isReadmeTocCollapsed, setIsReadmeTocCollapsed] = useState(false);
   const intro = useMemo(() => {
     const lines = readmeSource.split(/\r?\n/);
     const firstParagraph = lines.find((line) => {
@@ -1326,10 +1329,26 @@ export function AboutPlaceholder() {
       </section>
 
       <section className="landing-about-docs" aria-labelledby="about-readme-title">
-        <div className="landing-about-docs-shell">
+        <div
+          className={`landing-about-docs-shell${
+            isReadmeTocCollapsed ? ' is-toc-collapsed' : ''
+          }`}
+        >
           <aside className="landing-about-toc" aria-label="README 目录" ref={tocRef}>
-            <div className="landing-about-toc-title">README</div>
-            <nav>
+            <div className="landing-about-toc-header">
+              <div className="landing-about-toc-title">README</div>
+              <button
+                type="button"
+                className="landing-about-toc-toggle"
+                aria-label={isReadmeTocCollapsed ? '展开 README 目录' : '收起 README 目录'}
+                aria-expanded={!isReadmeTocCollapsed}
+                title={isReadmeTocCollapsed ? '展开目录' : '收起目录'}
+                onClick={() => setIsReadmeTocCollapsed((collapsed) => !collapsed)}
+              >
+                {isReadmeTocCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              </button>
+            </div>
+            <nav className="landing-about-toc-nav" aria-hidden={isReadmeTocCollapsed}>
               {README_HEADINGS.map((heading) => (
                 <a
                   key={`${heading.id}-${heading.text}`}
@@ -1337,6 +1356,7 @@ export function AboutPlaceholder() {
                     activeReadmeHeadingId === heading.id ? ' is-active' : ''
                   }`}
                   href={`#${heading.id}`}
+                  tabIndex={isReadmeTocCollapsed ? -1 : undefined}
                   onClick={(event) => handleReadmeTocClick(event, heading)}
                 >
                   {heading.text}

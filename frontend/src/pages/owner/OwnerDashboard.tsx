@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowDownOutlined,
@@ -21,6 +22,7 @@ import {
   Drawer,
   Empty,
   List,
+  Modal,
   Row,
   Segmented,
   Select,
@@ -47,6 +49,7 @@ import { dashboardApi } from '../../api/dashboard';
 import { AiAssistantIcon } from '../../components/icons';
 import type {
   DashboardOverview,
+  DashboardRoleUser,
   DisputeStats,
   IssueFeedback,
   LabelerPerformance,
@@ -91,6 +94,12 @@ const reviewYearOptions = Array.from({ length: 5 }, (_, index) => {
   return { label: String(year), value: year };
 });
 const ISSUE_FEEDBACK_PREVIEW_SIZE = 5;
+type RoleUserKind = 'labeler' | 'reviewer';
+
+const roleUserTitles: Record<RoleUserKind, string> = {
+  labeler: '标注人员',
+  reviewer: '审核人员',
+};
 
 function issueStatusLabel(status: string) {
   if (status === 'open') return '待查看';
@@ -111,6 +120,11 @@ export default function OwnerDashboard() {
   const [issueTotal, setIssueTotal] = useState(0);
   const [issueLoading, setIssueLoading] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
+  const [roleUserOpen, setRoleUserOpen] = useState(false);
+  const [roleUserKind, setRoleUserKind] = useState<RoleUserKind>('labeler');
+  const [roleUsers, setRoleUsers] = useState<DashboardRoleUser[]>([]);
+  const [roleUserLoading, setRoleUserLoading] = useState(false);
+  const [roleUserError, setRoleUserError] = useState<string | null>(null);
 
   const loadIssueFeedback = useCallback(async (options: { markViewed?: boolean; includeViewed?: boolean } = {}) => {
     setIssueLoading(true);
@@ -215,6 +229,26 @@ export default function OwnerDashboard() {
     void loadIssueFeedback({ markViewed: true, includeViewed: true });
   };
 
+  const loadRoleUsers = useCallback(async (role: RoleUserKind) => {
+    setRoleUserLoading(true);
+    setRoleUserError(null);
+    try {
+      const result = await dashboardApi.getRoleUsers(role);
+      setRoleUsers(result.items ?? []);
+    } catch (error) {
+      setRoleUsers([]);
+      setRoleUserError(getApiErrorMessage(error, '角色人员加载失败,请稍后重试'));
+    } finally {
+      setRoleUserLoading(false);
+    }
+  }, []);
+
+  const openRoleUsers = useCallback((role: RoleUserKind) => {
+    setRoleUserKind(role);
+    setRoleUserOpen(true);
+    void loadRoleUsers(role);
+  }, [loadRoleUsers]);
+
   const downloadReviewReport = useCallback(async () => {
     setReviewReportDownloading(true);
     try {
@@ -261,6 +295,7 @@ export default function OwnerDashboard() {
               issueTotal={issueTotal}
               issueLoading={issueLoading}
               onOpenFeedback={openIssueFeedback}
+              onOpenRoleUsers={openRoleUsers}
             />
 
             <Row gutter={[16, 16]}>
@@ -318,6 +353,15 @@ export default function OwnerDashboard() {
         onClose={() => setFeedbackOpen(false)}
         onRetry={() => loadIssueFeedback({ markViewed: true, includeViewed: true })}
         previewSize={ISSUE_FEEDBACK_PREVIEW_SIZE}
+      />
+      <RoleUsersModal
+        open={roleUserOpen}
+        role={roleUserKind}
+        items={roleUsers}
+        loading={roleUserLoading}
+        error={roleUserError}
+        onClose={() => setRoleUserOpen(false)}
+        onRetry={() => loadRoleUsers(roleUserKind)}
       />
     </>
   );
@@ -391,20 +435,45 @@ function DashboardSkeleton() {
 }
 
 /* ============ KPI 卡 ============ */
+type KpiCardBase = {
+  key: string;
+  icon: ReactNode;
+  title: string;
+  value: number | string;
+  bg: string;
+  iconBg: string;
+};
+
+type KpiMetricCard = KpiCardBase & {
+  kind: 'metric';
+  delta: number | undefined;
+};
+
+type KpiRoleCard = KpiCardBase & {
+  kind: 'role';
+  note: string;
+  roleUsers: RoleUserKind;
+};
+
+type KpiCardItem = KpiMetricCard | KpiRoleCard;
+
 function KpiRow({
   overview,
   issueTotal,
   issueLoading,
   onOpenFeedback,
+  onOpenRoleUsers,
 }: {
   overview: DashboardOverview;
   issueTotal: number;
   issueLoading: boolean;
   onOpenFeedback: () => void;
+  onOpenRoleUsers: (role: RoleUserKind) => void;
 }) {
   const { kpis } = overview;
-  const cards = [
+  const cards: KpiCardItem[] = [
     {
+      kind: 'metric',
       key: 'activeTasks',
       icon: <ProjectOutlined />,
       title: '活跃任务',
@@ -414,15 +483,18 @@ function KpiRow({
       iconBg: '#f59e0b',
     },
     {
+      kind: 'role',
       key: 'labelerCount',
       icon: <TeamOutlined />,
       title: '标注员数量',
       value: kpis.labelerCount,
       note: '全平台可用角色',
+      roleUsers: 'labeler' as const,
       bg: '#eff6ff',
       iconBg: '#2f7bff',
     },
     {
+      kind: 'metric',
       key: 'pendingReview',
       icon: <FlagOutlined />,
       title: '待人工审核',
@@ -432,15 +504,18 @@ function KpiRow({
       iconBg: '#eab308',
     },
     {
+      kind: 'role',
       key: 'reviewerCount',
       icon: <RiseOutlined />,
       title: '审核员数量',
       value: kpis.reviewerCount,
       note: '全平台可用角色',
+      roleUsers: 'reviewer' as const,
       bg: '#ecfdf5',
       iconBg: '#22c55e',
     },
     {
+      kind: 'metric',
       key: 'aiPassRate',
       icon: <AiAssistantIcon />,
       title: 'AI 通过率',
@@ -456,12 +531,24 @@ function KpiRow({
       {cards.map((card) => (
         <Col key={card.key} xs={12} md={8} xl={4}>
           <Card className="dashboard-kpi" style={{ background: card.bg }}>
-            <div className="dashboard-kpi-icon" style={{ background: card.iconBg }}>
-              {card.icon}
-            </div>
+            {card.kind === 'role' ? (
+              <button
+                type="button"
+                className="dashboard-kpi-icon dashboard-kpi-icon-button"
+                style={{ background: card.iconBg }}
+                onClick={() => onOpenRoleUsers(card.roleUsers)}
+                aria-label={`查看${card.title}`}
+              >
+                {card.icon}
+              </button>
+            ) : (
+              <div className="dashboard-kpi-icon" style={{ background: card.iconBg }}>
+                {card.icon}
+              </div>
+            )}
             <div className="dashboard-kpi-value">{card.value}</div>
             <div className="dashboard-kpi-title">{card.title}</div>
-            {'note' in card ? (
+            {card.kind === 'role' ? (
               <Typography.Text type="secondary" className="dashboard-kpi-note">
                 {card.note}
               </Typography.Text>
@@ -593,6 +680,92 @@ function IssueFeedbackDrawer({
         ) : null}
       </Space>
     </Drawer>
+  );
+}
+
+function RoleUsersModal({
+  open,
+  role,
+  items,
+  loading,
+  error,
+  onClose,
+  onRetry,
+}: {
+  open: boolean;
+  role: RoleUserKind;
+  items: DashboardRoleUser[];
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <Modal
+      title={roleUserTitles[role]}
+      open={open}
+      onCancel={onClose}
+      footer={null}
+      width={560}
+      destroyOnHidden
+    >
+      <Space direction="vertical" size={16} className="dashboard-role-users-modal">
+        <Typography.Text type="secondary">
+          当前共有 {items.length} 名{roleUserTitles[role]}。
+        </Typography.Text>
+        {error ? (
+          <Alert
+            type="error"
+            showIcon
+            message={`${roleUserTitles[role]}加载失败`}
+            description={error}
+            action={
+              <Button size="small" danger onClick={() => void onRetry()}>
+                重试
+              </Button>
+            }
+          />
+        ) : null}
+        {!error ? (
+          <List<DashboardRoleUser>
+            className="dashboard-role-users-list"
+            loading={loading}
+            dataSource={items}
+            locale={{
+              emptyText: (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={`暂无${roleUserTitles[role]}`}
+                />
+              ),
+            }}
+            renderItem={(item) => (
+              <List.Item className="dashboard-role-users-item">
+                <List.Item.Meta
+                  avatar={<Avatar icon={<UserOutlined />} className="dashboard-role-users-avatar" />}
+                  title={
+                    <Space wrap size={8}>
+                      <Typography.Text strong>{item.name || item.username}</Typography.Text>
+                      <Tag color="green">{item.status}</Tag>
+                    </Space>
+                  }
+                  description={
+                    <Space direction="vertical" size={6}>
+                      <Typography.Text type="secondary">@{item.username}</Typography.Text>
+                      <Space wrap size={[6, 4]}>
+                        {item.roles.map((userRole) => (
+                          <Tag key={userRole}>{userRole}</Tag>
+                        ))}
+                      </Space>
+                    </Space>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        ) : null}
+      </Space>
+    </Modal>
   );
 }
 

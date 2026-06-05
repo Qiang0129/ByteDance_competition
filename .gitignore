@@ -15,3 +15,4 @@ image/
 backend/data
 .tmp-chrome-cdp
 .playwright-cli
+output/

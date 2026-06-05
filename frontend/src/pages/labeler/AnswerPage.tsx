@@ -181,6 +181,27 @@ export default function AnswerPage() {
   editableRef.current = canEdit;
   dirtyRef.current = dirty;
 
+  const applyAssignmentItem = useCallback((data: AssignmentItem) => {
+    const normalized: AssignmentItem = {
+      ...data,
+      status: data.status ?? (data.latestAnnotation ? 'submitted' : 'claimed'),
+    };
+    setItem(normalized);
+    setEditCurrentSchema(false);
+    if (itemRef.current?.taskId && itemRef.current.taskId !== normalized.taskId) {
+      setBatchInvalidItems([]);
+    }
+    // 可编辑时优先恢复草稿;已锁定时优先展示正式提交答案。
+    const initial = normalized.latestAnnotation && normalized.status === 'submitted'
+      ? normalized.latestAnnotation.answerJson
+      : normalized.editable === false
+      ? normalized.latestAnnotation?.answerJson ?? normalized.draft?.answerJson ?? {}
+      : normalized.draft?.answerJson ?? normalized.latestAnnotation?.answerJson ?? {};
+    setAnswer(initial);
+    setDraftSavedAt(normalized.draft?.updatedAt ?? null);
+    setDirty(false);
+  }, []);
+
   /** 拉取题目 */
   useEffect(() => {
     if (!assignmentId) return;
@@ -192,7 +213,7 @@ export default function AnswerPage() {
       try {
         const data = await labelerApi.getAssignmentItem(assignmentId);
         if (cancelled) return;
-        applyItem(data);
+        applyAssignmentItem(data);
         setUsingFallback(false);
       } catch (error) {
         if (error instanceof ApiError) {
@@ -207,7 +228,7 @@ export default function AnswerPage() {
           const res = await fetch('/sample-datasets/labeler-assignment.json');
           const data = (await res.json()) as AssignmentItem;
           if (cancelled) return;
-          applyItem({ ...data, assignmentId });
+          applyAssignmentItem({ ...data, assignmentId });
           setUsingFallback(true);
         } catch {
           if (!cancelled) message.error('加载题目失败');
@@ -220,29 +241,7 @@ export default function AnswerPage() {
     return () => {
       cancelled = true;
     };
-
-    function applyItem(data: AssignmentItem) {
-      const normalized: AssignmentItem = {
-        ...data,
-        status: data.status ?? (data.latestAnnotation ? 'submitted' : 'claimed'),
-      };
-      setItem(normalized);
-      setEditCurrentSchema(false);
-      if (itemRef.current?.taskId && itemRef.current.taskId !== normalized.taskId) {
-        setBatchInvalidItems([]);
-      }
-      // 可编辑时优先恢复草稿;已锁定时优先展示正式提交答案。
-      const initial = normalized.latestAnnotation && normalized.status === 'submitted'
-        ? normalized.latestAnnotation.answerJson
-        : normalized.editable === false
-        ? normalized.latestAnnotation?.answerJson ?? normalized.draft?.answerJson ?? {}
-        : normalized.draft?.answerJson ?? normalized.latestAnnotation?.answerJson ?? {};
-      setAnswer(initial);
-      setDraftSavedAt(normalized.draft?.updatedAt ?? null);
-      setDirty(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assignmentId]);
+  }, [applyAssignmentItem, assignmentId]);
 
   /**
    * 自动定位到第一道未完成题:
@@ -455,25 +454,24 @@ export default function AnswerPage() {
     }
     setSubmitting(true);
     try {
-      if (showReworkSubmit) {
-        await labelerApi.submitAnnotation(item.assignmentId, {
-          schemaVersionId: item.schemaVersionId,
-          schemaDigest: activeSchemaDigest,
-          answerJson: filterVisibleAnswer(renderFields, answer),
-        });
-        setBatchInvalidItems([]);
-        message.success('返修已提交,等待 AI 预审与人工审核');
-        navigate('/labeler/returned');
-        return;
-      }
-      const response = await labelerApi.submitTaskAssignments(item.taskId);
+      await labelerApi.submitAnnotation(item.assignmentId, {
+        schemaVersionId: item.schemaVersionId,
+        schemaDigest: activeSchemaDigest,
+        answerJson: filterVisibleAnswer(renderFields, answer),
+      });
       setBatchInvalidItems([]);
-      if (response.submittedCount === 0) {
-        message.success('没有新的题目需要提交，已提交的题目正在审核中');
+      message.success(
+        showReworkSubmit
+          ? '返修已提交,等待 AI 预审与人工审核'
+          : '当前题已提交审核',
+      );
+      if (item.position.nextAssignmentId) {
+        navigate(`/labeler/answer/${item.position.nextAssignmentId}`);
       } else {
-        message.success(`已提交 ${response.submittedCount} 题,等待 AI 预审与人工审核`);
+        const refreshed = await labelerApi.getAssignmentItem(item.assignmentId);
+        applyAssignmentItem(refreshed);
+        setUsingFallback(false);
       }
-      navigate('/labeler/my-tasks');
     } catch (error) {
       const invalidItems = getBatchInvalidItems(error);
       if (invalidItems.length > 0) {
@@ -654,14 +652,8 @@ export default function AnswerPage() {
       ? 0
       : Math.round((item.position.index / item.position.total) * 100);
   const statusLabel = assignmentStatusText(item.status);
-  const isLastQuestion = !item.position.nextAssignmentId;
-  const primaryActionText = showSubmittedSnapshot
-    ? '重新修改'
-    : '提交';
-  const handlePrimaryAction = showSubmittedSnapshot
-    ? handleEditCurrentSchema
-    : () => void handleSubmit();
-  const showPrimaryAction = showSubmittedSnapshot || (isLastQuestion && !isReturnedAssignment);
+  const submitReviewText =
+    showReworkSubmit || item.status === 'submitted' ? '重新提交审核' : '提交审核';
 
   return (
     <Space direction="vertical" size="large" className="page-stack answer-page">
@@ -735,14 +727,13 @@ export default function AnswerPage() {
               报告问题
             </Button>
           )}
-          {showPrimaryAction && (
+          {showSubmittedSnapshot && (
             <Button
               type="primary"
-              loading={submitting}
               disabled={!canEdit}
-              onClick={handlePrimaryAction}
+              onClick={handleEditCurrentSchema}
             >
-              {canEdit ? primaryActionText : '已锁定'}
+              {canEdit ? '重新修改' : '已锁定'}
             </Button>
           )}
         </Space>
@@ -887,17 +878,15 @@ export default function AnswerPage() {
                 </Button>
               </div>
               <div className="answer-pager-center">
-                {showReworkSubmit ? (
-                  <Button
-                    size="middle"
-                    type="primary"
-                    loading={submitting}
-                    disabled={!canEdit}
-                    onClick={() => void handleSubmit()}
-                  >
-                    重新提交
-                  </Button>
-                ) : null}
+                <Button
+                  size="middle"
+                  type="primary"
+                  loading={submitting}
+                  disabled={!canEdit}
+                  onClick={() => void handleSubmit()}
+                >
+                  {submitReviewText}
+                </Button>
               </div>
               <div className="answer-pager-side answer-pager-side-right">
                 <Button
@@ -1438,28 +1427,34 @@ function LabelerAnswerInsights() {
 
   return (
     <Card className="answer-section answer-insights-card">
-      <div className="answer-insights-block">
-        <Typography.Title level={5} className="answer-insights-title">
-          我的贡献（本任务）
-        </Typography.Title>
-        <div className="answer-contribution-grid">
-          {contributionItems.map((item) => (
-            <div key={item.key} className={`answer-contribution-item is-${item.tone}`}>
-              <span className="answer-contribution-label">{item.label}</span>
-              <span className="answer-contribution-value">-</span>
-            </div>
-          ))}
+      <div className="answer-insights-grid">
+        <div className="answer-insights-block">
+          <Typography.Title level={5} className="answer-insights-title">
+            我的贡献（本任务）
+          </Typography.Title>
+          <div className="answer-contribution-grid">
+            {contributionItems.map((item) => (
+              <div key={item.key} className={`answer-contribution-item is-${item.tone}`}>
+                <span className="answer-contribution-label">{item.label}</span>
+                <svg className="answer-contribution-ring" viewBox="0 0 60 60" role="img" aria-label={`${item.label} 暂无数据`}>
+                  <circle className="answer-contribution-ring-track" cx="30" cy="30" r="23" />
+                  <circle className="answer-contribution-ring-value" cx="30" cy="30" r="23" />
+                  <text x="30" y="35" textAnchor="middle" className="answer-contribution-ring-text">-</text>
+                </svg>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <div className="answer-insights-block">
-        <Typography.Title level={5} className="answer-insights-title">
-          本题历史
-        </Typography.Title>
-        <div className="answer-history-empty">
-          <Typography.Text type="secondary">
-            暂无本题历史记录
-          </Typography.Text>
+        <div className="answer-insights-block">
+          <Typography.Title level={5} className="answer-insights-title">
+            本题历史
+          </Typography.Title>
+          <div className="answer-history-empty">
+            <Typography.Text type="secondary">
+              暂无本题历史记录
+            </Typography.Text>
+          </div>
         </div>
       </div>
     </Card>

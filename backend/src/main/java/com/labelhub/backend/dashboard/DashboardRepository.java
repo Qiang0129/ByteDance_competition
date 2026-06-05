@@ -2,6 +2,7 @@ package com.labelhub.backend.dashboard;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -55,6 +56,35 @@ public class DashboardRepository {
           AND u.status = 'active'
           AND u.deleted_at IS NULL
         """,
+        roleCode);
+  }
+
+  public List<RoleUserRecord> listActiveUsersByRole(String roleCode) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          u.id,
+          u.username,
+          u.name,
+          u.status,
+          GROUP_CONCAT(DISTINCT all_roles.role_code ORDER BY all_roles.role_code SEPARATOR ',') AS roles
+        FROM users u
+        JOIN user_roles target_user_roles ON target_user_roles.user_id = u.id
+        JOIN roles target_role ON target_role.id = target_user_roles.role_id
+        JOIN user_roles all_user_roles ON all_user_roles.user_id = u.id
+        JOIN roles all_roles ON all_roles.id = all_user_roles.role_id
+        WHERE target_role.role_code = ?
+          AND u.status = 'active'
+          AND u.deleted_at IS NULL
+        GROUP BY u.id, u.username, u.name, u.status
+        ORDER BY u.id
+        """,
+        (rs, rowNum) -> new RoleUserRecord(
+            rs.getLong("id"),
+            rs.getString("username"),
+            rs.getString("name"),
+            rs.getString("status"),
+            splitRoles(rs.getString("roles"))),
         roleCode);
   }
 
@@ -484,6 +514,16 @@ public class DashboardRepository {
     return value == null ? 0L : value.longValue();
   }
 
+  private static List<String> splitRoles(String roles) {
+    if (roles == null || roles.isBlank()) {
+      return List.of();
+    }
+    return Arrays.stream(roles.split(","))
+        .map(String::trim)
+        .filter(role -> !role.isEmpty())
+        .toList();
+  }
+
   private String allocatedReviewerFilter(String reviewAlias, String assignmentAlias) {
     return """
           AND EXISTS (
@@ -538,6 +578,13 @@ public class DashboardRepository {
   public record SubmissionTimelineRecord(int monthNo, long onTime, long late, long absent) {}
 
   public record RoleBreakdownRecord(String role, long memberCount) {}
+
+  public record RoleUserRecord(
+      long userId,
+      String username,
+      String name,
+      String status,
+      List<String> roles) {}
 
   public record DisputeStatsRecord(
       long disputed,
