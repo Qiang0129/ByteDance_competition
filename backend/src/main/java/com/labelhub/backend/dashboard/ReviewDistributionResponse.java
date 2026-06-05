@@ -5,4 +5,5 @@ public record ReviewDistributionResponse(
     long aiNeedHuman,
     long aiReject,
     long humanPass,
-    long humanReturned) {}
+    long humanReturned,
+    long humanDisputed) {}

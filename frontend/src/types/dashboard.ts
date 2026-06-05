@@ -10,20 +10,18 @@
 export interface DashboardOverview {
   rangeStart: string;
   rangeEnd: string;
-  /** KPI 列表:活跃任务 / 在线标注员 / 待人工审核 / 今日新增提交 / AI 通过率 / 平均耗时 */
+  /** KPI 列表:活跃任务 / 标注员数量 / 待人工审核 / 审核员数量 / AI 通过率 / 平均耗时 */
   kpis: {
     activeTasks: number;
-    activeLabelers: number;
+    labelerCount: number;
     pendingReview: number;
-    submittedToday: number;
+    reviewerCount: number;
     aiPassRate: number;
     avgDurationSec: number;
     /** 与上一周期的环比百分比变化,正数为增长 */
     deltas: {
       activeTasks?: number;
-      activeLabelers?: number;
       pendingReview?: number;
-      submittedToday?: number;
       aiPassRate?: number;
       avgDurationSec?: number;
     };
@@ -47,6 +45,7 @@ export interface ReviewDistribution {
   aiReject: number;
   humanPass: number;
   humanReturned: number;
+  humanDisputed: number;
 }
 
 /** 标注员绩效条目 */
@@ -55,12 +54,8 @@ export interface LabelerPerformance {
   name: string;
   role: string;
   avatar?: string;
-  /** 综合得分:approved / submitted */
+  /** 综合得分,由后端按标注质量和通过率口径计算 */
   score: number;
-  submitted: number;
-  approved: number;
-  returned: number;
-  avgDurationSec: number;
 }
 
 /** 提交时段堆叠(每月 OnTime / Late / Absent) */
@@ -69,15 +64,6 @@ export interface SubmissionTimelineMonth {
   onTime: number;
   late: number;
   absent: number;
-}
-
-/** 近期任务申报(类似 Recent Job Application) */
-export interface RecentTaskActivity {
-  taskId: string;
-  taskTitle: string;
-  ownerName: string;
-  status: 'pending' | 'approved' | 'rejected';
-  updatedAt: string;
 }
 
 /** 团队 / 角色分布 */

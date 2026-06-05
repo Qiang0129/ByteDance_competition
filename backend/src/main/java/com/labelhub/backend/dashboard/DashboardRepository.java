@@ -44,6 +44,20 @@ public class DashboardRepository {
         Timestamp.valueOf(end));
   }
 
+  public long countActiveUsersByRole(String roleCode) {
+    return queryLong(
+        """
+        SELECT COUNT(DISTINCT u.id)
+        FROM users u
+        JOIN user_roles ur ON ur.user_id = u.id
+        JOIN roles r ON r.id = ur.role_id
+        WHERE r.role_code = ?
+          AND u.status = 'active'
+          AND u.deleted_at IS NULL
+        """,
+        roleCode);
+  }
+
   public long countPendingReview(long ownerId) {
     return queryLong(
         """
@@ -190,6 +204,7 @@ public class DashboardRepository {
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
+        """ + allocatedReviewerFilter("hr", "a") + """
           AND hr.created_at >= ?
           AND hr.created_at < ?
         """,
@@ -320,56 +335,6 @@ public class DashboardRepository {
         ownerId);
   }
 
-  public List<RecentActivityRecord> listRecentActivities(long ownerId, int limit) {
-    return jdbcTemplate.query(
-        """
-        SELECT
-          t.id AS task_id,
-          t.title AS task_title,
-          owner.name AS owner_name,
-          al.action,
-          al.to_state,
-          al.created_at
-        FROM audit_logs al
-        JOIN tasks t ON (
-          (al.entity_type = 'task' AND al.entity_id = t.id)
-          OR (
-            al.entity_type = 'assignment'
-            AND EXISTS (
-              SELECT 1
-              FROM assignments a
-              WHERE a.id = al.entity_id
-                AND a.task_id = t.id
-            )
-          )
-          OR (
-            al.entity_type = 'annotation'
-            AND EXISTS (
-              SELECT 1
-              FROM annotations an
-              JOIN assignments a ON a.id = an.assignment_id
-              WHERE an.id = al.entity_id
-                AND a.task_id = t.id
-            )
-          )
-        )
-        JOIN users owner ON owner.id = t.owner_id
-        WHERE t.owner_id = ?
-          AND t.deleted_at IS NULL
-        ORDER BY al.created_at DESC, al.id DESC
-        LIMIT ?
-        """,
-        (rs, rowNum) -> new RecentActivityRecord(
-            rs.getLong("task_id"),
-            rs.getString("task_title"),
-            rs.getString("owner_name"),
-            rs.getString("action"),
-            rs.getString("to_state"),
-            toLocalDateTime(rs.getTimestamp("created_at"))),
-        ownerId,
-        limit);
-  }
-
   public List<RoleBreakdownRecord> listRoleBreakdown(long ownerId) {
     return jdbcTemplate.query(
         """
@@ -405,6 +370,7 @@ public class DashboardRepository {
           AND a.status <> 'voided'
           AND an.status <> 'voided'
           AND LOWER(hr.decision) = 'escalate'
+        """ + allocatedReviewerFilter("hr", "a") + """
           AND hr.created_at >= ?
           AND hr.created_at < ?
         """,
@@ -415,7 +381,7 @@ public class DashboardRepository {
         """
         SELECT COUNT(DISTINCT escalated.annotation_id)
         FROM (
-          SELECT DISTINCT hr.annotation_id
+          SELECT DISTINCT hr.annotation_id, a.task_id, a.item_id
           FROM human_reviews hr
           JOIN annotations an ON an.id = hr.annotation_id
           JOIN assignments a ON a.id = an.assignment_id
@@ -425,6 +391,7 @@ public class DashboardRepository {
             AND a.status <> 'voided'
             AND an.status <> 'voided'
             AND LOWER(hr.decision) = 'escalate'
+        """ + allocatedReviewerFilter("hr", "a") + """
             AND hr.created_at >= ?
             AND hr.created_at < ?
         ) escalated
@@ -432,10 +399,12 @@ public class DashboardRepository {
           SELECT latest.id
           FROM human_reviews latest
           WHERE latest.annotation_id = escalated.annotation_id
+        """ + allocatedReviewerFilter("latest", "escalated") + """
           ORDER BY latest.round_no DESC, latest.id DESC
           LIMIT 1
         )
         WHERE LOWER(latest_hr.decision) IN ('approve', 'approved', 'return', 'returned', 'reject', 'rejected', 'revise', 'revised')
+        """ + allocatedReviewerFilter("latest_hr", "escalated") + """
         """,
         ownerId,
         Timestamp.valueOf(start),
@@ -451,6 +420,7 @@ public class DashboardRepository {
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
+        """ + allocatedReviewerFilter("hr", "a") + """
           AND hr.created_at >= ?
           AND hr.created_at < ?
         """,
@@ -491,10 +461,12 @@ public class DashboardRepository {
           AND a.status <> 'voided'
           AND an.status <> 'voided'
           AND air.decision IN ('PASS', 'REJECT')
+        """ + allocatedReviewerFilter("hr", "a") + """
           AND hr.id = (
             SELECT latest_hr.id
             FROM human_reviews latest_hr
             WHERE latest_hr.annotation_id = an.id
+        """ + allocatedReviewerFilter("latest_hr", "a") + """
             ORDER BY latest_hr.round_no DESC, latest_hr.id DESC
             LIMIT 1
           )
@@ -512,8 +484,35 @@ public class DashboardRepository {
     return value == null ? 0L : value.longValue();
   }
 
-  private LocalDateTime toLocalDateTime(Timestamp timestamp) {
-    return timestamp == null ? null : timestamp.toLocalDateTime();
+  private String allocatedReviewerFilter(String reviewAlias, String assignmentAlias) {
+    return """
+          AND EXISTS (
+            SELECT 1
+            FROM task_reviewer_allocations tra
+            WHERE tra.task_id = %s.task_id
+              AND tra.reviewer_id = %s.reviewer_id
+          )
+          AND (
+            NOT EXISTS (
+              SELECT 1
+              FROM task_review_items tri_any
+              WHERE tri_any.task_id = %s.task_id
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM task_review_items tri
+              WHERE tri.task_id = %s.task_id
+                AND tri.item_id = %s.item_id
+                AND tri.reviewer_id = %s.reviewer_id
+            )
+          )
+        """.formatted(
+        assignmentAlias,
+        reviewAlias,
+        assignmentAlias,
+        assignmentAlias,
+        assignmentAlias,
+        reviewAlias);
   }
 
   public record AiDecisionCounts(long aiPass, long aiNeedHuman, long aiReject, long total) {}
@@ -537,14 +536,6 @@ public class DashboardRepository {
       long avgDurationSec) {}
 
   public record SubmissionTimelineRecord(int monthNo, long onTime, long late, long absent) {}
-
-  public record RecentActivityRecord(
-      long taskId,
-      String taskTitle,
-      String ownerName,
-      String action,
-      String toState,
-      LocalDateTime createdAt) {}
 
   public record RoleBreakdownRecord(String role, long memberCount) {}
 

@@ -132,6 +132,7 @@ public class OwnerReviewRepository {
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
+        """ + allocatedReviewerFilter("hr", "a") + """
           AND hr.created_at >= ?
           AND hr.created_at < ?
         """ + decisionFilter,
@@ -149,6 +150,7 @@ public class OwnerReviewRepository {
           SELECT latest.id
           FROM human_reviews latest
           WHERE latest.annotation_id = an.id
+        """ + allocatedReviewerFilter("latest", "a") + """
           ORDER BY latest.round_no DESC, latest.id DESC
           LIMIT 1
         )
@@ -163,6 +165,7 @@ public class OwnerReviewRepository {
               FROM human_reviews recent_hr
               WHERE recent_hr.annotation_id = an.id
                 AND LOWER(recent_hr.decision) = 'escalate'
+        """ + allocatedReviewerFilter("recent_hr", "a") + """
                 AND recent_hr.created_at >= ?
                 AND recent_hr.created_at < ?
             )
@@ -204,6 +207,7 @@ public class OwnerReviewRepository {
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
+        """ + allocatedReviewerFilter("hr", "a") + """
           AND hr.created_at >= ?
           AND hr.created_at < ?
         """,
@@ -237,10 +241,12 @@ public class OwnerReviewRepository {
           AND a.status <> 'voided'
           AND an.status <> 'voided'
           AND air.decision IN ('PASS', 'REJECT')
+        """ + allocatedReviewerFilter("latest_hr", "a") + """
           AND latest_hr.id = (
             SELECT hr2.id
             FROM human_reviews hr2
             WHERE hr2.annotation_id = an.id
+        """ + allocatedReviewerFilter("hr2", "a") + """
             ORDER BY hr2.round_no DESC, hr2.id DESC
             LIMIT 1
           )
@@ -297,6 +303,7 @@ public class OwnerReviewRepository {
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
+        """ + allocatedReviewerFilter("hr", "a") + """
           AND hr.created_at >= ?
           AND hr.created_at < ?
         GROUP BY reviewer.id, reviewer.name
@@ -339,6 +346,7 @@ public class OwnerReviewRepository {
               JOIN assignments keyword_a ON keyword_a.id = keyword_an.assignment_id
               JOIN users keyword_reviewer ON keyword_reviewer.id = keyword_hr.reviewer_id
               WHERE keyword_a.task_id = task_rows.task_id
+        """ + allocatedReviewerFilter("keyword_hr", "keyword_a") + """
                 AND keyword_reviewer.name LIKE ?
             )
           )
@@ -399,6 +407,7 @@ public class OwnerReviewRepository {
             LEFT JOIN annotations assignment_an ON assignment_an.assignment_id = a.id
               AND assignment_an.status <> 'voided'
             LEFT JOIN human_reviews all_hr ON all_hr.annotation_id = assignment_an.id
+        """ + allocatedReviewerOnClause("all_hr", "a") + """
             WHERE a.status <> 'voided'
               AND an.status <> 'voided'
               AND an.id = (
@@ -459,6 +468,7 @@ public class OwnerReviewRepository {
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
+        """ + allocatedReviewerFilter("hr", "a") + """
         GROUP BY reviewer.id, reviewer.name
         ORDER BY MAX(hr.created_at) DESC, reviewer.id ASC
         LIMIT 5
@@ -530,6 +540,7 @@ public class OwnerReviewRepository {
             JOIN annotations hr_an ON hr_an.id = hr2.annotation_id
             WHERE hr_an.assignment_id = a.id
               AND hr_an.status <> 'voided'
+        """ + allocatedReviewerFilter("hr2", "a") + """
             ORDER BY hr2.round_no DESC, hr2.id DESC
             LIMIT 1
           )
@@ -541,7 +552,9 @@ public class OwnerReviewRepository {
               SUM(CASE WHEN LOWER(decision) = 'escalate' THEN 1 ELSE 0 END) AS dispute_count
             FROM human_reviews hr
             JOIN annotations hr_an ON hr_an.id = hr.annotation_id
+            JOIN assignments hr_a ON hr_a.id = hr_an.assignment_id
             WHERE hr_an.status <> 'voided'
+        """ + allocatedReviewerFilter("hr", "hr_a") + """
             GROUP BY hr_an.assignment_id
           ) hr_counts ON hr_counts.assignment_id = a.id
           LEFT JOIN ai_review_jobs aj ON aj.id = (
@@ -764,6 +777,41 @@ public class OwnerReviewRepository {
   private long queryLong(String sql, Object... args) {
     Number value = jdbcTemplate.queryForObject(sql, Number.class, args);
     return value == null ? 0L : value.longValue();
+  }
+
+  private String allocatedReviewerFilter(String reviewAlias, String assignmentAlias) {
+    return """
+          AND EXISTS (
+            SELECT 1
+            FROM task_reviewer_allocations tra
+            WHERE tra.task_id = %s.task_id
+              AND tra.reviewer_id = %s.reviewer_id
+          )
+          AND (
+            NOT EXISTS (
+              SELECT 1
+              FROM task_review_items tri_any
+              WHERE tri_any.task_id = %s.task_id
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM task_review_items tri
+              WHERE tri.task_id = %s.task_id
+                AND tri.item_id = %s.item_id
+                AND tri.reviewer_id = %s.reviewer_id
+            )
+          )
+        """.formatted(
+        assignmentAlias,
+        reviewAlias,
+        assignmentAlias,
+        assignmentAlias,
+        assignmentAlias,
+        reviewAlias);
+  }
+
+  private String allocatedReviewerOnClause(String reviewAlias, String assignmentAlias) {
+    return allocatedReviewerFilter(reviewAlias, assignmentAlias).replace("AND EXISTS", "  AND EXISTS");
   }
 
   private LocalDateTime toLocalDateTime(Timestamp timestamp) {

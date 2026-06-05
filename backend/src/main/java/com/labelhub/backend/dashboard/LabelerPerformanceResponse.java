@@ -5,8 +5,4 @@ public record LabelerPerformanceResponse(
     String name,
     String role,
     String avatar,
-    double score,
-    long submitted,
-    long approved,
-    long returned,
-    long avgDurationSec) {}
+    double score) {}

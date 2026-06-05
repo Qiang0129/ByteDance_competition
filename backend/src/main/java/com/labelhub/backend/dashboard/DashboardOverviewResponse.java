@@ -7,18 +7,16 @@ public record DashboardOverviewResponse(
 
   public record Kpis(
       long activeTasks,
-      long activeLabelers,
+      long labelerCount,
       long pendingReview,
-      long submittedToday,
+      long reviewerCount,
       double aiPassRate,
       long avgDurationSec,
       Deltas deltas) {}
 
   public record Deltas(
       double activeTasks,
-      double activeLabelers,
       double pendingReview,
-      double submittedToday,
       double aiPassRate,
       double avgDurationSec) {}
 }

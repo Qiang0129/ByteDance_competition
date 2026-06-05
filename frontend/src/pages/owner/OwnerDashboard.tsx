@@ -8,7 +8,6 @@ import {
   MoreOutlined,
   ProjectOutlined,
   RiseOutlined,
-  SearchOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -21,18 +20,15 @@ import {
   Col,
   Drawer,
   Empty,
-  Input,
   List,
   Row,
   Segmented,
   Select,
   Skeleton,
   Space,
-  Table,
   Tag,
   Typography,
 } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
 import {
   Bar,
   BarChart,
@@ -54,7 +50,6 @@ import type {
   DisputeStats,
   IssueFeedback,
   LabelerPerformance,
-  RecentTaskActivity,
   ReviewDistribution,
   RoleBreakdown,
   SubmissionTimelineMonth,
@@ -74,7 +69,6 @@ interface DashboardData {
   review: ReviewDistribution;
   performance: LabelerPerformance[];
   timeline: SubmissionTimelineMonth[];
-  activities: RecentTaskActivity[];
   roles: RoleBreakdown[];
   disputes7: DisputeStats;
   disputes14: DisputeStats;
@@ -87,6 +81,7 @@ const reviewLabels: Array<{ key: keyof ReviewDistribution; label: string; color:
   { key: 'aiReject', label: 'AI 拒绝', color: '#ef4444' },
   { key: 'humanPass', label: '人工通过', color: '#22c55e' },
   { key: 'humanReturned', label: '打回修改', color: '#f59e0b' },
+  { key: 'humanDisputed', label: '升级争议', color: '#64748b' },
 ];
 
 const roleColors = ['#2f7bff', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
@@ -173,7 +168,6 @@ export default function OwnerDashboard() {
         review,
         performance,
         timeline,
-        activities,
         roles,
         disputes7,
         disputes14,
@@ -184,7 +178,6 @@ export default function OwnerDashboard() {
         dashboardApi.getReviewDistribution({ year: reviewYear }),
         dashboardApi.getLabelerPerformance(range),
         dashboardApi.getSubmissionTimeline(),
-        dashboardApi.getRecentActivities(),
         dashboardApi.getRoleBreakdown(),
         dashboardApi.getDisputes(7),
         dashboardApi.getDisputes(14),
@@ -196,7 +189,6 @@ export default function OwnerDashboard() {
         review,
         performance: performance.items ?? [],
         timeline: timeline.items ?? [],
-        activities: activities.items ?? [],
         roles: roles.items ?? [],
         disputes7,
         disputes14,
@@ -227,9 +219,9 @@ export default function OwnerDashboard() {
     setReviewReportDownloading(true);
     try {
       await dashboardApi.downloadReviewDistributionReport(reviewYear);
-      message.success(`${reviewYear} 年 AI 审核分布报告已开始下载`);
+      message.success(`${reviewYear} 年审核分布报告已开始下载`);
     } catch (error) {
-      message.error(getApiErrorMessage(error, 'AI 审核分布报告下载失败'));
+      message.error(getApiErrorMessage(error, '审核分布报告下载失败'));
     } finally {
       setReviewReportDownloading(false);
     }
@@ -284,15 +276,6 @@ export default function OwnerDashboard() {
                   onDownload={downloadReviewReport}
                   downloading={reviewReportDownloading}
                 />
-              </Col>
-            </Row>
-
-            <Row gutter={[16, 16]}>
-              <Col xs={24} xl={9}>
-                <RecentActivitiesCard items={data.activities} />
-              </Col>
-              <Col xs={24} xl={15}>
-                <LeaveTableCard performance={data.performance} />
               </Col>
             </Row>
 
@@ -403,18 +386,6 @@ function DashboardSkeleton() {
           </Card>
         </Col>
       </Row>
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={9}>
-          <Card className="dashboard-card">
-            <Skeleton active paragraph={{ rows: 6 }} />
-          </Card>
-        </Col>
-        <Col xs={24} xl={15}>
-          <Card className="dashboard-card">
-            <Skeleton active paragraph={{ rows: 6 }} />
-          </Card>
-        </Col>
-      </Row>
     </>
   );
 }
@@ -443,11 +414,11 @@ function KpiRow({
       iconBg: '#f59e0b',
     },
     {
-      key: 'activeLabelers',
+      key: 'labelerCount',
       icon: <TeamOutlined />,
-      title: '活跃标注员',
-      value: kpis.activeLabelers,
-      delta: kpis.deltas.activeLabelers,
+      title: '标注员数量',
+      value: kpis.labelerCount,
+      note: '全平台可用角色',
       bg: '#eff6ff',
       iconBg: '#2f7bff',
     },
@@ -461,11 +432,11 @@ function KpiRow({
       iconBg: '#eab308',
     },
     {
-      key: 'submittedToday',
+      key: 'reviewerCount',
       icon: <RiseOutlined />,
-      title: '今日新增提交',
-      value: kpis.submittedToday,
-      delta: kpis.deltas.submittedToday,
+      title: '审核员数量',
+      value: kpis.reviewerCount,
+      note: '全平台可用角色',
       bg: '#ecfdf5',
       iconBg: '#22c55e',
     },
@@ -490,7 +461,13 @@ function KpiRow({
             </div>
             <div className="dashboard-kpi-value">{card.value}</div>
             <div className="dashboard-kpi-title">{card.title}</div>
-            <KpiDelta delta={card.delta} />
+            {'note' in card ? (
+              <Typography.Text type="secondary" className="dashboard-kpi-note">
+                {card.note}
+              </Typography.Text>
+            ) : (
+              <KpiDelta delta={card.delta} />
+            )}
           </Card>
         </Col>
       ))}
@@ -667,7 +644,7 @@ function TaskProgressCard({ items }: { items: TaskProgress[] }) {
   );
 }
 
-/* ============ AI 审核分布(环形图 recharts) ============ */
+/* ============ 审核分布(环形图 recharts) ============ */
 function ReviewDistributionCard({
   distribution,
   year,
@@ -694,7 +671,7 @@ function ReviewDistributionCard({
   return (
     <Card
       className="dashboard-card"
-      title="AI 审核分布"
+      title="审核分布"
       extra={
         <Select
           size="small"
@@ -768,111 +745,6 @@ function ReviewDistributionCard({
           下载报告
         </Button>
       </div>
-    </Card>
-  );
-}
-
-/* ============ 近期活动 ============ */
-function RecentActivitiesCard({ items }: { items: RecentTaskActivity[] }) {
-  const statusMeta: Record<RecentTaskActivity['status'], { label: string; color: string }> = {
-    pending: { label: 'Pending', color: 'processing' },
-    approved: { label: 'Approved', color: 'success' },
-    rejected: { label: 'Rejected', color: 'error' },
-  };
-  return (
-    <Card
-      className="dashboard-card"
-      title="近期任务申报"
-      extra={
-        <Button type="link" size="small">
-          查看全部
-        </Button>
-      }
-    >
-      <Space direction="vertical" size={0} style={{ width: '100%' }}>
-        {items.map((item) => (
-          <div key={item.taskId} className="activity-row">
-            <Avatar size={36} icon={<UserOutlined />} style={{ background: 'var(--lh-primary)' }} />
-            <div className="activity-text">
-              <div className="activity-name">{item.ownerName}</div>
-              <div className="activity-task">{item.taskTitle}</div>
-            </div>
-            <Tag color={statusMeta[item.status].color}>{statusMeta[item.status].label}</Tag>
-          </div>
-        ))}
-      </Space>
-    </Card>
-  );
-}
-
-/* ============ 标注员审核流转表 ============ */
-function LeaveTableCard({ performance }: { performance: LabelerPerformance[] }) {
-  const columns: ColumnsType<LabelerPerformance> = [
-    {
-      title: 'Name',
-      dataIndex: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
-      render: (_, record) => (
-        <Space>
-          <Avatar size={32} icon={<UserOutlined />} style={{ background: 'var(--lh-primary)' }} />
-          <div>
-            <div className="leave-name">{record.name}</div>
-            <div className="leave-role">{record.role}</div>
-          </div>
-        </Space>
-      ),
-    },
-    {
-      title: 'Submitted',
-      dataIndex: 'submitted',
-      sorter: (a, b) => a.submitted - b.submitted,
-    },
-    {
-      title: 'Approved',
-      dataIndex: 'approved',
-      sorter: (a, b) => a.approved - b.approved,
-    },
-    {
-      title: 'Returned',
-      dataIndex: 'returned',
-      sorter: (a, b) => a.returned - b.returned,
-    },
-    {
-      title: 'Avg Time',
-      dataIndex: 'avgDurationSec',
-      render: (val: number) => `${val} 秒/条`,
-    },
-    {
-      title: 'Status',
-      key: 'status',
-      render: (_, record) => {
-        const ratio = record.approved / Math.max(1, record.submitted);
-        const isHigh = ratio >= 0.7;
-        return <Tag color={isHigh ? 'success' : 'warning'}>{isHigh ? 'Approved' : 'Pending'}</Tag>;
-      },
-    },
-  ];
-
-  return (
-    <Card
-      className="dashboard-card"
-      title="标注员审核流转"
-      extra={
-        <Input
-          prefix={<SearchOutlined />}
-          placeholder="Search"
-          allowClear
-          style={{ width: 200 }}
-        />
-      }
-    >
-      <Table<LabelerPerformance>
-        rowKey="labelerId"
-        columns={columns}
-        dataSource={performance}
-        pagination={false}
-        size="middle"
-      />
     </Card>
   );
 }

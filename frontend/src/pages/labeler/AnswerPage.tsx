@@ -806,12 +806,15 @@ export default function AnswerPage() {
 
         {/* 左:原题数据 */}
         <div className="answer-split-pane answer-split-pane-raw" style={{ width: `${leftPercent}%` }}>
-          <Card
-            title={<RawPayloadTitle payload={item.rawPayload} />}
-            className="answer-section"
-          >
-            <RawPayloadView payload={item.rawPayload} />
-          </Card>
+          <div className="answer-raw-stack">
+            <Card
+              title={<RawPayloadTitle payload={item.rawPayload} />}
+              className="answer-section answer-raw-card"
+            >
+              <RawPayloadView payload={item.rawPayload} />
+            </Card>
+            <LabelerAnswerInsights />
+          </div>
         </div>
 
         {/* 中间可拖拽分隔条 */}
@@ -1423,6 +1426,43 @@ function RawPayloadView({ payload }: { payload: AssignmentItem['rawPayload'] }) 
         />
       )}
     </Space>
+  );
+}
+
+function LabelerAnswerInsights() {
+  const contributionItems = [
+    { key: 'submitted', label: '已提交', tone: 'blue' },
+    { key: 'approved', label: '通过', tone: 'green' },
+    { key: 'returned', label: '打回', tone: 'red' },
+  ];
+
+  return (
+    <Card className="answer-section answer-insights-card">
+      <div className="answer-insights-block">
+        <Typography.Title level={5} className="answer-insights-title">
+          我的贡献（本任务）
+        </Typography.Title>
+        <div className="answer-contribution-grid">
+          {contributionItems.map((item) => (
+            <div key={item.key} className={`answer-contribution-item is-${item.tone}`}>
+              <span className="answer-contribution-label">{item.label}</span>
+              <span className="answer-contribution-value">-</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="answer-insights-block">
+        <Typography.Title level={5} className="answer-insights-title">
+          本题历史
+        </Typography.Title>
+        <div className="answer-history-empty">
+          <Typography.Text type="secondary">
+            暂无本题历史记录
+          </Typography.Text>
+        </div>
+      </div>
+    </Card>
   );
 }
 

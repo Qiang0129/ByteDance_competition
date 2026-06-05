@@ -8,7 +8,6 @@
  *   GET /dashboard/review-distribution/report?year=...
  *   GET /dashboard/labeler-performance?range=...
  *   GET /dashboard/submission-timeline?year=...
- *   GET /dashboard/recent-activities
  *   GET /dashboard/role-breakdown
  *   GET /dashboard/disputes?days=7|14|30
  */
@@ -21,7 +20,6 @@ import type {
   IssueFeedback,
   IssueFeedbackStatus,
   LabelerPerformance,
-  RecentTaskActivity,
   ReviewDistribution,
   RoleBreakdown,
   SubmissionTimelineMonth,
@@ -113,7 +111,7 @@ export const dashboardApi = {
     const blob = await response.blob();
     const filename =
       parseFilename(response.headers.get('content-disposition')) ??
-      `ai-review-distribution-${year}.csv`;
+      `review-distribution-${year}.csv`;
     triggerBrowserDownload(blob, filename);
   },
 
@@ -126,10 +124,6 @@ export const dashboardApi = {
   getSubmissionTimeline(year?: number): Promise<{ items: SubmissionTimelineMonth[] }> {
     const qs = year ? `?year=${year}` : '';
     return apiRequest(`/dashboard/submission-timeline${qs}`);
-  },
-
-  getRecentActivities(): Promise<{ items: RecentTaskActivity[] }> {
-    return apiRequest('/dashboard/recent-activities');
   },
 
   getRoleBreakdown(): Promise<{ items: RoleBreakdown[] }> {

@@ -59,11 +59,6 @@ public class DashboardController {
     return dashboardService.getSubmissionTimeline(authentication, year);
   }
 
-  @GetMapping("/recent-activities")
-  public DashboardItemsResponse<RecentTaskActivityResponse> getRecentActivities(Authentication authentication) {
-    return dashboardService.getRecentActivities(authentication);
-  }
-
   @GetMapping("/role-breakdown")
   public DashboardItemsResponse<RoleBreakdownResponse> getRoleBreakdown(Authentication authentication) {
     return dashboardService.getRoleBreakdown(authentication);

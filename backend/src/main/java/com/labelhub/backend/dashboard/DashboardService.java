@@ -23,7 +23,6 @@ import org.springframework.stereotype.Service;
 public class DashboardService {
 
   private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-  private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
   private static final String[] MONTH_LABELS = {
       "Jan", "Feb", "Mar", "Apr", "May", "Jun",
       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -44,17 +43,10 @@ public class DashboardService {
     settleExpiredTasks();
     DateRange dateRange = dashboardRange(range);
     DateRange previous = previousRange(dateRange);
-    LocalDate today = LocalDate.now();
-    LocalDateTime todayStart = today.atStartOfDay();
-    LocalDateTime tomorrowStart = today.plusDays(1).atStartOfDay();
-    LocalDateTime yesterdayStart = today.minusDays(1).atStartOfDay();
-
     long activeTasks = repository.countActiveTasks(owner.id());
-    long activeLabelers = repository.countActiveLabelers(owner.id(), dateRange.start(), dateRange.end());
-    long previousActiveLabelers = repository.countActiveLabelers(owner.id(), previous.start(), previous.end());
+    long labelerCount = repository.countActiveUsersByRole("labeler");
     long pendingReview = repository.countPendingReview(owner.id());
-    long submittedToday = repository.countSubmittedAnnotations(owner.id(), todayStart, tomorrowStart);
-    long submittedYesterday = repository.countSubmittedAnnotations(owner.id(), yesterdayStart, todayStart);
+    long reviewerCount = repository.countActiveUsersByRole("reviewer");
     DashboardRepository.AiDecisionCounts ai = safeAiCounts(
         repository.countAiDecisions(owner.id(), dateRange.start(), dateRange.end()));
     DashboardRepository.AiDecisionCounts previousAi = safeAiCounts(
@@ -69,16 +61,14 @@ public class DashboardService {
         DATE.format(dateRange.end().toLocalDate()),
         new DashboardOverviewResponse.Kpis(
             activeTasks,
-            activeLabelers,
+            labelerCount,
             pendingReview,
-            submittedToday,
+            reviewerCount,
             roundRate(aiPassRate),
             avgDurationSec,
             new DashboardOverviewResponse.Deltas(
                 0D,
-                percentDelta(activeLabelers, previousActiveLabelers),
                 0D,
-                percentDelta(submittedToday, submittedYesterday),
                 percentDelta(aiPassRate, previousAiPassRate),
                 percentDelta(avgDurationSec, previousAvgDurationSec))));
   }
@@ -120,10 +110,11 @@ public class DashboardService {
         + distribution.aiNeedHuman()
         + distribution.aiReject()
         + distribution.humanPass()
-        + distribution.humanReturned();
+        + distribution.humanReturned()
+        + distribution.humanDisputed();
     String csv = buildReviewDistributionCsv(safeYear, distribution, total);
     byte[] bytes = csv.getBytes(StandardCharsets.UTF_8);
-    String filename = "ai-review-distribution-" + safeYear + ".csv";
+    String filename = "review-distribution-" + safeYear + ".csv";
 
     return ResponseEntity.ok()
         .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
@@ -142,12 +133,17 @@ public class DashboardService {
         repository.countAiDecisions(ownerId, dateRange.start(), dateRange.end()));
     DashboardRepository.HumanDecisionCounts human = safeHumanCounts(
         repository.countHumanDecisions(ownerId, dateRange.start(), dateRange.end()));
+    DashboardRepository.DisputeStatsRecord disputes = repository.getDisputeStats(
+        ownerId,
+        dateRange.start(),
+        dateRange.end());
     return new ReviewDistributionResponse(
         ai.aiPass(),
         ai.aiNeedHuman(),
         ai.aiReject(),
         human.humanPass(),
-        human.humanReturned());
+        human.humanReturned(),
+        disputes == null ? 0L : disputes.disputed());
   }
 
   public DashboardItemsResponse<LabelerPerformanceResponse> getLabelerPerformance(
@@ -164,11 +160,7 @@ public class DashboardService {
             blankToDefault(record.labelerName(), "Labeler"),
             blankToDefault(record.role(), "通用标注"),
             null,
-            record.submitted() == 0 ? 0D : roundRate((double) record.approved() / record.submitted()),
-            record.submitted(),
-            record.approved(),
-            record.returned(),
-            record.avgDurationSec()))
+            record.submitted() == 0 ? 0D : roundRate((double) record.approved() / record.submitted())))
         .toList();
     return new DashboardItemsResponse<>(items);
   }
@@ -185,20 +177,6 @@ public class DashboardService {
             record.onTime(),
             record.late(),
             record.absent()))
-        .toList();
-    return new DashboardItemsResponse<>(items);
-  }
-
-  public DashboardItemsResponse<RecentTaskActivityResponse> getRecentActivities(Authentication authentication) {
-    AuthenticatedUser owner = requireOwner(authentication);
-    settleExpiredTasks();
-    List<RecentTaskActivityResponse> items = repository.listRecentActivities(owner.id(), 8).stream()
-        .map(record -> new RecentTaskActivityResponse(
-            Long.toString(record.taskId()),
-            blankToDefault(record.taskTitle(), "标注任务"),
-            blankToDefault(record.ownerName(), owner.displayName()),
-            activityStatus(record.action(), record.toState()),
-            formatDateTime(record.createdAt())))
         .toList();
     return new DashboardItemsResponse<>(items);
   }
@@ -334,6 +312,11 @@ public class DashboardService {
         "打回修改",
         Long.toString(distribution.humanReturned()),
         percentText(distribution.humanReturned(), total)));
+    csv.append(csvRow(
+        period,
+        "升级争议",
+        Long.toString(distribution.humanDisputed()),
+        percentText(distribution.humanDisputed(), total)));
     csv.append(csvRow(period, "合计", Long.toString(total), total == 0 ? "0.00%" : "100.00%"));
     return csv.toString();
   }
@@ -361,27 +344,6 @@ public class DashboardService {
       return "\"" + safe.replace("\"", "\"\"") + "\"";
     }
     return safe;
-  }
-
-  private String activityStatus(String action, String toState) {
-    String normalizedAction = action == null ? "" : action.toLowerCase(Locale.ROOT);
-    String normalizedState = toState == null ? "" : toState.toLowerCase(Locale.ROOT);
-    if (List.of("accepted", "exported", "succeeded").contains(normalizedState)
-        || normalizedAction.contains("approve")
-        || normalizedAction.contains("accept")) {
-      return "approved";
-    }
-    if (List.of("returned", "voided", "failed").contains(normalizedState)
-        || normalizedAction.contains("return")
-        || normalizedAction.contains("reject")
-        || normalizedAction.contains("fail")) {
-      return "rejected";
-    }
-    return "pending";
-  }
-
-  private String formatDateTime(LocalDateTime dateTime) {
-    return dateTime == null ? "" : DATE_TIME.format(dateTime);
   }
 
   private String monthLabel(int monthNo) {
