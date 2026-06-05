@@ -11,7 +11,9 @@ import com.labelhub.backend.annotation.AnnotationRepository.AssignmentItemRecord
 import com.labelhub.backend.annotation.AnnotationRepository.AnnotationRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.DraftRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.IssueRecord;
+import com.labelhub.backend.annotation.AnnotationRepository.LabelerContributionRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.LabelerDraftRecord;
+import com.labelhub.backend.annotation.AnnotationRepository.LabelerItemHistoryRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
@@ -99,6 +101,10 @@ public class AnnotationService {
         .map(record -> toAnnotationResponse(record, returnReason))
         .orElse(null);
     boolean reworkOpen = isReturnReworkOpen(assignment);
+    LabelerContributionRecord contribution = annotationRepository.getLabelerContribution(
+        labeler.id(),
+        assignment.taskId());
+    List<LabelerItemHistoryResponse> itemHistory = buildLabelerItemHistory(assignment);
     return new AssignmentItemResponse(
         Long.toString(assignment.assignmentId()),
         Long.toString(assignment.taskId()),
@@ -117,7 +123,12 @@ public class AnnotationService {
         returnReason,
         draft,
         latestAnnotation,
-        readMetadataLlmAssistEnabled(assignment.rewardRuleJson()));
+        readMetadataLlmAssistEnabled(assignment.rewardRuleJson()),
+        new LabelerContributionResponse(
+            contribution.submittedCount(),
+            contribution.approvedCount(),
+            contribution.returnedCount()),
+        itemHistory);
   }
 
   public DraftResponse getDraft(Authentication authentication, long assignmentId) {
@@ -800,6 +811,86 @@ public class AnnotationService {
         normalizeAnnotationStatus(record.status()),
         record.revisionNo(),
         returnReason);
+  }
+
+  private List<LabelerItemHistoryResponse> buildLabelerItemHistory(AssignmentItemRecord assignment) {
+    List<LabelerItemHistoryResponse> history = new ArrayList<>();
+    for (LabelerItemHistoryRecord record : annotationRepository.listLabelerItemHistory(assignment.assignmentId())) {
+      String type = record.eventType();
+      if ("submit".equals(type)) {
+        history.add(new LabelerItemHistoryResponse(
+            "submit-" + record.annotationId(),
+            "submit",
+            record.revisionNo() <= 1 ? "提交" : "重新提交",
+            "我",
+            "SUBMIT",
+            null,
+            null,
+            null,
+            formatDateTime(record.submittedAt()),
+            "completed"));
+        continue;
+      }
+      if ("ai_review".equals(type)) {
+        history.add(new LabelerItemHistoryResponse(
+            "ai-" + record.annotationId(),
+            "ai_review",
+            "AI 预审（Revision " + record.revisionNo() + "）",
+            "AI Agent",
+            normalizeDecision(record.aiDecision()),
+            null,
+            record.aiComment(),
+            record.aiTotalScore(),
+            formatDateTime(record.aiFinishedAt()),
+            record.aiDecision() == null || record.aiDecision().isBlank() ? "pending" : "completed"));
+        continue;
+      }
+      if ("human_review".equals(type)) {
+        String decision = normalizeDecision(record.humanDecision());
+        history.add(new LabelerItemHistoryResponse(
+            "human-" + record.annotationId() + "-" + history.size(),
+            "human_review",
+            resolveHumanHistoryTitle(record.revisionNo(), decision),
+            blankToDefault(record.humanReviewerName(), "Reviewer"),
+            decision,
+            record.humanReason(),
+            null,
+            null,
+            formatDateTime(record.humanReviewedAt()),
+            "completed"));
+      }
+    }
+    if ("returned".equalsIgnoreCase(assignment.assignmentStatus())) {
+      history.add(new LabelerItemHistoryResponse(
+          "rework-" + assignment.assignmentId(),
+          "rework",
+          "修改中",
+          "我",
+          "REWORKING",
+          null,
+          "当前",
+          null,
+          "",
+          "current"));
+    }
+    return history;
+  }
+
+  private String resolveHumanHistoryTitle(int revisionNo, String decision) {
+    if ("ESCALATE".equals(decision)) {
+      return revisionNo <= 1 ? "初审升级" : "复审升级";
+    }
+    if (revisionNo <= 1) {
+      return "初审";
+    }
+    if (revisionNo == 2) {
+      return "复审";
+    }
+    return "终审";
+  }
+
+  private String normalizeDecision(String decision) {
+    return decision == null || decision.isBlank() ? null : decision.toUpperCase(Locale.ROOT);
   }
 
   private String normalizeAnnotationStatus(String status) {

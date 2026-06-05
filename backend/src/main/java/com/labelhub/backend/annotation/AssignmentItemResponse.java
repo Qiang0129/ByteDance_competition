@@ -1,6 +1,7 @@
 package com.labelhub.backend.annotation;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.List;
 
 public record AssignmentItemResponse(
     String assignmentId,
@@ -20,4 +21,6 @@ public record AssignmentItemResponse(
     String returnReason,
     DraftResponse draft,
     AnnotationResponse latestAnnotation,
-    boolean llmAssistEnabled) {}
+    boolean llmAssistEnabled,
+    LabelerContributionResponse contribution,
+    List<LabelerItemHistoryResponse> itemHistory) {}

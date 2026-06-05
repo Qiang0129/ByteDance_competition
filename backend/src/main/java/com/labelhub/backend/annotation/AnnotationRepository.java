@@ -267,6 +267,177 @@ public class AnnotationRepository {
         .findFirst();
   }
 
+  public LabelerContributionRecord getLabelerContribution(long labelerId, long taskId) {
+    LabelerContributionRecord record = jdbcTemplate.queryForObject(
+        """
+        SELECT
+          COUNT(DISTINCT CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM annotations submitted_an
+              WHERE submitted_an.assignment_id = a.id
+                AND submitted_an.status <> 'voided'
+            ) THEN a.id
+          END) AS submitted_count,
+          COUNT(DISTINCT CASE
+            WHEN a.status IN ('accepted', 'exported')
+              OR LOWER(COALESCE((
+                SELECT latest_hr.decision
+                FROM annotations latest_an
+                JOIN human_reviews latest_hr ON latest_hr.annotation_id = latest_an.id
+                WHERE latest_an.assignment_id = a.id
+                  AND latest_an.status <> 'voided'
+                ORDER BY latest_an.revision_no DESC, latest_hr.created_at DESC, latest_hr.id DESC
+                LIMIT 1
+              ), '')) IN ('approve', 'approved', 'revise', 'revised') THEN a.id
+          END) AS approved_count,
+          COUNT(DISTINCT CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM annotations returned_an
+              JOIN human_reviews returned_hr ON returned_hr.annotation_id = returned_an.id
+              WHERE returned_an.assignment_id = a.id
+                AND returned_an.status <> 'voided'
+                AND LOWER(returned_hr.decision) IN ('return', 'returned', 'reject', 'rejected')
+            ) THEN a.id
+          END) AS returned_count
+        FROM assignments a
+        JOIN tasks t ON t.id = a.task_id
+        WHERE a.labeler_id = ?
+          AND a.task_id = ?
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+        """,
+        (rs, rowNum) -> new LabelerContributionRecord(
+            rs.getLong("submitted_count"),
+            rs.getLong("approved_count"),
+            rs.getLong("returned_count")),
+        labelerId,
+        taskId);
+    return record == null ? new LabelerContributionRecord(0, 0, 0) : record;
+  }
+
+  public List<LabelerItemHistoryRecord> listLabelerItemHistory(long assignmentId) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          history.annotation_id,
+          history.revision_no,
+          history.event_type,
+          history.submitted_at,
+          history.ai_finished_at,
+          history.ai_decision,
+          history.ai_total_score,
+          history.ai_comment,
+          history.human_decision,
+          history.human_reason,
+          history.human_reviewed_at,
+          history.human_reviewer_name
+        FROM (
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'submit' AS event_type,
+            COALESCE(an.submitted_at, an.created_at) AS submitted_at,
+            NULL AS ai_finished_at,
+            NULL AS ai_decision,
+            NULL AS ai_total_score,
+            NULL AS ai_comment,
+            NULL AS human_decision,
+            NULL AS human_reason,
+            NULL AS human_reviewed_at,
+            NULL AS human_reviewer_name,
+            0 AS event_order,
+            NULL AS human_round_no,
+            NULL AS human_review_id
+          FROM annotations an
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+
+          UNION ALL
+
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'ai_review' AS event_type,
+            NULL AS submitted_at,
+            aj.finished_at AS ai_finished_at,
+            air.decision AS ai_decision,
+            air.total_score AS ai_total_score,
+            air.comment AS ai_comment,
+            NULL AS human_decision,
+            NULL AS human_reason,
+            NULL AS human_reviewed_at,
+            NULL AS human_reviewer_name,
+            1 AS event_order,
+            NULL AS human_round_no,
+            NULL AS human_review_id
+          FROM annotations an
+          LEFT JOIN ai_review_jobs aj ON aj.id = (
+            SELECT latest_job.id
+            FROM ai_review_jobs latest_job
+            WHERE latest_job.annotation_id = an.id
+            ORDER BY COALESCE(latest_job.finished_at, latest_job.started_at, latest_job.created_at) DESC,
+              latest_job.id DESC
+            LIMIT 1
+          )
+          LEFT JOIN ai_review_results air ON air.job_id = aj.id
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+            AND aj.id IS NOT NULL
+
+          UNION ALL
+
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'human_review' AS event_type,
+            NULL AS submitted_at,
+            NULL AS ai_finished_at,
+            NULL AS ai_decision,
+            NULL AS ai_total_score,
+            NULL AS ai_comment,
+            hr.decision AS human_decision,
+            hr.reason AS human_reason,
+            hr.created_at AS human_reviewed_at,
+            reviewer.name AS human_reviewer_name,
+            2 AS event_order,
+            hr.round_no AS human_round_no,
+            hr.id AS human_review_id
+          FROM annotations an
+          JOIN human_reviews hr ON hr.annotation_id = an.id
+          LEFT JOIN users reviewer ON reviewer.id = hr.reviewer_id
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+        ) history
+        ORDER BY
+          history.revision_no ASC,
+          history.annotation_id ASC,
+          history.event_order ASC,
+          history.submitted_at ASC,
+          history.ai_finished_at ASC,
+          history.human_reviewed_at ASC,
+          history.human_round_no ASC,
+          history.human_review_id ASC
+        """,
+        (rs, rowNum) -> new LabelerItemHistoryRecord(
+            rs.getLong("annotation_id"),
+            rs.getInt("revision_no"),
+            rs.getString("event_type"),
+            toLocalDateTime(rs.getTimestamp("submitted_at")),
+            toLocalDateTime(rs.getTimestamp("ai_finished_at")),
+            rs.getString("ai_decision"),
+            toDouble(rs.getObject("ai_total_score")),
+            rs.getString("ai_comment"),
+            rs.getString("human_decision"),
+            rs.getString("human_reason"),
+            toLocalDateTime(rs.getTimestamp("human_reviewed_at")),
+            rs.getString("human_reviewer_name")),
+        assignmentId,
+        assignmentId,
+        assignmentId);
+  }
+
   public int nextRevisionNo(long assignmentId) {
     Integer next = jdbcTemplate.queryForObject(
         """
@@ -565,6 +736,10 @@ public class AnnotationRepository {
     return value == null ? null : ((Number) value).longValue();
   }
 
+  private Double toDouble(Object value) {
+    return value == null ? null : ((Number) value).doubleValue();
+  }
+
   public record AssignmentItemRecord(
       long assignmentId,
       long taskId,
@@ -616,6 +791,25 @@ public class AnnotationRepository {
       Integer schemaVersion,
       LocalDateTime draftUpdatedAt,
       int itemIndex) {}
+
+  public record LabelerContributionRecord(
+      long submittedCount,
+      long approvedCount,
+      long returnedCount) {}
+
+  public record LabelerItemHistoryRecord(
+      long annotationId,
+      int revisionNo,
+      String eventType,
+      LocalDateTime submittedAt,
+      LocalDateTime aiFinishedAt,
+      String aiDecision,
+      Double aiTotalScore,
+      String aiComment,
+      String humanDecision,
+      String humanReason,
+      LocalDateTime humanReviewedAt,
+      String humanReviewerName) {}
 
   /** 进度条逐题状态判定用:作业项状态 + 草稿答案(可空) */
   public record AssignmentProgressRecord(

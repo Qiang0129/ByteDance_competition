@@ -37,6 +37,7 @@ import LabelerAssistantPanel from './LabelerAssistantPanel';
 import type {
   AssignmentItem,
   BatchSubmitInvalidItem,
+  LabelerItemHistory,
   ReportIssueCategory,
   ReportIssueRequest,
 } from '../../types/labeler';
@@ -804,7 +805,7 @@ export default function AnswerPage() {
             >
               <RawPayloadView payload={item.rawPayload} />
             </Card>
-            <LabelerAnswerInsights />
+            <LabelerAnswerInsights item={item} />
           </div>
         </div>
 
@@ -1418,12 +1419,19 @@ function RawPayloadView({ payload }: { payload: AssignmentItem['rawPayload'] }) 
   );
 }
 
-function LabelerAnswerInsights() {
+function LabelerAnswerInsights({ item }: { item: AssignmentItem }) {
+  const contribution = item.contribution ?? {
+    submittedCount: 0,
+    approvedCount: 0,
+    returnedCount: 0,
+  };
   const contributionItems = [
-    { key: 'submitted', label: '已提交', tone: 'blue' },
-    { key: 'approved', label: '通过', tone: 'green' },
-    { key: 'returned', label: '打回', tone: 'red' },
+    { key: 'submitted', label: '已提交', tone: 'blue', value: contribution.submittedCount },
+    { key: 'approved', label: '通过', tone: 'green', value: contribution.approvedCount },
+    { key: 'returned', label: '打回', tone: 'red', value: contribution.returnedCount },
   ];
+  const maxContribution = Math.max(1, ...contributionItems.map((entry) => entry.value));
+  const history = item.itemHistory ?? [];
 
   return (
     <Card className="answer-section answer-insights-card">
@@ -1433,16 +1441,33 @@ function LabelerAnswerInsights() {
             我的贡献（本任务）
           </Typography.Title>
           <div className="answer-contribution-grid">
-            {contributionItems.map((item) => (
-              <div key={item.key} className={`answer-contribution-item is-${item.tone}`}>
-                <span className="answer-contribution-label">{item.label}</span>
-                <svg className="answer-contribution-ring" viewBox="0 0 60 60" role="img" aria-label={`${item.label} 暂无数据`}>
-                  <circle className="answer-contribution-ring-track" cx="30" cy="30" r="23" />
-                  <circle className="answer-contribution-ring-value" cx="30" cy="30" r="23" />
-                  <text x="30" y="35" textAnchor="middle" className="answer-contribution-ring-text">-</text>
-                </svg>
-              </div>
-            ))}
+            {contributionItems.map((entry) => {
+              const circumference = 144.5;
+              const ringOffset = circumference * (1 - Math.min(entry.value / maxContribution, 1));
+              return (
+                <div key={entry.key} className={`answer-contribution-item is-${entry.tone}`}>
+                  <span className="answer-contribution-label">{entry.label}</span>
+                  <svg
+                    className="answer-contribution-ring"
+                    viewBox="0 0 60 60"
+                    role="img"
+                    aria-label={`${entry.label} ${entry.value}`}
+                  >
+                    <circle className="answer-contribution-ring-track" cx="30" cy="30" r="23" />
+                    <circle
+                      className="answer-contribution-ring-value"
+                      cx="30"
+                      cy="30"
+                      r="23"
+                      style={{ strokeDashoffset: ringOffset }}
+                    />
+                    <text x="30" y="35" textAnchor="middle" className="answer-contribution-ring-text">
+                      {entry.value}
+                    </text>
+                  </svg>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -1450,15 +1475,79 @@ function LabelerAnswerInsights() {
           <Typography.Title level={5} className="answer-insights-title">
             本题历史
           </Typography.Title>
-          <div className="answer-history-empty">
-            <Typography.Text type="secondary">
-              暂无本题历史记录
-            </Typography.Text>
-          </div>
+          {history.length > 0 ? (
+            <ol className="answer-history-timeline">
+              {history.map((entry) => (
+                <li key={entry.id} className={`answer-history-item is-${resolveHistoryTone(entry)}`}>
+                  <span className="answer-history-dot" />
+                  <div className="answer-history-content">
+                    <div className="answer-history-meta">
+                      <span className="answer-history-title">{entry.title}</span>
+                      <span className="answer-history-time">{entry.occurredAt || '当前'}</span>
+                    </div>
+                    <div className="answer-history-main">
+                      <span>{entry.actor}</span>
+                      {entry.decision ? (
+                        <Tag className="answer-history-tag">{historyDecisionLabel(entry.decision)}</Tag>
+                      ) : null}
+                      {typeof entry.score === 'number' ? (
+                        <Tag className="answer-history-score">AI {entry.score}</Tag>
+                      ) : null}
+                    </div>
+                    {entry.reason || entry.comment ? (
+                      <div className="answer-history-reason">{entry.reason || entry.comment}</div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="answer-history-empty">
+              <Typography.Text type="secondary">
+                暂无本题历史记录
+              </Typography.Text>
+            </div>
+          )}
         </div>
       </div>
     </Card>
   );
+}
+
+function resolveHistoryTone(entry: LabelerItemHistory): 'blue' | 'green' | 'red' | 'orange' | 'gray' {
+  const decision = entry.decision?.toUpperCase();
+  if (entry.status === 'current') return 'blue';
+  if (decision === 'APPROVE' || decision === 'APPROVED' || decision === 'REVISE' || decision === 'REVISED' || decision === 'PASS') {
+    return 'green';
+  }
+  if (decision === 'RETURN' || decision === 'RETURNED' || decision === 'REJECT' || decision === 'REJECTED') {
+    return 'red';
+  }
+  if (decision === 'ESCALATE' || decision === 'NEED_HUMAN_REVIEW') {
+    return 'orange';
+  }
+  if (entry.type === 'submit') return 'blue';
+  return 'gray';
+}
+
+function historyDecisionLabel(decision: string): string {
+  const normalized = decision.toUpperCase();
+  const labels: Record<string, string> = {
+    SUBMIT: '提交',
+    PASS: '通过',
+    APPROVE: '通过',
+    APPROVED: '通过',
+    REVISE: '修订通过',
+    REVISED: '修订通过',
+    RETURN: '打回',
+    RETURNED: '打回',
+    REJECT: '打回',
+    REJECTED: '打回',
+    ESCALATE: '升级争议',
+    NEED_HUMAN_REVIEW: '需人工',
+    REWORKING: '修改中',
+  };
+  return labels[normalized] ?? decision;
 }
 
 function formatValue(value: unknown, semanticType?: string): React.ReactNode {

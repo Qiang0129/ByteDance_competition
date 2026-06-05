@@ -90,6 +90,10 @@ export const dashboardApi = {
     return apiRequest('/dashboard/task-progress');
   },
 
+  getTaskProgressChart(): Promise<{ items: TaskProgress[] }> {
+    return apiRequest('/dashboard/task-progress-chart');
+  },
+
   getRoleUsers(role: 'labeler' | 'reviewer'): Promise<{ items: DashboardRoleUser[] }> {
     return apiRequest(`/dashboard/role-users?role=${encodeURIComponent(role)}`);
   },

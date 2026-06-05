@@ -30,6 +30,11 @@ public class DashboardController {
     return dashboardService.getTaskProgress(authentication);
   }
 
+  @GetMapping("/task-progress-chart")
+  public DashboardItemsResponse<TaskProgressResponse> getTaskProgressChart(Authentication authentication) {
+    return dashboardService.getTaskProgressChart(authentication);
+  }
+
   @GetMapping("/role-users")
   public DashboardItemsResponse<DashboardRoleUserResponse> getRoleUsers(
       Authentication authentication,

@@ -218,6 +218,29 @@ export interface BatchSubmitInvalidItem {
   fieldErrors?: Record<string, string>;
 }
 
+export interface LabelerContribution {
+  submittedCount: number;
+  approvedCount: number;
+  returnedCount: number;
+}
+
+export type LabelerItemHistoryType = 'submit' | 'ai_review' | 'human_review' | 'rework';
+
+export type LabelerItemHistoryStatus = 'pending' | 'completed' | 'current';
+
+export interface LabelerItemHistory {
+  id: string;
+  type: LabelerItemHistoryType;
+  title: string;
+  actor: string;
+  decision?: string | null;
+  reason?: string | null;
+  comment?: string | null;
+  score?: number | null;
+  occurredAt?: string;
+  status: LabelerItemHistoryStatus;
+}
+
 /** 答题页拉取的题目内容(包含原题数据 + Schema 字段定义) */
 export interface AssignmentItem {
   assignmentId: string;
@@ -267,6 +290,10 @@ export interface AssignmentItem {
    *   - false / undefined:不渲染任何助手入口。
    */
   llmAssistEnabled?: boolean;
+  /** 当前标注员在本任务内的贡献统计 */
+  contribution?: LabelerContribution;
+  /** 当前题目的提交、AI 预审、人工审核与返修链路 */
+  itemHistory?: LabelerItemHistory[];
 }
 
 export interface AssistantHistoryMessage {

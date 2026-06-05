@@ -76,7 +76,17 @@ public class DashboardService {
   public DashboardItemsResponse<TaskProgressResponse> getTaskProgress(Authentication authentication) {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
-    List<TaskProgressResponse> items = repository.listTaskProgress(owner.id(), 12).stream()
+    return buildTaskProgressResponse(owner.id(), 12);
+  }
+
+  public DashboardItemsResponse<TaskProgressResponse> getTaskProgressChart(Authentication authentication) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    settleExpiredTasks();
+    return buildTaskProgressResponse(owner.id(), 12);
+  }
+
+  private DashboardItemsResponse<TaskProgressResponse> buildTaskProgressResponse(long ownerId, int limit) {
+    List<TaskProgressResponse> items = repository.listTaskProgress(ownerId, limit).stream()
         .map(record -> {
           long total = Math.max(record.total(), 0);
           long approved = Math.max(record.approved(), 0);

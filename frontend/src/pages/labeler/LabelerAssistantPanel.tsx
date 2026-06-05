@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent, PointerEvent } from 'react';
 import {
   CloseOutlined,
   CopyOutlined,
@@ -49,6 +50,70 @@ const SUGGESTED_PROMPTS = [
   '我应该从哪些维度判断这条标注的好坏?',
 ];
 const ASSISTANT_STREAM_TIMEOUT_MS = 120_000;
+const ASSISTANT_TRIGGER_SIZE = 48;
+const ASSISTANT_TRIGGER_MARGIN = 16;
+const ASSISTANT_TRIGGER_STORAGE_KEY = 'labelhub:labeler-assistant-trigger-position';
+const ASSISTANT_TRIGGER_DRAG_THRESHOLD = 6;
+
+interface TriggerPosition {
+  x: number;
+  y: number;
+}
+
+interface TriggerDragState {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+}
+
+function defaultTriggerPosition(): TriggerPosition {
+  if (typeof window === 'undefined') {
+    return { x: 0, y: 0 };
+  }
+  return {
+    x: window.innerWidth - ASSISTANT_TRIGGER_SIZE - 32,
+    y: window.innerHeight - ASSISTANT_TRIGGER_SIZE - 36,
+  };
+}
+
+function clampTriggerPosition(position: TriggerPosition): TriggerPosition {
+  if (typeof window === 'undefined') return position;
+  const maxX = Math.max(ASSISTANT_TRIGGER_MARGIN, window.innerWidth - ASSISTANT_TRIGGER_SIZE - ASSISTANT_TRIGGER_MARGIN);
+  const maxY = Math.max(ASSISTANT_TRIGGER_MARGIN, window.innerHeight - ASSISTANT_TRIGGER_SIZE - ASSISTANT_TRIGGER_MARGIN);
+  return {
+    x: Math.min(Math.max(position.x, ASSISTANT_TRIGGER_MARGIN), maxX),
+    y: Math.min(Math.max(position.y, ASSISTANT_TRIGGER_MARGIN), maxY),
+  };
+}
+
+function loadTriggerPosition(): TriggerPosition {
+  if (typeof window === 'undefined') {
+    return { x: 0, y: 0 };
+  }
+  try {
+    const raw = window.localStorage.getItem(ASSISTANT_TRIGGER_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<TriggerPosition>;
+      if (Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) {
+        return clampTriggerPosition({ x: Number(parsed.x), y: Number(parsed.y) });
+      }
+    }
+  } catch {
+    /* localStorage 不可用或数据损坏时回到默认位置 */
+  }
+  return clampTriggerPosition(defaultTriggerPosition());
+}
+
+function saveTriggerPosition(position: TriggerPosition) {
+  try {
+    window.localStorage.setItem(ASSISTANT_TRIGGER_STORAGE_KEY, JSON.stringify(position));
+  } catch {
+    /* localStorage 不可用时忽略,不影响按钮拖动 */
+  }
+}
 
 export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }) {
   const { message } = AntdApp.useApp();
@@ -56,8 +121,23 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
+  const [triggerPosition, setTriggerPosition] = useState<TriggerPosition>(() => loadTriggerPosition());
+  const [triggerDragging, setTriggerDragging] = useState(false);
   const idSeed = useRef(1);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<TriggerDragState | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setTriggerPosition((prev) => {
+        const next = clampTriggerPosition(prev);
+        saveTriggerPosition(next);
+        return next;
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   /** 滚到对话底部:每次发消息后调用,保证最新内容可见 */
   const scrollToBottom = useCallback(() => {
@@ -197,13 +277,82 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
     [clearAll, messages.length],
   );
 
+  const handleTriggerPointerDown = useCallback(
+    (event: PointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return;
+      dragStateRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startX: triggerPosition.x,
+        startY: triggerPosition.y,
+        moved: false,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setTriggerDragging(true);
+    },
+    [triggerPosition.x, triggerPosition.y],
+  );
+
+  const handleTriggerPointerMove = useCallback((event: PointerEvent<HTMLButtonElement>) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - dragState.startClientX;
+    const deltaY = event.clientY - dragState.startClientY;
+    if (
+      !dragState.moved &&
+      Math.hypot(deltaX, deltaY) >= ASSISTANT_TRIGGER_DRAG_THRESHOLD
+    ) {
+      dragState.moved = true;
+    }
+    setTriggerPosition(
+      clampTriggerPosition({
+        x: dragState.startX + deltaX,
+        y: dragState.startY + deltaY,
+      }),
+    );
+  }, []);
+
+  const handleTriggerPointerEnd = useCallback((event: PointerEvent<HTMLButtonElement>) => {
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setTriggerDragging(false);
+    setTriggerPosition((prev) => {
+      const next = clampTriggerPosition(prev);
+      saveTriggerPosition(next);
+      return next;
+    });
+  }, []);
+
+  const handleTriggerClick = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    const dragged = dragStateRef.current?.moved === true;
+    dragStateRef.current = null;
+    if (dragged) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    setOpen(true);
+  }, []);
+
   return (
     <>
       {/* 浮动入口按钮:右下角悬浮,内容不滚动跟随 */}
       <button
         type="button"
-        className="labeler-assistant-trigger"
-        onClick={() => setOpen(true)}
+        className={`labeler-assistant-trigger${triggerDragging ? ' is-dragging' : ''}`}
+        style={{
+          left: triggerPosition.x,
+          top: triggerPosition.y,
+        }}
+        onPointerDown={handleTriggerPointerDown}
+        onPointerMove={handleTriggerPointerMove}
+        onPointerUp={handleTriggerPointerEnd}
+        onPointerCancel={handleTriggerPointerEnd}
+        onClick={handleTriggerClick}
         aria-label="打开 AI 标注助手"
       >
         <AiAssistantIcon style={{ fontSize: 22 }} />

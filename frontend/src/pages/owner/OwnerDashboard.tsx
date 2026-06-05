@@ -3,9 +3,11 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  BarChartOutlined,
   ClockCircleOutlined,
   DownloadOutlined,
   FlagOutlined,
+  LineChartOutlined,
   MoreOutlined,
   ProjectOutlined,
   RiseOutlined,
@@ -36,6 +38,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -69,6 +73,7 @@ import type {
 interface DashboardData {
   overview: DashboardOverview;
   taskProgress: TaskProgress[];
+  taskProgressChart: TaskProgress[];
   review: ReviewDistribution;
   performance: LabelerPerformance[];
   timeline: SubmissionTimelineMonth[];
@@ -179,6 +184,7 @@ export default function OwnerDashboard() {
       const [
         overview,
         taskProgress,
+        taskProgressChart,
         review,
         performance,
         timeline,
@@ -189,6 +195,7 @@ export default function OwnerDashboard() {
       ] = await Promise.all([
         dashboardApi.getOverview(range),
         dashboardApi.getTaskProgress(),
+        dashboardApi.getTaskProgressChart(),
         dashboardApi.getReviewDistribution({ year: reviewYear }),
         dashboardApi.getLabelerPerformance(range),
         dashboardApi.getSubmissionTimeline(),
@@ -200,6 +207,7 @@ export default function OwnerDashboard() {
       setData({
         overview,
         taskProgress: taskProgress.items ?? [],
+        taskProgressChart: taskProgressChart.items ?? [],
         review,
         performance: performance.items ?? [],
         timeline: timeline.items ?? [],
@@ -300,7 +308,7 @@ export default function OwnerDashboard() {
 
             <Row gutter={[16, 16]}>
               <Col xs={24} xl={15}>
-                <TaskProgressCard items={data.taskProgress} />
+                <TaskProgressCard items={data.taskProgressChart} />
               </Col>
               <Col xs={24} xl={9}>
                 <ReviewDistributionCard
@@ -707,6 +715,8 @@ function RoleUsersModal({
       onCancel={onClose}
       footer={null}
       width={560}
+      rootClassName="dashboard-role-users-glass-root"
+      className="dashboard-role-users-glass-modal"
       destroyOnHidden
     >
       <Space direction="vertical" size={16} className="dashboard-role-users-modal">
@@ -769,9 +779,10 @@ function RoleUsersModal({
   );
 }
 
-/* ============ 任务进度柱状图(recharts) ============ */
+/* ============ 任务进度图表(recharts) ============ */
 function TaskProgressCard({ items }: { items: TaskProgress[] }) {
-  // 整理成 recharts 数据:X 轴用任务编号(去掉 T- 前缀),三个系列 通过/打回/待处理
+  const [chartType, setChartType] = useState<'line' | 'bar'>('line');
+  // 整理成 Recharts 数据:X 轴用任务编号,tooltip 展示任务标题和各状态数量。
   const chartData = items.map((it) => ({
     name: it.taskId.replace('T-', ''),
     title: it.title,
@@ -785,33 +796,65 @@ function TaskProgressCard({ items }: { items: TaskProgress[] }) {
       className="dashboard-card"
       title="任务进度"
       extra={
-        <Button size="small" icon={<DownloadOutlined />}>
-          下载报告
-        </Button>
+        <Space size={8} className="dashboard-chart-actions">
+          <Segmented
+            size="small"
+            value={chartType}
+            onChange={(value) => setChartType(value as 'line' | 'bar')}
+            options={[
+              { label: '折线图', value: 'line', icon: <LineChartOutlined /> },
+              { label: '柱状图', value: 'bar', icon: <BarChartOutlined /> },
+            ]}
+          />
+          <Button size="small" icon={<DownloadOutlined />}>
+            下载报告
+          </Button>
+        </Space>
       }
     >
       <ResponsiveContainer width="100%" height={280}>
-        <BarChart data={chartData} margin={{ top: 10, right: 12, left: -12, bottom: 0 }} barGap={2} barCategoryGap="24%">
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
-          <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
-          <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-          <RechartsTooltip
-            cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
-            contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
-            labelFormatter={(label) => {
-              const found = chartData.find((d) => d.name === label);
-              return found ? `${found.title} · 共 ${found.total} 条` : label;
-            }}
-          />
-          <Bar dataKey="通过" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={14} />
-          <Bar dataKey="打回" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={14} />
-          <Bar dataKey="待处理" fill="#94a3b8" radius={[3, 3, 0, 0]} maxBarSize={14} />
-        </BarChart>
+        {chartType === 'line' ? (
+          <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+            <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
+            <RechartsTooltip
+              contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+              labelFormatter={(label) => {
+                const found = chartData.find((d) => d.name === label);
+                return found ? `${found.title} · 共 ${found.total} 条` : label;
+              }}
+            />
+            <Line type="monotone" dataKey="通过" stroke="#22c55e" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="打回" stroke="#f59e0b" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="待处理" stroke="#94a3b8" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="total" name="总量" stroke="var(--lh-primary)" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+          </LineChart>
+        ) : (
+          <BarChart data={chartData} margin={{ top: 10, right: 12, left: -12, bottom: 0 }} barGap={2} barCategoryGap="24%">
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
+            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+            <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <RechartsTooltip
+              cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
+              contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+              labelFormatter={(label) => {
+                const found = chartData.find((d) => d.name === label);
+                return found ? `${found.title} · 共 ${found.total} 条` : label;
+              }}
+            />
+            <Bar dataKey="通过" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={14} />
+            <Bar dataKey="打回" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={14} />
+            <Bar dataKey="待处理" fill="#94a3b8" radius={[3, 3, 0, 0]} maxBarSize={14} />
+            <Bar dataKey="total" name="总量" fill="var(--lh-primary)" radius={[3, 3, 0, 0]} maxBarSize={14} />
+          </BarChart>
+        )}
       </ResponsiveContainer>
       <div className="bar-legend">
         <span><i className="dot" style={{ background: '#22c55e' }} />通过</span>
         <span><i className="dot" style={{ background: '#f59e0b' }} />打回</span>
         <span><i className="dot" style={{ background: '#94a3b8' }} />待处理</span>
+        <span><i className="dot" style={{ background: 'var(--lh-primary)' }} />总量</span>
       </div>
     </Card>
   );
