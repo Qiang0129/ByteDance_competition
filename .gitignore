@@ -16,3 +16,5 @@ backend/data
 .tmp-chrome-cdp
 .playwright-cli
 output/
+backend/target/
+frontend/.vite/
