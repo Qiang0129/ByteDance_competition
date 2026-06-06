@@ -17,7 +17,6 @@ import {
   MenuUnfoldOutlined,
   ProjectOutlined,
   RightOutlined,
-  SearchOutlined,
   ShopOutlined,
   SwapOutlined,
   UserOutlined,
@@ -29,7 +28,6 @@ import {
   Breadcrumb,
   Button,
   Dropdown,
-  Input,
   Layout,
   Menu,
   Typography,
@@ -531,7 +529,7 @@ export default function AppLayout() {
 
       <Layout>
         <Header className={`app-header ${scrolled ? 'is-scrolled' : ''}`}>
-          {/* 左侧:移动端抽屉按钮 + 面包屑路径 + 搜索框 */}
+          {/* 左侧:移动端抽屉按钮 + 面包屑路径 */}
           <div className="app-header-left">
             {isMobile && (
               <Button
@@ -545,13 +543,6 @@ export default function AppLayout() {
               className="app-header-breadcrumb"
               separator="/"
               items={breadcrumbItems}
-            />
-            <Input
-              className="app-header-search"
-              prefix={<SearchOutlined />}
-              placeholder="搜索任务、数据集或字段..."
-              allowClear
-              size="middle"
             />
           </div>
 

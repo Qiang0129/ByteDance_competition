@@ -1281,16 +1281,32 @@ function DesignerSchemaTabLabel({
 
   useEffect(() => {
     if (!editing) return;
-    const frame = window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-    return () => window.cancelAnimationFrame(frame);
+    let frame = 0;
+    const timer = window.setTimeout(() => {
+      frame = window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
   }, [editing]);
 
-  const startEditing = (event: React.SyntheticEvent) => {
+  const stopTabPointerEvent = (event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  };
+
+  const stopTabClickEvent = (event: React.SyntheticEvent) => {
     event.preventDefault();
     event.stopPropagation();
+  };
+
+  const startEditing = (event: React.SyntheticEvent) => {
+    stopTabClickEvent(event);
     onStartEditing(tab.id);
   };
 
@@ -1337,19 +1353,11 @@ function DesignerSchemaTabLabel({
             icon={<EditOutlined />}
             className="designer-tab-action"
             aria-label={`重命名 ${tab.label}`}
-            onPointerDown={(event) => {
-              startEditing(event);
-            }}
-            onMouseDown={(event) => {
-              startEditing(event);
-            }}
-            onKeyDown={(event) => {
-              event.stopPropagation();
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
+            onPointerDown={stopTabPointerEvent}
+            onMouseDown={stopTabPointerEvent}
+            onClickCapture={startEditing}
+            onClick={stopTabClickEvent}
+            onKeyDown={(event) => event.stopPropagation()}
           />
         </Tooltip>
       )}

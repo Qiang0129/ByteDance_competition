@@ -24,10 +24,9 @@ import {
   MenuUnfoldOutlined,
   PictureOutlined,
   ReadOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons';
 import { App, Button } from 'antd';
-import { renderAsync } from 'docx-preview';
+import { parseAsync, renderDocument } from 'docx-preview';
 import ReactMarkdown from 'react-markdown';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
@@ -90,6 +89,53 @@ type DocsResource = {
   downloadName?: string;
   meta?: string;
 };
+
+type DocsPreviewStatus = 'idle' | 'loading' | 'success' | 'error';
+type DocsPreviewStage = 'prepare' | 'fetch' | 'parse' | 'render' | 'layout' | 'done';
+
+type DocsPreviewState = {
+  status: DocsPreviewStatus;
+  stage: DocsPreviewStage;
+  runId?: number;
+  error?: string;
+};
+
+type DocsPreviewCache =
+  | { kind: 'markdown' }
+  | { kind: 'image' }
+  | {
+      kind: 'docx';
+      html: string;
+      scale: string;
+      pageWidth: string;
+    };
+
+type DocsPreviewStageMeta = {
+  key: DocsPreviewStage;
+  label: string;
+};
+
+const DOCX_PREVIEW_OPTIONS = {
+  className: 'landing-docx-rendered',
+  inWrapper: false,
+  ignoreWidth: false,
+  ignoreHeight: false,
+  breakPages: true,
+};
+
+const docsPreviewIdleState: DocsPreviewState = {
+  status: 'idle',
+  stage: 'prepare',
+};
+
+const docsPreviewStages: DocsPreviewStageMeta[] = [
+  { key: 'prepare', label: '准备预览' },
+  { key: 'fetch', label: '下载文件' },
+  { key: 'parse', label: '解析文档' },
+  { key: 'render', label: '生成页面' },
+  { key: 'layout', label: '完成布局' },
+  { key: 'done', label: '预览完成' },
+];
 
 const navItems: Array<{ key: PublicNavKey; label: string; path: string }> = [
   { key: 'home', label: '首页', path: '/' },
@@ -767,6 +813,9 @@ export function DocsPlaceholder() {
   const docsPreviewRef = useRef<HTMLElement | null>(null);
   const docsWorkbenchRef = useRef<HTMLElement | null>(null);
   const docsFullscreenTimerRef = useRef<number | null>(null);
+  const docsPreviewCacheRef = useRef<Record<string, DocsPreviewCache>>({});
+  const docsQuickPreviewTimersRef = useRef<Record<string, number>>({});
+  const docsPreviewRunSequenceRef = useRef(0);
   const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('project');
   const [activeResourceId, setActiveResourceId] = useState(docsResources[0]?.id ?? '');
   const [docsPanelMode, setDocsPanelMode] = useState<DocsPanelMode>('categories');
@@ -775,11 +824,151 @@ export function DocsPlaceholder() {
   const [isDocsSidebarCollapsed, setIsDocsSidebarCollapsed] = useState(false);
   const [isDocsPreviewFullscreen, setIsDocsPreviewFullscreen] = useState(false);
   const [docsFullscreenTransition, setDocsFullscreenTransition] = useState<DocsFullscreenTransition>(null);
+  const [docsPreviewStates, setDocsPreviewStates] = useState<Record<string, DocsPreviewState>>({});
   const activeResource = docsResources.find((resource) => resource.id === activeResourceId) ?? docsResources[0];
   const visibleResources = docsResources.filter((resource) => resource.category === activeCategory);
   const activeCategoryMeta = docsCategories.find((category) => category.key === activeCategory) ?? docsCategories[0];
+  const activePreviewState = docsPreviewStates[activeResource.id] ?? docsPreviewIdleState;
+  const activePreviewCache = docsPreviewCacheRef.current[activeResource.id];
 
   usePublicPageClass();
+
+  const clearDocsQuickPreviewTimer = (resourceId: string) => {
+    const timer = docsQuickPreviewTimersRef.current[resourceId];
+    if (timer === undefined) {
+      return;
+    }
+
+    window.clearTimeout(timer);
+    delete docsQuickPreviewTimersRef.current[resourceId];
+  };
+
+  const cancelDocsPreview = (resourceId: string) => {
+    clearDocsQuickPreviewTimer(resourceId);
+    setDocsPreviewStates((previousStates) => ({
+      ...previousStates,
+      [resourceId]: docsPreviewIdleState,
+    }));
+  };
+
+  const startDocsPreview = (resource: DocsResource) => {
+    if (resource.status !== 'available' || (resource.kind !== 'markdown' && resource.kind !== 'docx' && resource.kind !== 'image')) {
+      return;
+    }
+
+    clearDocsQuickPreviewTimer(resource.id);
+
+    const cachedPreview = docsPreviewCacheRef.current[resource.id];
+    if (cachedPreview) {
+      setDocsPreviewStates((previousStates) => ({
+        ...previousStates,
+        [resource.id]: {
+          status: 'success',
+          stage: 'done',
+        },
+      }));
+      return;
+    }
+
+    const runId = docsPreviewRunSequenceRef.current + 1;
+    docsPreviewRunSequenceRef.current = runId;
+    setDocsPreviewStates((previousStates) => ({
+      ...previousStates,
+      [resource.id]: {
+        status: 'loading',
+        stage: 'prepare',
+        runId,
+      },
+    }));
+
+    if (resource.kind === 'docx') {
+      return;
+    }
+
+    const quickPreviewKind: 'markdown' | 'image' = resource.kind === 'image' ? 'image' : 'markdown';
+    docsQuickPreviewTimersRef.current[resource.id] = window.setTimeout(() => {
+      docsPreviewCacheRef.current[resource.id] = { kind: quickPreviewKind };
+      delete docsQuickPreviewTimersRef.current[resource.id];
+      setDocsPreviewStates((previousStates) => {
+        const currentState = previousStates[resource.id];
+        if (currentState?.status !== 'loading' || currentState.runId !== runId) {
+          return previousStates;
+        }
+
+        return {
+          ...previousStates,
+          [resource.id]: {
+            status: 'success',
+            stage: 'done',
+            runId,
+          },
+        };
+      });
+    }, 180);
+  };
+
+  const setDocsPreviewStage = (resourceId: string, runId: number, stage: DocsPreviewStage) => {
+    setDocsPreviewStates((previousStates) => {
+      const currentState = previousStates[resourceId];
+      if (currentState?.status !== 'loading' || currentState.runId !== runId) {
+        return previousStates;
+      }
+
+      return {
+        ...previousStates,
+        [resourceId]: {
+          ...currentState,
+          stage,
+        },
+      };
+    });
+  };
+
+  const completeDocsPreview = (resourceId: string, runId: number, cache: DocsPreviewCache) => {
+    docsPreviewCacheRef.current[resourceId] = cache;
+    setDocsPreviewStates((previousStates) => {
+      const currentState = previousStates[resourceId];
+      if (currentState?.status !== 'loading' || currentState.runId !== runId) {
+        return previousStates;
+      }
+
+      return {
+        ...previousStates,
+        [resourceId]: {
+          status: 'success',
+          stage: 'done',
+          runId,
+        },
+      };
+    });
+  };
+
+  const failDocsPreview = (resourceId: string, runId: number, error: string) => {
+    setDocsPreviewStates((previousStates) => {
+      const currentState = previousStates[resourceId];
+      if (currentState?.status !== 'loading' || currentState.runId !== runId) {
+        return previousStates;
+      }
+
+      return {
+        ...previousStates,
+        [resourceId]: {
+          status: 'error',
+          stage: currentState.stage,
+          runId,
+          error,
+        },
+      };
+    });
+  };
+
+  const selectDocsResource = (resourceId: string) => {
+    if (docsPreviewStates[activeResourceId]?.status === 'loading') {
+      cancelDocsPreview(activeResourceId);
+    }
+
+    setActiveResourceId(resourceId);
+  };
 
   const clearDocsFullscreenTimer = () => {
     if (docsFullscreenTimerRef.current !== null) {
@@ -811,6 +1000,10 @@ export function DocsPlaceholder() {
   };
 
   useEffect(() => () => clearDocsFullscreenTimer(), []);
+
+  useEffect(() => () => {
+    Object.keys(docsQuickPreviewTimersRef.current).forEach(clearDocsQuickPreviewTimer);
+  }, []);
 
   useEffect(() => {
     if (
@@ -850,6 +1043,10 @@ export function DocsPlaceholder() {
   }, [docsFullscreenTransition, isDocsPreviewFullscreen]);
 
   const selectCategory = (category: DocsCategoryKey) => {
+    if (docsPreviewStates[activeResourceId]?.status === 'loading') {
+      cancelDocsPreview(activeResourceId);
+    }
+
     setActiveCategory(category);
     const firstResource = docsResources.find((resource) => resource.category === category);
     if (firstResource) {
@@ -874,6 +1071,10 @@ export function DocsPlaceholder() {
   };
 
   const handleQuickStart = () => {
+    if (docsPreviewStates[activeResourceId]?.status === 'loading') {
+      cancelDocsPreview(activeResourceId);
+    }
+
     setPendingDocsQuickScroll(true);
     setActiveCategory('technical');
     setActiveResourceId('api-docs-local');
@@ -1013,7 +1214,7 @@ export function DocsPlaceholder() {
                         className={`landing-docs-resource${activeResource.id === resource.id ? ' is-active' : ''}${
                           resource.status === 'missing' ? ' is-missing' : ''
                         }`}
-                        onClick={() => setActiveResourceId(resource.id)}
+                        onClick={() => selectDocsResource(resource.id)}
                       >
                         <span className="landing-docs-resource-icon" aria-hidden="true">
                           {getDocsResourceIcon(resource.kind)}
@@ -1081,7 +1282,17 @@ export function DocsPlaceholder() {
           </header>
 
           <div className="landing-docs-preview-body">
-            <DocsPreview resource={activeResource} />
+            <DocsPreview
+              resource={activeResource}
+              previewState={activePreviewState}
+              previewCache={activePreviewCache}
+              onStartPreview={startDocsPreview}
+              onCancelPreview={() => cancelDocsPreview(activeResource.id)}
+              onDownload={handleDownload}
+              onStageChange={setDocsPreviewStage}
+              onPreviewSuccess={completeDocsPreview}
+              onPreviewError={failDocsPreview}
+            />
           </div>
         </article>
       </section>
@@ -1091,50 +1302,29 @@ export function DocsPlaceholder() {
   );
 }
 
-function DocsPreview({ resource }: { resource: DocsResource }) {
+function DocsPreview({
+  resource,
+  previewState,
+  previewCache,
+  onStartPreview,
+  onCancelPreview,
+  onDownload,
+  onStageChange,
+  onPreviewSuccess,
+  onPreviewError,
+}: {
+  resource: DocsResource;
+  previewState: DocsPreviewState;
+  previewCache?: DocsPreviewCache;
+  onStartPreview: (resource: DocsResource) => void;
+  onCancelPreview: () => void;
+  onDownload: () => void;
+  onStageChange: (resourceId: string, runId: number, stage: DocsPreviewStage) => void;
+  onPreviewSuccess: (resourceId: string, runId: number, cache: DocsPreviewCache) => void;
+  onPreviewError: (resourceId: string, runId: number, error: string) => void;
+}) {
   if (resource.status === 'missing') {
     return <MissingDocsPreview resource={resource} />;
-  }
-
-  if (resource.kind === 'markdown') {
-    return (
-      <div className="landing-docs-markdown landing-about-markdown">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            a: ({ children, href, node: _node, ...props }) => (
-              <a
-                href={href}
-                target={href?.startsWith('http') ? '_blank' : undefined}
-                rel={href?.startsWith('http') ? 'noreferrer' : undefined}
-                {...props}
-              >
-                {children}
-              </a>
-            ),
-            table: ({ children, node: _node, ...props }) => (
-              <div className="landing-about-table-scroll">
-                <table {...props}>{children}</table>
-              </div>
-            ),
-          }}
-        >
-          {resource.source ?? ''}
-        </ReactMarkdown>
-      </div>
-    );
-  }
-
-  if (resource.kind === 'docx' && resource.fileUrl) {
-    return <DocxPreviewPane resource={resource} />;
-  }
-
-  if (resource.kind === 'image' && resource.fileUrl) {
-    return (
-      <div className="landing-docs-image-preview">
-        <img src={resource.fileUrl} alt={resource.title} />
-      </div>
-    );
   }
 
   if (resource.kind === 'external' && resource.externalUrl) {
@@ -1150,173 +1340,355 @@ function DocsPreview({ resource }: { resource: DocsResource }) {
     );
   }
 
+  if (resource.kind === 'docx' && resource.fileUrl) {
+    return (
+      <DocxPreviewPane
+        resource={resource}
+        previewState={previewState}
+        previewCache={previewCache}
+        onStartPreview={onStartPreview}
+        onCancelPreview={onCancelPreview}
+        onDownload={onDownload}
+        onStageChange={onStageChange}
+        onPreviewSuccess={onPreviewSuccess}
+        onPreviewError={onPreviewError}
+      />
+    );
+  }
+
+  if (previewState.status !== 'success') {
+    return (
+      <ManualDocsPreviewState
+        resource={resource}
+        previewState={previewState}
+        onStartPreview={() => onStartPreview(resource)}
+        onCancelPreview={onCancelPreview}
+        onDownload={onDownload}
+      />
+    );
+  }
+
+  if (resource.kind === 'markdown') {
+    return <MarkdownDocsPreview source={resource.source ?? ''} />;
+  }
+
+  if (resource.kind === 'image' && resource.fileUrl) {
+    return (
+      <div className="landing-docs-image-preview">
+        <img src={resource.fileUrl} alt={resource.title} />
+      </div>
+    );
+  }
+
   return <MissingDocsPreview resource={resource} />;
 }
 
-function DocxPreviewPane({ resource }: { resource: DocsResource }) {
+function MarkdownDocsPreview({ source }: { source: string }) {
+  return (
+    <div className="landing-docs-markdown landing-about-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ children, href, node: _node, ...props }) => (
+            <a
+              href={href}
+              target={href?.startsWith('http') ? '_blank' : undefined}
+              rel={href?.startsWith('http') ? 'noreferrer' : undefined}
+              {...props}
+            >
+              {children}
+            </a>
+          ),
+          table: ({ children, node: _node, ...props }) => (
+            <div className="landing-about-table-scroll">
+              <table {...props}>{children}</table>
+            </div>
+          ),
+        }}
+      >
+        {source}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function ManualDocsPreviewState({
+  resource,
+  previewState,
+  onStartPreview,
+  onCancelPreview,
+  onDownload,
+}: {
+  resource: DocsResource;
+  previewState: DocsPreviewState;
+  onStartPreview: () => void;
+  onCancelPreview: () => void;
+  onDownload: () => void;
+}) {
+  const canDownload = Boolean(resource.fileUrl || resource.source);
+  const isLoading = previewState.status === 'loading';
+  const isError = previewState.status === 'error';
+
+  return (
+    <div className={`landing-docs-preview-state landing-docs-manual-preview is-${previewState.status}`}>
+      <span className="landing-docs-preview-state-icon" aria-hidden="true">
+        {getDocsResourceIcon(resource.kind)}
+      </span>
+      <strong>{isError ? '预览失败' : resource.title}</strong>
+      <p>{isError ? previewState.error : resource.description}</p>
+      {isLoading ? <DocsPreviewProgress stage={previewState.stage} /> : null}
+      <div className="landing-docs-preview-state-actions">
+        {isLoading ? (
+          <button type="button" className="landing-docs-preview-secondary-action" onClick={onCancelPreview}>
+            取消
+          </button>
+        ) : (
+          <button type="button" className="landing-docs-preview-primary-action" onClick={onStartPreview}>
+            <ReadOutlined />
+            {isError ? '重新预览' : '预览'}
+          </button>
+        )}
+        {canDownload && !isLoading ? (
+          <button type="button" className="landing-docs-preview-secondary-action" onClick={onDownload}>
+            <DownloadOutlined />
+            下载
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DocsPreviewProgress({ stage }: { stage: DocsPreviewStage }) {
+  const activeStageIndex = Math.max(0, docsPreviewStages.findIndex((item) => item.key === stage));
+  const progress = Math.round(((activeStageIndex + 1) / docsPreviewStages.length) * 100);
+
+  return (
+    <div className="landing-docs-preview-progress" aria-label="文档预览进度">
+      <div className="landing-docs-preview-progress-track">
+        <span style={{ width: `${progress}%` }} />
+      </div>
+      <div className="landing-docs-preview-progress-steps">
+        {docsPreviewStages.map((item, index) => (
+          <span
+            key={item.key}
+            className={index <= activeStageIndex ? 'is-active' : ''}
+          >
+            {item.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DocxPreviewPane({
+  resource,
+  previewState,
+  previewCache,
+  onStartPreview,
+  onCancelPreview,
+  onDownload,
+  onStageChange,
+  onPreviewSuccess,
+  onPreviewError,
+}: {
+  resource: DocsResource;
+  previewState: DocsPreviewState;
+  previewCache?: DocsPreviewCache;
+  onStartPreview: (resource: DocsResource) => void;
+  onCancelPreview: () => void;
+  onDownload: () => void;
+  onStageChange: (resourceId: string, runId: number, stage: DocsPreviewStage) => void;
+  onPreviewSuccess: (resourceId: string, runId: number, cache: DocsPreviewCache) => void;
+  onPreviewError: (resourceId: string, runId: number, error: string) => void;
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [retryKey, setRetryKey] = useState(0);
+  const docxCache = previewCache?.kind === 'docx' ? previewCache : undefined;
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !resource.fileUrl) {
+    if (!container || !resource.fileUrl || previewState.status !== 'loading' || !previewState.runId) {
       return undefined;
     }
 
+    const runId = previewState.runId;
+    const fileUrl = resource.fileUrl;
+    const abortController = new AbortController();
     let cancelled = false;
-    let resizeObserver: ResizeObserver | null = null;
-    let resizeFallback = false;
-    let animationFrame = 0;
-    let nestedAnimationFrame = 0;
-    const getDocxPageFrames = () => {
-      const directPages = Array.from(container.children).filter(
-        (child): child is HTMLElement => child instanceof HTMLElement && child.matches('section.landing-docx-rendered'),
-      );
 
-      directPages.forEach((page) => {
-        const frame = document.createElement('div');
-        frame.className = 'landing-docx-page-frame';
-        container.insertBefore(frame, page);
-        frame.appendChild(page);
-      });
+    resetDocxCanvas(container);
 
-      return Array.from(container.querySelectorAll<HTMLElement>('.landing-docx-page-frame'));
-    };
-
-    const updateDocxScale = () => {
-      const previewBody = container.closest<HTMLElement>('.landing-docs-preview-body');
-      const pageFrames = getDocxPageFrames();
-      if (!previewBody || pageFrames.length === 0) {
-        return;
-      }
-
-      const pageSizes = pageFrames
-        .map((frame) => {
-          const page = frame.querySelector<HTMLElement>('section.landing-docx-rendered');
-          if (!page) {
-            return null;
-          }
-          const width = page.scrollWidth || page.offsetWidth || page.getBoundingClientRect().width;
-          const height = page.scrollHeight || page.offsetHeight || page.getBoundingClientRect().height;
-          return width && height ? { frame, width, height } : null;
-        })
-        .filter((size): size is { frame: HTMLElement; width: number; height: number } => Boolean(size));
-
-      if (pageSizes.length === 0) {
-        return;
-      }
-
-      const sourcePageWidth = Math.max(...pageSizes.map((size) => size.width));
-      const availableWidth = Math.max(previewBody.clientWidth - 56, 320);
-      const scale = Math.min(1.45, availableWidth / sourcePageWidth);
-      container.style.setProperty('--landing-docx-page-width', `${sourcePageWidth}px`);
-      container.style.setProperty('--landing-docx-scale', scale.toFixed(4));
-
-      pageSizes.forEach(({ frame, width, height }) => {
-        frame.style.width = `${Math.ceil(width * scale)}px`;
-        frame.style.height = `${Math.ceil(height * scale)}px`;
-        frame.style.setProperty('--landing-docx-page-source-width', `${width}px`);
-        frame.style.setProperty('--landing-docx-page-source-height', `${height}px`);
-      });
-    };
-
-    const observeDocxWidth = () => {
-      const previewBody = container.closest<HTMLElement>('.landing-docs-preview-body');
-      updateDocxScale();
-
-      if (previewBody && typeof ResizeObserver !== 'undefined') {
-        resizeObserver = new ResizeObserver(updateDocxScale);
-        resizeObserver.observe(previewBody);
-        return;
-      }
-
-      resizeFallback = true;
-      window.addEventListener('resize', updateDocxScale);
-    };
-
-    setLoading(true);
-    setError(null);
-    container.style.setProperty('--landing-docx-scale', '1');
-    container.style.removeProperty('--landing-docx-page-width');
-    container.innerHTML = '';
-
-    fetch(resource.fileUrl)
-      .then((response) => {
+    const renderDocx = async () => {
+      try {
+        onStageChange(resource.id, runId, 'fetch');
+        const response = await fetch(fileUrl, { signal: abortController.signal });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        return response.arrayBuffer();
-      })
-      .then((buffer) => renderAsync(buffer, container, undefined, {
-        className: 'landing-docx-rendered',
-        inWrapper: false,
-        ignoreWidth: false,
-        ignoreHeight: false,
-        breakPages: true,
-      }))
-      .then(() => {
-        if (!cancelled) {
-          setLoading(false);
-          animationFrame = window.requestAnimationFrame(() => {
-            nestedAnimationFrame = window.requestAnimationFrame(() => {
-              if (!cancelled) {
-                observeDocxWidth();
-              }
-            });
-          });
-        }
-      })
-      .catch((reason: unknown) => {
+
+        const buffer = await response.arrayBuffer();
+        if (cancelled) return;
+
+        onStageChange(resource.id, runId, 'parse');
+        const documentModel = await parseAsync(buffer, DOCX_PREVIEW_OPTIONS);
+        if (cancelled) return;
+
+        onStageChange(resource.id, runId, 'render');
+        await renderDocument(documentModel, container, undefined, DOCX_PREVIEW_OPTIONS);
+        if (cancelled) return;
+
+        onStageChange(resource.id, runId, 'layout');
+        await waitForDocxLayoutFrame();
+        if (cancelled) return;
+
+        updateDocxCanvasScale(container);
+        onPreviewSuccess(resource.id, runId, {
+          kind: 'docx',
+          html: container.innerHTML,
+          scale: container.style.getPropertyValue('--landing-docx-scale') || '1',
+          pageWidth: container.style.getPropertyValue('--landing-docx-page-width') || 'auto',
+        });
+      } catch (reason: unknown) {
         if (cancelled) {
           return;
         }
-        container.innerHTML = '';
-        setError(reason instanceof Error ? reason.message : 'DOCX 预览加载失败');
-        setLoading(false);
-      });
+
+        if (reason instanceof DOMException && reason.name === 'AbortError') {
+          return;
+        }
+
+        resetDocxCanvas(container);
+        onPreviewError(resource.id, runId, reason instanceof Error ? reason.message : 'DOCX 预览加载失败');
+      }
+    };
+
+    renderDocx();
 
     return () => {
       cancelled = true;
-      resizeObserver?.disconnect();
-      if (resizeFallback) {
-        window.removeEventListener('resize', updateDocxScale);
-      }
-      if (animationFrame) {
-        window.cancelAnimationFrame(animationFrame);
-      }
-      if (nestedAnimationFrame) {
-        window.cancelAnimationFrame(nestedAnimationFrame);
-      }
+      abortController.abort();
     };
-  }, [resource.fileUrl, retryKey]);
+  }, [
+    resource.fileUrl,
+    previewState.runId,
+    previewState.status,
+    resource.id,
+  ]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || previewState.status !== 'success' || !docxCache) {
+      return undefined;
+    }
+
+    if (!container.children.length) {
+      container.innerHTML = docxCache.html;
+    }
+    container.style.setProperty('--landing-docx-scale', docxCache.scale);
+    container.style.setProperty('--landing-docx-page-width', docxCache.pageWidth);
+
+    return observeDocxCanvasWidth(container);
+  }, [docxCache, previewState.status]);
 
   return (
     <div className="landing-docs-docx-preview">
-      {loading ? (
-        <div className="landing-docs-preview-state">
-          <ReadOutlined />
-          <span>正在渲染 Word 文档...</span>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="landing-docs-preview-state is-error">
-          <FileWordOutlined />
-          <strong>DOCX 预览失败</strong>
-          <span>{error}</span>
-          <button type="button" onClick={() => setRetryKey((value) => value + 1)}>
-            <ReloadOutlined />
-            重试
-          </button>
-        </div>
+      {previewState.status !== 'success' ? (
+        <ManualDocsPreviewState
+          resource={resource}
+          previewState={previewState}
+          onStartPreview={() => onStartPreview(resource)}
+          onCancelPreview={onCancelPreview}
+          onDownload={onDownload}
+        />
       ) : null}
       <div
         ref={containerRef}
-        className={`landing-docs-docx-canvas${loading || error ? ' is-hidden' : ''}`}
+        className={`landing-docs-docx-canvas${previewState.status !== 'success' ? ' is-hidden' : ''}`}
       />
     </div>
   );
+}
+
+function waitForDocxLayoutFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+function resetDocxCanvas(container: HTMLElement) {
+  container.style.setProperty('--landing-docx-scale', '1');
+  container.style.removeProperty('--landing-docx-page-width');
+  container.innerHTML = '';
+}
+
+function getDocxPageFrames(container: HTMLElement) {
+  const directPages = Array.from(container.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement && child.matches('section.landing-docx-rendered'),
+  );
+
+  directPages.forEach((page) => {
+    const frame = document.createElement('div');
+    frame.className = 'landing-docx-page-frame';
+    container.insertBefore(frame, page);
+    frame.appendChild(page);
+  });
+
+  return Array.from(container.querySelectorAll<HTMLElement>('.landing-docx-page-frame'));
+}
+
+function updateDocxCanvasScale(container: HTMLElement) {
+  const previewBody = container.closest<HTMLElement>('.landing-docs-preview-body');
+  const pageFrames = getDocxPageFrames(container);
+  if (!previewBody || pageFrames.length === 0) {
+    return;
+  }
+
+  const pageSizes = pageFrames
+    .map((frame) => {
+      const page = frame.querySelector<HTMLElement>('section.landing-docx-rendered');
+      if (!page) {
+        return null;
+      }
+      const width = page.scrollWidth || page.offsetWidth || page.getBoundingClientRect().width;
+      const height = page.scrollHeight || page.offsetHeight || page.getBoundingClientRect().height;
+      return width && height ? { frame, width, height } : null;
+    })
+    .filter((size): size is { frame: HTMLElement; width: number; height: number } => Boolean(size));
+
+  if (pageSizes.length === 0) {
+    return;
+  }
+
+  const sourcePageWidth = Math.max(...pageSizes.map((size) => size.width));
+  const availableWidth = Math.max(previewBody.clientWidth - 56, 320);
+  const scale = Math.min(1.45, availableWidth / sourcePageWidth);
+  container.style.setProperty('--landing-docx-page-width', `${sourcePageWidth}px`);
+  container.style.setProperty('--landing-docx-scale', scale.toFixed(4));
+
+  pageSizes.forEach(({ frame, width, height }) => {
+    frame.style.width = `${Math.ceil(width * scale)}px`;
+    frame.style.height = `${Math.ceil(height * scale)}px`;
+    frame.style.setProperty('--landing-docx-page-source-width', `${width}px`);
+    frame.style.setProperty('--landing-docx-page-source-height', `${height}px`);
+  });
+}
+
+function observeDocxCanvasWidth(container: HTMLElement) {
+  const previewBody = container.closest<HTMLElement>('.landing-docs-preview-body');
+  updateDocxCanvasScale(container);
+
+  if (previewBody && typeof ResizeObserver !== 'undefined') {
+    const resizeObserver = new ResizeObserver(() => updateDocxCanvasScale(container));
+    resizeObserver.observe(previewBody);
+    return () => resizeObserver.disconnect();
+  }
+
+  const handleResize = () => updateDocxCanvasScale(container);
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
 }
 
 function MissingDocsPreview({ resource }: { resource: DocsResource }) {

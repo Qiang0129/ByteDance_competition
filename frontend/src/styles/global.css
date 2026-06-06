@@ -3277,19 +3277,6 @@ html.lh-public-page body {
   background: var(--lh-primary-bg-8);
 }
 
-.app-header-search.ant-input-affix-wrapper {
-  border-radius: 999px;
-  /* 半透明白底,与液态玻璃 Header 融合 */
-  background: rgba(255, 255, 255, 0.45);
-  border-color: rgba(255, 255, 255, 0.6);
-  max-width: 360px;
-  height: 36px;
-}
-
-.app-header-search.ant-input-affix-wrapper .anticon {
-  color: #94a3b8;
-}
-
 .app-header-middle {
   flex: 0 1 auto;
 }
@@ -3395,12 +3382,8 @@ html.lh-public-page body {
   transition: color 0.2s ease;
 }
 
-/* 窄屏:搜索框宽度收紧、用户文案隐藏 */
+/* 窄屏:用户文案隐藏 */
 @media (max-width: 880px) {
-  .app-header-search {
-    display: none;
-  }
-
   .app-header-profile-text {
     display: none;
   }
@@ -8781,11 +8764,6 @@ html.lh-public-page body {
     0 2px 6px rgba(15, 23, 42, 0.04);
 }
 
-:root[data-style-version='gradient'] .app-header-search.ant-input-affix-wrapper {
-  border-color: transparent;
-  box-shadow: none;
-}
-
 :root[data-style-version='gradient'] .app-content .ant-card {
   border-color: transparent;
 }
@@ -9694,17 +9672,6 @@ html.lh-public-page body {
 /* 进度条文字 */
 :root[data-color-mode='dark'] .ant-progress-text {
   color: #e5e7eb !important;
-}
-
-/* 搜索框 / Header 搜索 */
-:root[data-color-mode='dark'] .app-header-search.ant-input-affix-wrapper {
-  background: #20242d;
-  border-color: #2c313b;
-}
-
-:root[data-color-mode='dark'] .app-header-search.ant-input-affix-wrapper input {
-  background: transparent;
-  color: #e5e7eb;
 }
 
 /* AppLayout Header 折叠按钮 / 工具按钮 */
@@ -13962,9 +13929,8 @@ html.lh-public-page body {
     line-height: 56px;
   }
 
-  /* 顶栏左侧:移动端只保留汉堡按钮,隐藏面包屑与搜索框 */
-  .app-shell.is-mobile .app-header-breadcrumb,
-  .app-shell.is-mobile .app-header-search {
+  /* 顶栏左侧:移动端只保留汉堡按钮,隐藏面包屑 */
+  .app-shell.is-mobile .app-header-breadcrumb {
     display: none !important;
   }
 
