@@ -48,6 +48,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { useNavigate } from 'react-router-dom';
 
 import { getApiErrorMessage } from '../../api/client';
 import { authApi } from '../../api/auth';
@@ -139,6 +140,7 @@ function issueStatusLabel(status: string) {
 
 export default function OwnerDashboard() {
   const { message } = AntdApp.useApp();
+  const navigate = useNavigate();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -163,6 +165,10 @@ export default function OwnerDashboard() {
     labeler: false,
     reviewer: false,
   });
+
+  const handleFollowDeadline = useCallback((taskId: string) => {
+    navigate(`/owner/tasks?focusTaskId=${encodeURIComponent(taskId)}`);
+  }, [navigate]);
 
   const loadIssueFeedback = useCallback(async (options: { markViewed?: boolean; includeViewed?: boolean } = {}) => {
     setIssueLoading(true);
@@ -429,7 +435,7 @@ export default function OwnerDashboard() {
                 <TaskTimelineCard items={data.taskMilestones} />
               </Col>
               <Col xs={24} md={12} xl={6}>
-                <DeadlineAlertCard items={data.deadlineAlerts} />
+                <DeadlineAlertCard items={data.deadlineAlerts} onFollow={handleFollowDeadline} />
               </Col>
             </Row>
 
@@ -1264,7 +1270,13 @@ function TaskTimelineCard({ items }: { items: TaskMilestone[] }) {
 }
 
 /* ============ 任务截止预警 ============ */
-function DeadlineAlertCard({ items }: { items: DeadlineAlert[] }) {
+function DeadlineAlertCard({
+  items,
+  onFollow,
+}: {
+  items: DeadlineAlert[];
+  onFollow: (taskId: string) => void;
+}) {
   if (items.length === 0) {
     return (
       <Card className="dashboard-card" title="临近截止预警">
@@ -1291,7 +1303,7 @@ function DeadlineAlertCard({ items }: { items: DeadlineAlert[] }) {
                 </div>
                 <div className="deadline-sub">截止 {alert.deadline}</div>
               </div>
-              <Button type="link" size="small">
+              <Button type="link" size="small" onClick={() => onFollow(alert.taskId)}>
                 跟进
               </Button>
             </div>

@@ -12,8 +12,11 @@ import com.labelhub.backend.dataset.DatasetRepository;
 import com.labelhub.backend.task.PageResponse;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -23,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class SchemaService {
 
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+  private static final String DEFAULT_SCHEMA_TAB_ID = "annotation";
+  private static final String DEFAULT_SCHEMA_TAB_LABEL = "标注";
 
   private final SchemaRepository schemaRepository;
   private final DatasetRepository datasetRepository;
@@ -57,6 +62,9 @@ public class SchemaService {
       Authentication authentication,
       SchemaValidationRequest request) {
     requireOwner(authentication);
+    if (request != null && request.tabs() != null) {
+      normalizeTabs(request.tabs());
+    }
     return schemaDefinitionValidator.validate(
         request == null || request.fields() == null
             ? null
@@ -69,12 +77,14 @@ public class SchemaService {
       CreateSchemaDraftRequest request) {
     AuthenticatedUser owner = requireOwner(authentication);
     JsonNode fields = normalizeFields(requireFieldArray(request.fields()));
+    JsonNode tabs = normalizeTabs(request.tabs());
     ensureValidSchema(fields);
     DatasetBinding dataset = resolveDatasetBinding(owner.id(), request.datasetId());
     String schemaJson = writeSchema(
         normalizeName(request.name()),
         normalizeDescription(request.description()),
         dataset,
+        tabs,
         fields);
     long schemaId = schemaRepository.createDraft(null, 1, schemaJson, owner.id());
     return toVersion(loadOwnerSchema(owner.id(), schemaId));
@@ -88,12 +98,14 @@ public class SchemaService {
     AuthenticatedUser owner = requireOwner(authentication);
     ensureTaskOwner(owner.id(), taskId);
     JsonNode fields = normalizeFields(requireFieldArray(request.fields()));
+    JsonNode tabs = normalizeTabs(request.tabs());
     ensureValidSchema(fields);
     DatasetBinding dataset = resolveDatasetBinding(owner.id(), request.datasetId());
     String schemaJson = writeSchema(
         normalizeName(request.name()),
         normalizeDescription(request.description()),
         dataset,
+        tabs,
         fields);
     long schemaId = schemaRepository.createDraft(
         taskId,
@@ -126,6 +138,7 @@ public class SchemaService {
         ? snapshot.dataset()
         : resolveDatasetBinding(owner.id(), request.datasetId());
     JsonNode fields = normalizeFields(requireFieldArray(request.fields()));
+    JsonNode tabs = request.tabs() == null ? snapshot.tabs() : normalizeTabs(request.tabs());
     ensureValidSchema(fields);
     Long taskId = parseOptionalId(request.taskId(), "INVALID_TASK_ID");
     if (taskId != null) {
@@ -137,7 +150,7 @@ public class SchemaService {
       version = schemaRepository.nextTaskVersion(taskId);
     }
 
-    schemaRepository.updateDraft(versionId, taskId, version, writeSchema(name, description, dataset, fields));
+    schemaRepository.updateDraft(versionId, taskId, version, writeSchema(name, description, dataset, tabs, fields));
     return toVersion(loadOwnerSchema(owner.id(), versionId));
   }
 
@@ -147,12 +160,13 @@ public class SchemaService {
     SchemaRecord current = loadOwnerSchema(owner.id(), versionId);
     SchemaSnapshot snapshot = readSnapshot(current);
     JsonNode fields = normalizeFields(snapshot.fields());
+    JsonNode tabs = normalizeTabs(snapshot.tabs());
     ensureValidSchema(fields);
     schemaRepository.updateDraft(
         versionId,
         current.taskId(),
         current.version(),
-        writeSchema(snapshot.name(), snapshot.description(), snapshot.dataset(), fields));
+        writeSchema(snapshot.name(), snapshot.description(), snapshot.dataset(), tabs, fields));
     schemaRepository.publish(versionId);
     return toVersion(loadOwnerSchema(owner.id(), versionId));
   }
@@ -251,6 +265,7 @@ public class SchemaService {
         snapshot.datasetId(),
         snapshot.datasetName(),
         normalizeStatus(record.status()),
+        snapshot.tabs(),
         snapshot.fields(),
         formatDateTime(record.updatedAt()),
         resolveCreatedBy(record));
@@ -269,17 +284,26 @@ public class SchemaService {
       String description = text(root, "description");
       String datasetId = text(root, "datasetId");
       String datasetName = text(root, "datasetName");
+      JsonNode tabsNode = root.path("tabs");
       JsonNode fieldsNode = root.path("fields");
+      ArrayNode tabs = normalizeTabs(tabsNode.isArray()
+          ? tabsNode
+          : objectMapper.createArrayNode());
       ArrayNode fields = normalizeFields(fieldsNode.isArray()
           ? fieldsNode
           : objectMapper.createArrayNode());
-      return new SchemaSnapshot(name, description, new DatasetBinding(datasetId, datasetName), fields);
+      return new SchemaSnapshot(name, description, new DatasetBinding(datasetId, datasetName), tabs, fields);
     } catch (JsonProcessingException exception) {
-      return new SchemaSnapshot("未命名模板", "", DatasetBinding.empty(), objectMapper.createArrayNode());
+      return new SchemaSnapshot(
+          "未命名模板",
+          "",
+          DatasetBinding.empty(),
+          normalizeTabs(null),
+          objectMapper.createArrayNode());
     }
   }
 
-  private String writeSchema(String name, String description, DatasetBinding dataset, JsonNode fields) {
+  private String writeSchema(String name, String description, DatasetBinding dataset, JsonNode tabs, JsonNode fields) {
     ObjectNode root = objectMapper.createObjectNode();
     root.put("name", name);
     root.put("description", description == null ? "" : description);
@@ -287,6 +311,7 @@ public class SchemaService {
       root.put("datasetId", dataset.id());
       root.put("datasetName", dataset.name() == null ? "" : dataset.name());
     }
+    root.set("tabs", normalizeTabs(tabs));
     root.set("fields", fields.deepCopy());
     try {
       return objectMapper.writeValueAsString(root);
@@ -300,6 +325,45 @@ public class SchemaService {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SCHEMA_FIELDS", "fields must be an array");
     }
     return fields;
+  }
+
+  private ArrayNode normalizeTabs(JsonNode tabs) {
+    List<ObjectNode> normalizedTabs = new ArrayList<>();
+    Set<String> seen = new HashSet<>();
+    boolean hasDefaultTab = false;
+    if (tabs != null && tabs.isArray()) {
+      for (JsonNode tab : tabs) {
+        if (!tab.isObject()) {
+          continue;
+        }
+        String id = text(tab, "id");
+        String label = text(tab, "label");
+        if (id == null || id.isBlank() || seen.contains(id.trim())) {
+          continue;
+        }
+        String normalizedId = id.trim();
+        String normalizedLabel = label == null || label.isBlank() ? normalizedId : label.trim();
+        if (DEFAULT_SCHEMA_TAB_ID.equals(normalizedId)) {
+          hasDefaultTab = true;
+        }
+        seen.add(normalizedId);
+        normalizedTabs.add(schemaTab(normalizedId, normalizedLabel));
+      }
+    }
+
+    ArrayNode result = objectMapper.createArrayNode();
+    if (!hasDefaultTab) {
+      result.add(schemaTab(DEFAULT_SCHEMA_TAB_ID, DEFAULT_SCHEMA_TAB_LABEL));
+    }
+    normalizedTabs.forEach(result::add);
+    return result;
+  }
+
+  private ObjectNode schemaTab(String id, String label) {
+    ObjectNode tab = objectMapper.createObjectNode();
+    tab.put("id", id);
+    tab.put("label", label);
+    return tab;
   }
 
   private ArrayNode normalizeFields(JsonNode fields) {
@@ -478,6 +542,7 @@ public class SchemaService {
       String name,
       String description,
       DatasetBinding dataset,
+      ArrayNode tabs,
       ArrayNode fields) {
     String datasetId() {
       return dataset == null || dataset.id() == null ? "" : dataset.id();

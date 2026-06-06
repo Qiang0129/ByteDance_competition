@@ -1,4 +1,4 @@
-import type { SchemaField } from './schema';
+import type { SchemaField, SchemaTab } from './schema';
 
 /**
  * Labeler 端业务类型定义。
@@ -56,6 +56,8 @@ export interface MarketTask {
   ownerName: string;
   /** 是否启用 AI 预审 */
   aiReviewEnabled: boolean;
+  /** 是否开启 LLM 标注助手,用于任务市场展示真实发布配置 */
+  llmAssistEnabled?: boolean;
   /** AI 预审规则名 */
   aiReviewRule?: string;
   /** 发布时间(ISO 字符串) */
@@ -274,6 +276,8 @@ export interface AssignmentItem {
     /** 题目正文,例如 prompt / model_answer / origin_title */
     [key: string]: unknown;
   };
+  /** Schema Tab 元数据,用于把字段分组渲染为多页标注表单 */
+  tabs?: SchemaTab[];
   /** Schema 字段定义,Renderer 按此渲染表单 */
   fields: SchemaField[];
   /** 当前 assignment 在批次中的索引,用于 prev/next 按钮 */

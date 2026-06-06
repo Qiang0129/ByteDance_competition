@@ -58,6 +58,7 @@ const LOGIN_ENDPOINT_CYCLE = [...LOGIN_ENDPOINTS, LOGIN_ENDPOINTS[0]];
 const ENDPOINT_SWITCH_INTERVAL = 4000;
 const LANDING_ROUTE_ANIMATION_MS = 500;
 const PUBLIC_NAV_ANIMATION_MS = 360;
+const DOCS_FULLSCREEN_ANIMATION_MS = 320;
 
 type PublicNavKey = 'home' | 'docs' | 'about';
 type LandingTransitionKind = 'login' | 'signup';
@@ -73,6 +74,7 @@ type DocsCategoryKey = 'project' | 'technical' | 'demo' | 'coding' | 'external';
 type DocsResourceKind = 'markdown' | 'docx' | 'image' | 'external' | 'missing';
 type DocsPanelMode = 'categories' | 'resources';
 type DocsPanelTransition = 'forward' | 'back';
+type DocsFullscreenTransition = 'entering' | 'leaving' | null;
 
 type DocsResource = {
   id: string;
@@ -724,6 +726,7 @@ function PublicPlaceholderPage({
 export function DocsPlaceholder() {
   const docsPreviewRef = useRef<HTMLElement | null>(null);
   const docsWorkbenchRef = useRef<HTMLElement | null>(null);
+  const docsFullscreenTimerRef = useRef<number | null>(null);
   const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('project');
   const [activeResourceId, setActiveResourceId] = useState(docsResources[0]?.id ?? '');
   const [docsPanelMode, setDocsPanelMode] = useState<DocsPanelMode>('categories');
@@ -731,11 +734,41 @@ export function DocsPlaceholder() {
   const [pendingDocsQuickScroll, setPendingDocsQuickScroll] = useState(false);
   const [isDocsSidebarCollapsed, setIsDocsSidebarCollapsed] = useState(false);
   const [isDocsPreviewFullscreen, setIsDocsPreviewFullscreen] = useState(false);
+  const [docsFullscreenTransition, setDocsFullscreenTransition] = useState<DocsFullscreenTransition>(null);
   const activeResource = docsResources.find((resource) => resource.id === activeResourceId) ?? docsResources[0];
   const visibleResources = docsResources.filter((resource) => resource.category === activeCategory);
   const activeCategoryMeta = docsCategories.find((category) => category.key === activeCategory) ?? docsCategories[0];
 
   usePublicPageClass();
+
+  const clearDocsFullscreenTimer = () => {
+    if (docsFullscreenTimerRef.current !== null) {
+      window.clearTimeout(docsFullscreenTimerRef.current);
+      docsFullscreenTimerRef.current = null;
+    }
+  };
+
+  const startDocsPreviewFullscreenEnter = () => {
+    clearDocsFullscreenTimer();
+    setIsDocsPreviewFullscreen(true);
+    setDocsFullscreenTransition('entering');
+    docsFullscreenTimerRef.current = window.setTimeout(() => {
+      setDocsFullscreenTransition(null);
+      docsFullscreenTimerRef.current = null;
+    }, DOCS_FULLSCREEN_ANIMATION_MS);
+  };
+
+  const startDocsPreviewFullscreenExit = () => {
+    clearDocsFullscreenTimer();
+    setDocsFullscreenTransition('leaving');
+    docsFullscreenTimerRef.current = window.setTimeout(() => {
+      setIsDocsPreviewFullscreen(false);
+      setDocsFullscreenTransition(null);
+      docsFullscreenTimerRef.current = null;
+    }, DOCS_FULLSCREEN_ANIMATION_MS);
+  };
+
+  useEffect(() => () => clearDocsFullscreenTimer(), []);
 
   useEffect(() => {
     if (
@@ -761,19 +794,18 @@ export function DocsPlaceholder() {
   }, [activeCategory, activeResourceId, docsPanelMode, pendingDocsQuickScroll]);
 
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      const preview = docsPreviewRef.current;
-      if (document.fullscreenElement) {
-        setIsDocsPreviewFullscreen(Boolean(preview && document.fullscreenElement === preview));
+    const handleDocsFullscreenKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !isDocsPreviewFullscreen || docsFullscreenTransition === 'leaving') {
         return;
       }
 
-      setIsDocsPreviewFullscreen(false);
+      event.preventDefault();
+      startDocsPreviewFullscreenExit();
     };
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
+    window.addEventListener('keydown', handleDocsFullscreenKeyDown);
+    return () => window.removeEventListener('keydown', handleDocsFullscreenKeyDown);
+  }, [docsFullscreenTransition, isDocsPreviewFullscreen]);
 
   const selectCategory = (category: DocsCategoryKey) => {
     setActiveCategory(category);
@@ -806,33 +838,17 @@ export function DocsPlaceholder() {
     setDocsPanelMode('resources');
   };
 
-  const toggleDocsPreviewFullscreen = async () => {
-    const preview = docsPreviewRef.current;
-    if (!preview) {
+  const toggleDocsPreviewFullscreen = () => {
+    if (docsFullscreenTransition) {
       return;
     }
 
-    try {
-      if (document.fullscreenElement === preview) {
-        await document.exitFullscreen();
-        setIsDocsPreviewFullscreen(false);
-        return;
-      }
-
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      }
-
-      if (preview.requestFullscreen) {
-        await preview.requestFullscreen();
-        setIsDocsPreviewFullscreen(true);
-        return;
-      }
-    } catch {
-      // Some browser contexts reject Fullscreen API; use fixed-position fullscreen fallback.
+    if (isDocsPreviewFullscreen) {
+      startDocsPreviewFullscreenExit();
+      return;
     }
 
-    setIsDocsPreviewFullscreen((value) => !value);
+    startDocsPreviewFullscreenEnter();
   };
 
   return (
@@ -975,7 +991,9 @@ export function DocsPlaceholder() {
 
         <article
           ref={docsPreviewRef}
-          className={`landing-docs-preview${isDocsPreviewFullscreen ? ' is-fullscreen' : ''}`}
+          className={`landing-docs-preview${isDocsPreviewFullscreen ? ' is-fullscreen' : ''}${
+            docsFullscreenTransition ? ` is-fullscreen-${docsFullscreenTransition}` : ''
+          }`}
           aria-labelledby="docs-preview-title"
         >
           <header className="landing-docs-preview-head">

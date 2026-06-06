@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Button, Space } from 'antd';
+import { Button, Space, Tabs } from 'antd';
 import { createForm, onFormValuesChange } from '@formily/core';
 import { createSchemaField, FormProvider } from '@formily/react';
 
 import type { SchemaField } from '../../types/schema';
-import { compileToFormilySchema, resolveRuntimeRules } from './schemaCompiler';
+import type { SchemaTab } from '../../types/schema';
+import { compileToFormilySchema, normalizeSchemaTabs, resolveFieldTabId, resolveRuntimeRules } from './schemaCompiler';
 import { formilyAntd6Components } from './formilyAntd6';
 
 const SchemaFieldRenderer = createSchemaField({
@@ -13,6 +14,7 @@ const SchemaFieldRenderer = createSchemaField({
 
 export interface LabelHubFormRendererProps {
   schema: SchemaField[];
+  tabs?: SchemaTab[];
   rawPayload?: Record<string, unknown>;
   value?: Record<string, unknown>;
   readonly?: boolean;
@@ -23,6 +25,7 @@ export interface LabelHubFormRendererProps {
 
 export function LabelHubFormRenderer({
   schema,
+  tabs,
   rawPayload,
   value,
   readonly,
@@ -67,6 +70,23 @@ export function LabelHubFormRenderer({
       }),
     [schema, rawPayload, value, readonly],
   );
+  const schemaTabs = useMemo(() => normalizeSchemaTabs(tabs), [tabs]);
+  const useTabbedRenderer = schemaTabs.length > 1;
+  const tabbedSchemas = useMemo(
+    () =>
+      Object.fromEntries(
+        schemaTabs.map((tab) => [
+          tab.id,
+          compileToFormilySchema(schema, {
+            rawPayload,
+            values: value ?? {},
+            readonly,
+            fieldFilter: (field) => resolveFieldTabId(field, schemaTabs) === tab.id,
+          }),
+        ]),
+      ) as Record<string, unknown>,
+    [schema, schemaTabs, rawPayload, value, readonly],
+  );
   const runtimeRuleKey = useMemo(
     () => JSON.stringify(resolveRuntimeRules(schema, value ?? {})),
     [schema, value],
@@ -75,7 +95,23 @@ export function LabelHubFormRenderer({
   return (
     <FormProvider form={form}>
       <div className="lh-formily-renderer">
-        <SchemaFieldRenderer key={runtimeRuleKey} schema={formilySchema as never} />
+        {useTabbedRenderer ? (
+          <Tabs
+            className="lh-formily-tabs"
+            items={schemaTabs.map((tab) => ({
+              key: tab.id,
+              label: tab.label,
+              children: (
+                <SchemaFieldRenderer
+                  key={`${runtimeRuleKey}-${tab.id}`}
+                  schema={tabbedSchemas[tab.id] as never}
+                />
+              ),
+            }))}
+          />
+        ) : (
+          <SchemaFieldRenderer key={runtimeRuleKey} schema={formilySchema as never} />
+        )}
         {onSubmit && (
           <Space className="lh-formily-actions">
             <Button

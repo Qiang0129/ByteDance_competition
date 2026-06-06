@@ -185,13 +185,15 @@
   gap: 8px;
   height: 34px;
   padding: 0 14px;
-  border: 1px solid var(--lh-primary-bg-50, rgba(47, 123, 255, 0.5));
+  border: none;
   border-radius: 999px;
-  background: var(--lh-primary-bg-10, rgba(47, 123, 255, 0.1));
-  color: var(--lh-primary, #2f7bff);
+  background: rgba(248, 252, 255, 0.3);
+  color: #ffffff;
   font-size: 13px;
-  font-weight: 800;
-  box-shadow: 0 10px 30px var(--lh-primary-bg-12, rgba(47, 123, 255, 0.12));
+  font-weight: 850;
+  box-shadow:
+    0 10px 30px rgba(47, 123, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
   backdrop-filter: blur(12px);
 }
 
@@ -782,6 +784,7 @@
   flex-direction: column;
   background: #ffffff;
   overflow: hidden;
+  transform-origin: center center;
 }
 
 .landing-docs-preview.is-fullscreen,
@@ -795,12 +798,84 @@
   border-radius: 0;
   background: #ffffff;
   box-shadow: none;
+  will-change: opacity, transform, filter;
 }
 
 .landing-docs-preview:fullscreen {
   position: static;
   width: 100%;
   height: 100%;
+}
+
+.landing-docs-preview.is-fullscreen-entering {
+  animation: landingDocsFullscreenShellIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-docs-preview.is-fullscreen-leaving {
+  pointer-events: none;
+  animation: landingDocsFullscreenShellOut 320ms cubic-bezier(0.32, 0, 0.67, 0) both;
+}
+
+.landing-docs-preview.is-fullscreen-entering .landing-docs-preview-head,
+.landing-docs-preview.is-fullscreen-entering .landing-docs-preview-body {
+  animation: landingDocsFullscreenContentIn 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms both;
+}
+
+.landing-docs-preview.is-fullscreen-leaving .landing-docs-preview-head,
+.landing-docs-preview.is-fullscreen-leaving .landing-docs-preview-body {
+  animation: landingDocsFullscreenContentOut 260ms cubic-bezier(0.32, 0, 0.67, 0) both;
+}
+
+@keyframes landingDocsFullscreenShellIn {
+  from {
+    opacity: 0.72;
+    transform: translateY(10px) scale(0.985);
+    filter: blur(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes landingDocsFullscreenShellOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+    filter: blur(8px);
+  }
+}
+
+@keyframes landingDocsFullscreenContentIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landingDocsFullscreenContentOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .landing-docs-preview-head {

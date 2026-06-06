@@ -16,6 +16,7 @@ public record AssignmentItemResponse(
     String schemaVersionId,
     String schemaDigest,
     JsonNode rawPayload,
+    JsonNode tabs,
     JsonNode fields,
     AssignmentPositionResponse position,
     String returnReason,

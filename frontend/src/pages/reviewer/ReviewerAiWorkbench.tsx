@@ -540,6 +540,7 @@ export default function ReviewerAiWorkbench() {
             />
             <LabelHubFormRenderer
               schema={reviseTarget.schemaFields}
+              tabs={reviseTarget.schemaTabs}
               rawPayload={reviseTarget.rawPayload}
               value={revisionAnswer}
               readonly={revisionSubmitting}

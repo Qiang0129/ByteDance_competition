@@ -179,6 +179,8 @@ export default function LabelerOverview() {
     );
   }
 
+  const pendingTypeDistribution = data.pendingTypeDistribution ?? [];
+
   return (
     <Space direction="vertical" size="large" className="page-stack labeler-overview">
       <section className="overview-hero">
@@ -370,10 +372,10 @@ export default function LabelerOverview() {
               <Typography.Paragraph type="secondary" className="types-desc">
                 当前仍需作答或返修的题目,按媒体类型聚合。
               </Typography.Paragraph>
-              {data.pendingTypeDistribution.length === 0 ? (
+              {pendingTypeDistribution.length === 0 ? (
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待处理题目" />
               ) : (
-                <PendingTypeDistribution items={data.pendingTypeDistribution} />
+                <PendingTypeDistribution items={pendingTypeDistribution} />
               )}
               <div className="types-hint">
                 <Avatar

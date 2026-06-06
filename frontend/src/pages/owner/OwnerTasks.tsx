@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
 import {
   ArrowRightOutlined,
@@ -276,6 +277,7 @@ function AllocationEditor({
 
 export default function OwnerTasks() {
   const { message } = App.useApp();
+  const [searchParams] = useSearchParams();
   const [form] = Form.useForm<PublishFormValues>();
   const [stateFilter, setStateFilter] = useState<'all' | LabelingStatus>('all');
   const [reviewStatusFilter, setReviewStatusFilter] = useState<'all' | OwnerTaskReviewStatus>('all');
@@ -302,6 +304,7 @@ export default function OwnerTasks() {
   const submitStateRef = useRef<TaskState>('published');
   const lastSchemaSelectionRef = useRef<string | undefined>();
   const lastDatasetSelectionRef = useRef<string | undefined>();
+  const focusedTaskId = searchParams.get('focusTaskId') ?? '';
 
   const selectedStrategy = Form.useWatch('strategy', form);
   const selectedDatasetId = Form.useWatch('datasetId', form);
@@ -323,6 +326,12 @@ export default function OwnerTasks() {
       loadAssignableReviewers(),
     ]);
   }, []);
+
+  useEffect(() => {
+    if (focusedTaskId) {
+      setKeyword(focusedTaskId);
+    }
+  }, [focusedTaskId]);
 
   const filteredRows = useMemo(
     () =>
@@ -1030,7 +1039,11 @@ export default function OwnerTasks() {
           rowKey="taskId"
           loading={loading}
           pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
-          rowClassName="owner-task-row"
+          rowClassName={(record) => (
+            record.taskId === focusedTaskId
+              ? 'owner-task-row owner-task-row-focused'
+              : 'owner-task-row'
+          )}
         />
       </Card>
 

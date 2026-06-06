@@ -1017,6 +1017,7 @@ public class TaskService {
         mediaTypes.isEmpty() ? List.of("text") : mediaTypes,
         record.ownerName(),
         metadata.resolvedAiReviewEnabled(),
+        metadata.resolvedLlmAssistEnabled(),
         metadata.resolvedAiReviewEnabled() ? metadata.aiReviewRuleName() : null,
         formatDateTime(record.publishedAt() == null ? record.createdAt() : record.publishedAt()),
         metadata.resolvedMaxClaimPerUser(),

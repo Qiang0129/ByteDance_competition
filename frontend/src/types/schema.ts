@@ -75,6 +75,11 @@ export interface SchemaFieldLayout {
   tab?: string;
 }
 
+export interface SchemaTab {
+  id: string;
+  label: string;
+}
+
 export interface SchemaDiagnostic {
   level: 'error' | 'warning';
   code: string;
@@ -158,6 +163,7 @@ export interface SchemaVersion {
   /** 模板默认关联的数据集名称,由后端根据 datasetId 派生 */
   datasetName?: string;
   status: 'draft' | 'published';
+  tabs?: SchemaTab[];
   fields: SchemaField[];
   updatedAt: string;
   createdBy: string;
@@ -185,6 +191,7 @@ export interface CreateSchemaDraftRequest {
   datasetId?: string;
   datasetName?: string;
   description?: string;
+  tabs?: SchemaTab[];
   fields: SchemaField[];
 }
 
@@ -195,5 +202,6 @@ export interface UpdateSchemaDraftRequest {
   datasetId?: string;
   datasetName?: string;
   description?: string;
+  tabs?: SchemaTab[];
   fields: SchemaField[];
 }

@@ -6,7 +6,7 @@
  *   - 抽检比例 / 双审一致率 / 争议样本是 4.6 数据看板的核心指标
  */
 
-import type { SchemaField } from './schema';
+import type { SchemaField, SchemaTab } from './schema';
 
 export type ReviewDecision = 'APPROVE' | 'RETURN' | 'REVISE' | 'ESCALATE';
 
@@ -61,6 +61,8 @@ export interface AnnotationToReview {
   previousAnswerJson?: Record<string, unknown>;
   /** 原始题目展示数据 */
   rawPayload: Record<string, unknown>;
+  /** 提交时的 Schema Tab 快照,用于 Reviewer 修订时保持与 Labeler 一致的表单分组 */
+  schemaTabs?: SchemaTab[];
   /** 提交时的 Schema 字段快照,用于 Reviewer 直接修订 */
   schemaFields?: SchemaField[];
   /** AI 预审结果(可能为空,代表 AI 还在排队) */

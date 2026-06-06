@@ -44,6 +44,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class AnnotationService {
 
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+  private static final String DEFAULT_SCHEMA_TAB_ID = "annotation";
+  private static final String DEFAULT_SCHEMA_TAB_LABEL = "标注";
   private static final Set<String> ISSUE_CATEGORIES = Set.of(
       "data_error",
       "schema_mismatch",
@@ -118,6 +120,7 @@ public class AnnotationService {
         Long.toString(schema.id()),
         schema.digest(),
         buildRawPayload(assignment),
+        schema.tabs(),
         schema.fields(),
         resolvePosition(assignment, schema),
         returnReason,
@@ -587,12 +590,16 @@ public class AnnotationService {
           "schema has been withdrawn");
     }
     ObjectNode root = normalizeRuntimeSchemaRoot(readJson(schema.schemaJson()));
+    JsonNode tabs = root.path("tabs");
     JsonNode fields = root.path("fields");
+    ArrayNode tabArray = tabs.isArray()
+        ? (ArrayNode) tabs
+        : normalizeRuntimeTabs(null);
     ArrayNode fieldArray = fields.isArray()
         ? (ArrayNode) fields
         : objectMapper.createArrayNode();
     String schemaJson = writeJson(root);
-    return new SchemaContext(schema.id(), schemaJson, schemaDigest(schemaJson), fieldArray, runtimeUsable);
+    return new SchemaContext(schema.id(), schemaJson, schemaDigest(schemaJson), tabArray, fieldArray, runtimeUsable);
   }
 
   private ObjectNode normalizeRuntimeSchemaRoot(JsonNode root) {
@@ -603,7 +610,48 @@ public class AnnotationService {
     normalized.set(
         "fields",
         fields.isArray() ? normalizeRuntimeFields(fields) : objectMapper.createArrayNode());
+    JsonNode tabs = normalized.path("tabs");
+    normalized.set("tabs", normalizeRuntimeTabs(tabs));
     return normalized;
+  }
+
+  private ArrayNode normalizeRuntimeTabs(JsonNode tabs) {
+    List<ObjectNode> normalizedTabs = new ArrayList<>();
+    Set<String> seen = new HashSet<>();
+    boolean hasDefaultTab = false;
+    if (tabs != null && tabs.isArray()) {
+      for (JsonNode tab : tabs) {
+        if (!tab.isObject()) {
+          continue;
+        }
+        String id = text(tab, "id", "");
+        if (id.isBlank() || seen.contains(id.trim())) {
+          continue;
+        }
+        String normalizedId = id.trim();
+        String label = text(tab, "label", "");
+        String normalizedLabel = label.isBlank() ? normalizedId : label.trim();
+        if (DEFAULT_SCHEMA_TAB_ID.equals(normalizedId)) {
+          hasDefaultTab = true;
+        }
+        seen.add(normalizedId);
+        normalizedTabs.add(schemaTab(normalizedId, normalizedLabel));
+      }
+    }
+
+    ArrayNode result = objectMapper.createArrayNode();
+    if (!hasDefaultTab) {
+      result.add(schemaTab(DEFAULT_SCHEMA_TAB_ID, DEFAULT_SCHEMA_TAB_LABEL));
+    }
+    normalizedTabs.forEach(result::add);
+    return result;
+  }
+
+  private ObjectNode schemaTab(String id, String label) {
+    ObjectNode tab = objectMapper.createObjectNode();
+    tab.put("id", id);
+    tab.put("label", label);
+    return tab;
   }
 
   private ArrayNode normalizeRuntimeFields(JsonNode fields) {
@@ -1505,6 +1553,7 @@ public class AnnotationService {
       long id,
       String schemaJson,
       String digest,
+      ArrayNode tabs,
       ArrayNode fields,
       boolean runtimeUsable) {}
 

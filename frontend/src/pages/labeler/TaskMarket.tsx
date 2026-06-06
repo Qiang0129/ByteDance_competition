@@ -126,6 +126,35 @@ const mediaMeta: Record<
   markdown: { label: 'Markdown', icon: <TagsOutlined />, color: '#f59e0b' },
 };
 
+function TaskFeatureTags({
+  task,
+  showAiRule = false,
+}: {
+  task: MarketTask;
+  showAiRule?: boolean;
+}) {
+  const aiRuleName = task.aiReviewRule ?? (showAiRule ? '默认规则' : '默认');
+
+  return (
+    <>
+      {task.aiReviewEnabled && (
+        <Tooltip title={`AI 预审规则: ${aiRuleName}`}>
+          <Tag className="market-ai-tag">
+            <AiAssistantIcon /> AI 预审{showAiRule ? ` · ${aiRuleName}` : ''}
+          </Tag>
+        </Tooltip>
+      )}
+      {task.llmAssistEnabled === true && (
+        <Tooltip title="该任务已开启 LLM 标注助手">
+          <Tag className="market-llm-tag">
+            <ThunderboltFilled /> LLM助手
+          </Tag>
+        </Tooltip>
+      )}
+    </>
+  );
+}
+
 function parseTime(value?: string): number {
   if (!value) return Number.NaN;
   const timestamp = new Date(value.replace(' ', 'T')).getTime();
@@ -666,13 +695,7 @@ function TaskCard({
             </span>
           );
         })}
-        {task.aiReviewEnabled && (
-          <Tooltip title={`AI 预审规则: ${task.aiReviewRule ?? '默认'}`}>
-            <Tag className="market-ai-tag">
-              <AiAssistantIcon /> AI 预审
-            </Tag>
-          </Tooltip>
-        )}
+        <TaskFeatureTags task={task} />
       </div>
 
       <div className="market-card-quota">
@@ -755,11 +778,7 @@ function TaskDetail({ task }: { task: MarketTask }) {
             </span>
           );
         })}
-        {task.aiReviewEnabled && (
-          <Tag className="market-ai-tag">
-            <AiAssistantIcon /> AI 预审 · {task.aiReviewRule ?? '默认规则'}
-          </Tag>
-        )}
+        <TaskFeatureTags task={task} showAiRule />
       </Space>
 
       <div>

@@ -8,6 +8,7 @@ import {
   CodeOutlined,
   DeleteOutlined,
   DragOutlined,
+  EditOutlined,
   ExportOutlined,
   EyeOutlined,
   FieldStringOutlined,
@@ -70,7 +71,16 @@ import { createPortal } from 'react-dom';
 import { getApiErrorMessage } from '../../api/client';
 import { datasetApi } from '../../api/dataset';
 import { schemaApi } from '../../api/schema';
-import { LabelHubFormRenderer, normalizeSchemaFields, resolveSemanticType, validateSchemaFields } from '../../modules/schema';
+import {
+  DEFAULT_SCHEMA_TAB_ID,
+  DEFAULT_SCHEMA_TABS,
+  LabelHubFormRenderer,
+  normalizeSchemaFields,
+  normalizeSchemaTabs,
+  resolveFieldTabId,
+  resolveSemanticType,
+  validateSchemaFields,
+} from '../../modules/schema';
 import type { DatasetItem, DatasetMeta } from '../../types/dataset';
 import type {
   MaterialCategory,
@@ -81,6 +91,7 @@ import type {
   SchemaReactionAction,
   SchemaReactionOperator,
   SchemaReactionRule,
+  SchemaTab,
   SchemaVersion,
   SchemaValidatorRule,
   SchemaValidatorType,
@@ -153,6 +164,7 @@ type DesignerDragPayload =
   | { type: 'field'; fieldId: string };
 
 const CANVAS_DROPPABLE_ID = 'canvas-droppable';
+const NEW_SCHEMA_TAB_KEY = '__new_schema_tab__';
 
 const designerCollisionDetection: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
@@ -305,11 +317,13 @@ export default function OwnerTemplateDesigner() {
     datasetId: undefined,
     datasetName: undefined,
     status: 'draft',
+    tabs: DEFAULT_SCHEMA_TABS,
     fields: isNew ? [] : defaultDemoFields,
     updatedAt: new Date().toISOString(),
     createdBy: 'Owner Demo',
   });
 
+  const [activeSchemaTabId, setActiveSchemaTabId] = useState(DEFAULT_SCHEMA_TAB_ID);
   const [activeFieldId, setActiveFieldId] = useState<string | null>(
     schema.fields[0]?.id ?? null,
   );
@@ -339,7 +353,10 @@ export default function OwnerTemplateDesigner() {
       try {
         const real = await schemaApi.getSchema(versionId);
         if (!cancelled) {
-          setSchema(real);
+          const tabs = normalizeSchemaTabs(real.tabs);
+          const nextSchema = { ...real, tabs };
+          setSchema(nextSchema);
+          setActiveSchemaTabId(tabs[0]?.id ?? DEFAULT_SCHEMA_TAB_ID);
           setActiveFieldId(real.fields[0]?.id ?? null);
           setUsingFallback(false);
         }
@@ -409,6 +426,12 @@ export default function OwnerTemplateDesigner() {
     () => schema.fields.find((f) => f.id === activeFieldId) ?? null,
     [schema.fields, activeFieldId],
   );
+  const schemaTabs = useMemo(() => normalizeSchemaTabs(schema.tabs), [schema.tabs]);
+  const activeTabFields = useMemo(
+    () =>
+      schema.fields.filter((field) => resolveFieldTabId(field, schemaTabs) === activeSchemaTabId),
+    [schema.fields, schemaTabs, activeSchemaTabId],
+  );
   const schemaCheck = useMemo(() => validateSchemaFields(schema.fields), [schema.fields]);
   const previewRawPayload = useMemo(
     () => normalizePreviewItem(previewItems[previewItemIndex]) ?? fallbackPreviewPayload,
@@ -428,6 +451,16 @@ export default function OwnerTemplateDesigner() {
   );
   const isPublished = schema.status === 'published';
 
+  useEffect(() => {
+    if (schemaTabs.some((tab) => tab.id === activeSchemaTabId)) return;
+    setActiveSchemaTabId(schemaTabs[0]?.id ?? DEFAULT_SCHEMA_TAB_ID);
+  }, [schemaTabs, activeSchemaTabId]);
+
+  useEffect(() => {
+    if (activeFieldId && activeTabFields.some((field) => field.id === activeFieldId)) return;
+    setActiveFieldId(activeTabFields[0]?.id ?? null);
+  }, [activeFieldId, activeTabFields]);
+
   function updateField(fieldId: string, patch: Partial<SchemaField>) {
     if (isPublished) return;
     setSchema((prev) => ({
@@ -445,9 +478,60 @@ export default function OwnerTemplateDesigner() {
   function addMaterial(meta: MaterialMeta) {
     if (isPublished) return;
     setSchema((prev) => {
-      const field = createField(meta, prev.fields);
+      const field = {
+        ...createField(meta, prev.fields),
+        layout: { tab: activeSchemaTabId },
+      };
       return { ...prev, fields: [...prev.fields, field] };
     });
+  }
+
+  function addSchemaTab() {
+    if (isPublished) return;
+    let idx = schemaTabs.length;
+    let id = `tab_${idx}`;
+    while (schemaTabs.some((tab) => tab.id === id)) {
+      idx += 1;
+      id = `tab_${idx}`;
+    }
+    const nextTab = { id, label: `新 Tab ${idx}` };
+    setSchema((prev) => ({ ...prev, tabs: [...normalizeSchemaTabs(prev.tabs), nextTab] }));
+    setActiveSchemaTabId(id);
+    setActiveFieldId(null);
+  }
+
+  function renameSchemaTab(tabId: string, label: string) {
+    if (isPublished) return;
+    const nextLabel = label.trim();
+    if (!nextLabel) {
+      message.warning('Tab 名称不能为空');
+      return;
+    }
+    setSchema((prev) => ({
+      ...prev,
+      tabs: normalizeSchemaTabs(prev.tabs).map((tab) =>
+        tab.id === tabId ? { ...tab, label: nextLabel } : tab,
+      ),
+    }));
+  }
+
+  function removeSchemaTab(tabId: string) {
+    if (isPublished || tabId === DEFAULT_SCHEMA_TAB_ID) return;
+    const hasFields = schema.fields.some(
+      (field) => resolveFieldTabId(field, schemaTabs) === tabId,
+    );
+    if (hasFields) {
+      message.warning('该 Tab 下仍有字段,请先移动或删除字段');
+      return;
+    }
+    setSchema((prev) => ({
+      ...prev,
+      tabs: normalizeSchemaTabs(prev.tabs).filter((tab) => tab.id !== tabId),
+    }));
+    if (activeSchemaTabId === tabId) {
+      setActiveSchemaTabId(DEFAULT_SCHEMA_TAB_ID);
+      setActiveFieldId(null);
+    }
   }
 
   function removeField(fieldId: string) {
@@ -464,13 +548,20 @@ export default function OwnerTemplateDesigner() {
   function moveField(fieldId: string, direction: -1 | 1) {
     if (isPublished) return;
     setSchema((prev) => {
-      const idx = prev.fields.findIndex((f) => f.id === fieldId);
-      if (idx < 0) return prev;
-      const target = idx + direction;
-      if (target < 0 || target >= prev.fields.length) return prev;
-      const next = prev.fields.slice();
-      const [item] = next.splice(idx, 1);
-      next.splice(target, 0, item);
+      const tabs = normalizeSchemaTabs(prev.tabs);
+      const scopedFields = prev.fields.filter(
+        (field) => resolveFieldTabId(field, tabs) === activeSchemaTabId,
+      );
+      const scopedIndex = scopedFields.findIndex((field) => field.id === fieldId);
+      const target = scopedIndex + direction;
+      if (scopedIndex < 0 || target < 0 || target >= scopedFields.length) return prev;
+      const item = prev.fields.find((field) => field.id === fieldId);
+      if (!item) return prev;
+      const targetId = scopedFields[target].id;
+      const next = prev.fields.filter((field) => field.id !== fieldId);
+      const targetIndex = next.findIndex((field) => field.id === targetId);
+      if (targetIndex < 0) return prev;
+      next.splice(direction < 0 ? targetIndex : targetIndex + 1, 0, item);
       return { ...prev, fields: next };
     });
   }
@@ -496,15 +587,18 @@ export default function OwnerTemplateDesigner() {
 
     const activeData = readDragPayload(event);
     const overId = String(over.id);
+    const scopedFields = schema.fields.filter(
+      (field) => resolveFieldTabId(field, schemaTabs) === activeSchemaTabId,
+    );
 
     if (overId === CANVAS_DROPPABLE_ID) {
-      const lastField = schema.fields[schema.fields.length - 1];
+      const lastField = scopedFields[scopedFields.length - 1];
       if (!lastField) return null;
       if (activeData?.type === 'field' && activeData.fieldId === lastField.id) return null;
       return { fieldId: lastField.id, position: 'after' };
     }
 
-    const overField = schema.fields.find((field) => field.id === overId);
+    const overField = scopedFields.find((field) => field.id === overId);
     if (!overField) return null;
     if (activeData?.type === 'field' && activeData.fieldId === overField.id) return null;
 
@@ -563,9 +657,12 @@ export default function OwnerTemplateDesigner() {
     if (activeData?.type === 'material') {
       // 物料拖到画布
       setSchema((prev) => {
-        const field = createField(activeData.meta, prev.fields);
+        const field = {
+          ...createField(activeData.meta, prev.fields),
+          layout: { tab: activeSchemaTabId },
+        };
         const next = prev.fields.slice();
-        if (overId === CANVAS_DROPPABLE_ID) {
+        if (!placement) {
           next.push(field);
         } else {
           const targetId = placement?.fieldId ?? overId;
@@ -581,22 +678,14 @@ export default function OwnerTemplateDesigner() {
     if (activeData?.type === 'field') {
       // 字段间排序
       setSchema((prev) => {
-        const fromIdx = prev.fields.findIndex((f) => f.id === activeData.fieldId);
-        if (fromIdx === -1) return prev;
-        let insertIdx: number;
-        if (overId === CANVAS_DROPPABLE_ID) {
-          insertIdx = prev.fields.length;
-        } else {
-          if (!placement) return prev;
-          const overIdx = prev.fields.findIndex((f) => f.id === placement.fieldId);
-          if (overIdx === -1) return prev;
-          insertIdx = overIdx + (placement.position === 'after' ? 1 : 0);
-        }
-        const next = prev.fields.slice();
-        const [item] = next.splice(fromIdx, 1);
-        const normalizedInsertIdx = fromIdx < insertIdx ? insertIdx - 1 : insertIdx;
-        if (fromIdx === normalizedInsertIdx) return prev;
-        next.splice(normalizedInsertIdx, 0, item);
+        if (!placement) return prev;
+        const item = prev.fields.find((f) => f.id === activeData.fieldId);
+        if (!item) return prev;
+        const next = prev.fields.filter((field) => field.id !== activeData.fieldId);
+        const targetIndex = next.findIndex((f) => f.id === placement.fieldId);
+        if (targetIndex === -1) return prev;
+        const insertIndex = targetIndex + (placement.position === 'after' ? 1 : 0);
+        next.splice(insertIndex, 0, item);
         return { ...prev, fields: next };
       });
     }
@@ -605,6 +694,10 @@ export default function OwnerTemplateDesigner() {
   async function validateTemplateBeforePersist() {
     if (!schema.name.trim()) {
       message.warning('请先填写模板名称');
+      return false;
+    }
+    if (schemaTabs.some((tab) => !tab.label.trim())) {
+      message.warning('Tab 名称不能为空');
       return false;
     }
     if (!schemaCheck.valid) {
@@ -617,6 +710,7 @@ export default function OwnerTemplateDesigner() {
         description: schema.description?.trim(),
         datasetId: schema.datasetId ?? '',
         datasetName: schema.datasetName ?? '',
+        tabs: schemaTabs,
         fields: normalizeSchemaFields(schema.fields),
       });
       if (!backendCheck.valid) {
@@ -634,6 +728,7 @@ export default function OwnerTemplateDesigner() {
     const name = schema.name.trim();
     const description = schema.description?.trim();
     const currentActiveFieldId = activeFieldId;
+    const normalizedTabs = schemaTabs;
     const normalizedFields = normalizeSchemaFields(schema.fields);
     if (schema.versionId.startsWith('draft-')) {
       const created = await schemaApi.createStandaloneDraft({
@@ -642,6 +737,7 @@ export default function OwnerTemplateDesigner() {
         datasetId: schema.datasetId ?? '',
         datasetName: schema.datasetName ?? '',
         description,
+        tabs: normalizedTabs,
         fields: normalizedFields,
       });
       setSchema(created);
@@ -663,6 +759,7 @@ export default function OwnerTemplateDesigner() {
       datasetId: schema.datasetId ?? '',
       datasetName: schema.datasetName ?? '',
       description,
+      tabs: normalizedTabs,
       fields: normalizedFields,
     });
     setSchema(updated);
@@ -859,20 +956,35 @@ export default function OwnerTemplateDesigner() {
         {/* 中:画布 */}
         <div className="designer-center">
           <Tabs
-            defaultActiveKey="basic"
+            activeKey={activeSchemaTabId}
             className="designer-tabs"
+            onChange={(key) => {
+              if (key === NEW_SCHEMA_TAB_KEY) {
+                addSchemaTab();
+                return;
+              }
+              setActiveSchemaTabId(key);
+            }}
             tabBarExtraContent={
               <Typography.Text type="secondary" className="designer-tab-tip">
                 CMD+S 保存 · 点击物料追加字段
               </Typography.Text>
             }
             items={[
-              {
-                key: 'basic',
-                label: '基础信息',
+              ...schemaTabs.map((tab) => ({
+                key: tab.id,
+                label: (
+                  <DesignerSchemaTabLabel
+                    tab={tab}
+                    isDefault={tab.id === DEFAULT_SCHEMA_TAB_ID}
+                    disabled={isPublished}
+                    onRename={renameSchemaTab}
+                    onRemove={removeSchemaTab}
+                  />
+                ),
                 children: (
                   <Canvas
-                    fields={schema.fields}
+                    fields={activeTabFields}
                     activeFieldId={activeFieldId}
                     dropIndicator={dropIndicator}
                     onSelect={setActiveFieldId}
@@ -881,16 +993,16 @@ export default function OwnerTemplateDesigner() {
                     onAdd={() => message.info('从左侧物料栏点击物料即可追加新字段')}
                   />
                 ),
-              },
-              { key: 'review', label: '标注', children: <ReviewPlaceholder /> },
+              })),
               {
-                key: 'plus',
+                key: NEW_SCHEMA_TAB_KEY,
                 label: (
                   <span>
                     <PlusOutlined /> 新 Tab
                   </span>
                 ),
-                children: <ReviewPlaceholder />,
+                disabled: isPublished,
+                children: null,
               },
             ]}
           />
@@ -902,6 +1014,7 @@ export default function OwnerTemplateDesigner() {
             <PropertyPanel
               field={activeField}
               fields={schema.fields}
+              tabs={schemaTabs}
               rawPathOptions={rawPathOptions}
               onChange={(patch) => updateField(activeField.id, patch)}
             />
@@ -953,6 +1066,7 @@ export default function OwnerTemplateDesigner() {
           </Space>
           <LabelHubFormRenderer
             schema={schema.fields}
+            tabs={schemaTabs}
             rawPayload={previewRawPayload}
             value={previewAnswer}
             onChange={setPreviewAnswer}
@@ -1057,6 +1171,94 @@ function Canvas({
         </button>
       </div>
     </SortableContext>
+  );
+}
+
+function DesignerSchemaTabLabel({
+  tab,
+  isDefault,
+  disabled,
+  onRename,
+  onRemove,
+}: {
+  tab: SchemaTab;
+  isDefault: boolean;
+  disabled: boolean;
+  onRename: (tabId: string, label: string) => void;
+  onRemove: (tabId: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftLabel, setDraftLabel] = useState(tab.label);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraftLabel(tab.label);
+    }
+  }, [tab.label, editing]);
+
+  const commit = () => {
+    const next = draftLabel.trim();
+    setEditing(false);
+    if (!next) {
+      setDraftLabel(tab.label);
+      return;
+    }
+    if (next !== tab.label) {
+      onRename(tab.id, next);
+    }
+  };
+
+  if (editing) {
+    return (
+      <span className="designer-tab-label is-editing" onClick={(event) => event.stopPropagation()}>
+        <Input
+          size="small"
+          value={draftLabel}
+          autoFocus
+          onChange={(event) => setDraftLabel(event.target.value)}
+          onBlur={commit}
+          onPressEnter={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setDraftLabel(tab.label);
+              setEditing(false);
+            }
+          }}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className="designer-tab-label">
+      <span className="designer-tab-name">{tab.label}</span>
+      {!disabled && (
+        <Button
+          size="small"
+          type="text"
+          icon={<EditOutlined />}
+          className="designer-tab-action"
+          aria-label={`重命名 ${tab.label}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setEditing(true);
+          }}
+        />
+      )}
+      {!disabled && !isDefault && (
+        <Button
+          size="small"
+          type="text"
+          icon={<CloseOutlined />}
+          className="designer-tab-action"
+          aria-label={`删除 ${tab.label}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove(tab.id);
+          }}
+        />
+      )}
+    </span>
   );
 }
 
@@ -1233,17 +1435,20 @@ function renderFieldPreview(field: SchemaField) {
 function PropertyPanel({
   field,
   fields,
+  tabs,
   rawPathOptions,
   onChange,
 }: {
   field: SchemaField;
   fields: SchemaField[];
+  tabs: SchemaTab[];
   rawPathOptions: Array<{ label: string; value: string }>;
   onChange: (patch: Partial<SchemaField>) => void;
 }) {
   const fieldOptions = fields
     .filter((item) => item.fieldName)
     .map((item) => ({ label: `${item.label} (${item.fieldName})`, value: item.fieldName }));
+  const tabOptions = tabs.map((tab) => ({ label: tab.label, value: tab.id }));
   const validators = field.validators ?? [];
   const regexRule = validators.find((rule) => rule.type === 'regex');
   const customRule = validators.find((rule) => rule.type !== 'regex');
@@ -1307,6 +1512,20 @@ function PropertyPanel({
                   <Input
                     value={field.helpText ?? ''}
                     onChange={(event) => onChange({ helpText: event.target.value })}
+                  />
+                </Field>
+                <Field label="所属 Tab">
+                  <Select
+                    options={tabOptions}
+                    value={resolveFieldTabId(field, tabs)}
+                    onChange={(value) =>
+                      onChange({
+                        layout: {
+                          ...(field.layout ?? {}),
+                          tab: value ?? DEFAULT_SCHEMA_TAB_ID,
+                        },
+                      })
+                    }
                   />
                 </Field>
                 {(field.kind === 'text-single' || field.kind === 'text-multi') && (
@@ -1744,16 +1963,6 @@ function ReactionRulesEditor({
       >
         新增联动规则
       </Button>
-    </div>
-  );
-}
-
-function ReviewPlaceholder() {
-  return (
-    <div className="canvas-empty">
-      <Empty
-        description="该 Tab 用于配置审核侧渲染或打回时的副表单,后续阶段接入。"
-      />
     </div>
   );
 }

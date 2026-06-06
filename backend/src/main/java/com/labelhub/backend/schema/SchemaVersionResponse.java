@@ -12,6 +12,7 @@ public record SchemaVersionResponse(
     String datasetId,
     String datasetName,
     String status,
+    JsonNode tabs,
     JsonNode fields,
     String updatedAt,
     String createdBy) {}

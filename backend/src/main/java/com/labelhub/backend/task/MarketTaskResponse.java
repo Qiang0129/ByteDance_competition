@@ -19,6 +19,7 @@ public record MarketTaskResponse(
     List<String> mediaTypes,
     String ownerName,
     boolean aiReviewEnabled,
+    boolean llmAssistEnabled,
     String aiReviewRule,
     String publishedAt,
     Integer maxClaimPerUser,

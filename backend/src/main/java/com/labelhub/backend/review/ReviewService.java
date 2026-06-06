@@ -38,6 +38,8 @@ public class ReviewService {
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
   private static final int RETURN_REWORK_WINDOW_HOURS = 48;
   private static final int AUTO_DISPUTE_REVISION_NO = 3;
+  private static final String DEFAULT_SCHEMA_TAB_ID = "annotation";
+  private static final String DEFAULT_SCHEMA_TAB_LABEL = "标注";
 
   private final ReviewRepository reviewRepository;
   private final StateMachineService stateMachineService;
@@ -777,6 +779,7 @@ public class ReviewService {
         readJson(record.answerJson()),
         readJson(record.previousAnswerJson()),
         readJson(record.rawPayloadJson()),
+        schemaTabs(record.schemaSnapshotJson()),
         schemaFields(record.schemaSnapshotJson()),
         toAiResult(record),
         record.humanDecision() == null ? null : record.humanDecision().toUpperCase(Locale.ROOT),
@@ -810,6 +813,47 @@ public class ReviewService {
   private JsonNode schemaFields(String schemaSnapshotJson) {
     JsonNode fields = readJson(schemaSnapshotJson).path("fields");
     return fields.isArray() ? fields : objectMapper.createArrayNode();
+  }
+
+  private JsonNode schemaTabs(String schemaSnapshotJson) {
+    JsonNode tabs = readJson(schemaSnapshotJson).path("tabs");
+    if (!tabs.isArray()) {
+      return defaultSchemaTabs();
+    }
+    ArrayNode normalized = objectMapper.createArrayNode();
+    boolean hasDefault = false;
+    for (JsonNode tab : tabs) {
+      if (!tab.isObject()) {
+        continue;
+      }
+      String id = tab.path("id").asText("").trim();
+      if (id.isBlank()) {
+        continue;
+      }
+      String label = tab.path("label").asText("").trim();
+      ObjectNode next = objectMapper.createObjectNode();
+      next.put("id", id);
+      next.put("label", label.isBlank() ? id : label);
+      normalized.add(next);
+      if (DEFAULT_SCHEMA_TAB_ID.equals(id)) {
+        hasDefault = true;
+      }
+    }
+    if (hasDefault && normalized.size() > 0) {
+      return normalized;
+    }
+    ArrayNode result = defaultSchemaTabs();
+    normalized.forEach(result::add);
+    return result;
+  }
+
+  private ArrayNode defaultSchemaTabs() {
+    ArrayNode tabs = objectMapper.createArrayNode();
+    ObjectNode tab = objectMapper.createObjectNode();
+    tab.put("id", DEFAULT_SCHEMA_TAB_ID);
+    tab.put("label", DEFAULT_SCHEMA_TAB_LABEL);
+    tabs.add(tab);
+    return tabs;
   }
 
   private boolean jsonEquivalent(JsonNode left, JsonNode right) {

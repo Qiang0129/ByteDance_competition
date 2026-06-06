@@ -834,6 +834,7 @@ export default function AnswerPage() {
               <Space direction="vertical" size={20} style={{ width: '100%' }}>
                 <LabelHubFormRenderer
                   schema={renderFields}
+                  tabs={item.tabs}
                   rawPayload={item.rawPayload}
                   value={answer}
                   readonly={renderReadonly}

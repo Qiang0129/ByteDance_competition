@@ -1,4 +1,4 @@
-import type { MaterialKind, SchemaField, SchemaReactionRule, SchemaSemanticType } from '../../types/schema';
+import type { MaterialKind, SchemaField, SchemaReactionRule, SchemaSemanticType, SchemaTab } from '../../types/schema';
 import { normalizeValidators, SUBMITTABLE_KINDS } from './schemaValidation';
 
 const SUBMITTABLE_SEMANTIC_TYPES = new Set<SchemaSemanticType>([
@@ -20,6 +20,34 @@ export interface CompileOptions {
   rawPayload?: Record<string, unknown>;
   values?: Record<string, unknown>;
   readonly?: boolean;
+  fieldFilter?: (field: SchemaField) => boolean;
+}
+
+export const DEFAULT_SCHEMA_TAB_ID = 'annotation';
+export const DEFAULT_SCHEMA_TABS: SchemaTab[] = [{ id: DEFAULT_SCHEMA_TAB_ID, label: '标注' }];
+
+export function normalizeSchemaTabs(tabs?: SchemaTab[] | null): SchemaTab[] {
+  const seen = new Set<string>();
+  const normalized: SchemaTab[] = [];
+  let hasDefaultTab = false;
+  (tabs ?? []).forEach((tab) => {
+    const id = tab?.id?.trim();
+    if (!id || seen.has(id)) return;
+    const label = tab.label?.trim() || id;
+    if (id === DEFAULT_SCHEMA_TAB_ID) {
+      hasDefaultTab = true;
+    }
+    seen.add(id);
+    normalized.push({ id, label });
+  });
+  return hasDefaultTab ? normalized : [...DEFAULT_SCHEMA_TABS, ...normalized];
+}
+
+export function resolveFieldTabId(field: SchemaField, tabs?: SchemaTab[] | null): string {
+  const normalizedTabs = normalizeSchemaTabs(tabs);
+  const tabIds = new Set(normalizedTabs.map((tab) => tab.id));
+  const tabId = field.layout?.tab;
+  return tabId && tabIds.has(tabId) ? tabId : DEFAULT_SCHEMA_TAB_ID;
 }
 
 export function getValueByPath(source: unknown, path?: string): unknown {
@@ -114,6 +142,7 @@ export function compileToFormilySchema(fields: SchemaField[], options: CompileOp
 
   fields.forEach((field, index) => {
     if (!field.fieldName) return;
+    if (options.fieldFilter && !options.fieldFilter(field)) return;
     if (ruleState.visible[field.fieldName] === false) return;
     properties[field.fieldName] = toFormilyFieldSchema(field, index, rawPayload, ruleState, options);
   });

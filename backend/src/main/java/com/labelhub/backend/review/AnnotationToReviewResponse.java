@@ -17,6 +17,7 @@ public record AnnotationToReviewResponse(
     JsonNode answerJson,
     JsonNode previousAnswerJson,
     JsonNode rawPayload,
+    JsonNode schemaTabs,
     JsonNode schemaFields,
     AiReviewResultResponse aiResult,
     String decision,
