@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownOutlined,
   ArrowLeftOutlined,
@@ -63,8 +63,10 @@ import {
   Switch,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
+import type { InputRef } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 
@@ -163,8 +165,21 @@ type DesignerDragPayload =
   | { type: 'material'; meta: MaterialMeta }
   | { type: 'field'; fieldId: string };
 
-const CANVAS_DROPPABLE_ID = 'canvas-droppable';
+const CANVAS_DROPPABLE_PREFIX = 'canvas-droppable';
 const NEW_SCHEMA_TAB_KEY = '__new_schema_tab__';
+
+function canvasDroppableId(tabId: string) {
+  return `${CANVAS_DROPPABLE_PREFIX}:${tabId}`;
+}
+
+function isCanvasDroppableId(id: string) {
+  return id === CANVAS_DROPPABLE_PREFIX || id.startsWith(`${CANVAS_DROPPABLE_PREFIX}:`);
+}
+
+function canvasTabIdFromDroppable(id: string) {
+  if (!id.startsWith(`${CANVAS_DROPPABLE_PREFIX}:`)) return null;
+  return id.slice(CANVAS_DROPPABLE_PREFIX.length + 1);
+}
 
 const designerCollisionDetection: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
@@ -173,14 +188,17 @@ const designerCollisionDetection: CollisionDetection = (args) => {
   }
 
   const directFieldCollisions = pointerCollisions.filter(
-    (collision) => String(collision.id) !== CANVAS_DROPPABLE_ID,
+    (collision) => !isCanvasDroppableId(String(collision.id)),
   );
   if (directFieldCollisions.length > 0) {
     return directFieldCollisions;
   }
 
   const fieldContainers = args.droppableContainers.filter(
-    (container) => String(container.id) !== CANVAS_DROPPABLE_ID,
+    (container) => {
+      const rect = container.rect.current;
+      return !isCanvasDroppableId(String(container.id)) && Boolean(rect?.width && rect?.height);
+    },
   );
   const closestFieldCollisions = closestCenter({
     ...args,
@@ -324,6 +342,8 @@ export default function OwnerTemplateDesigner() {
   });
 
   const [activeSchemaTabId, setActiveSchemaTabId] = useState(DEFAULT_SCHEMA_TAB_ID);
+  const [editingSchemaTabId, setEditingSchemaTabId] = useState<string | null>(null);
+  const [editingSchemaTabDraft, setEditingSchemaTabDraft] = useState('');
   const [activeFieldId, setActiveFieldId] = useState<string | null>(
     schema.fields[0]?.id ?? null,
   );
@@ -457,6 +477,13 @@ export default function OwnerTemplateDesigner() {
   }, [schemaTabs, activeSchemaTabId]);
 
   useEffect(() => {
+    if (!editingSchemaTabId) return;
+    if (schemaTabs.some((tab) => tab.id === editingSchemaTabId)) return;
+    setEditingSchemaTabId(null);
+    setEditingSchemaTabDraft('');
+  }, [schemaTabs, editingSchemaTabId]);
+
+  useEffect(() => {
     if (activeFieldId && activeTabFields.some((field) => field.id === activeFieldId)) return;
     setActiveFieldId(activeTabFields[0]?.id ?? null);
   }, [activeFieldId, activeTabFields]);
@@ -528,9 +555,43 @@ export default function OwnerTemplateDesigner() {
       ...prev,
       tabs: normalizeSchemaTabs(prev.tabs).filter((tab) => tab.id !== tabId),
     }));
+    if (editingSchemaTabId === tabId) {
+      setEditingSchemaTabId(null);
+      setEditingSchemaTabDraft('');
+    }
     if (activeSchemaTabId === tabId) {
       setActiveSchemaTabId(DEFAULT_SCHEMA_TAB_ID);
       setActiveFieldId(null);
+    }
+  }
+
+  function startSchemaTabEditing(tabId: string) {
+    if (isPublished) return;
+    const targetTab = schemaTabs.find((tab) => tab.id === tabId);
+    if (!targetTab) return;
+    setActiveSchemaTabId(tabId);
+    setEditingSchemaTabId(tabId);
+    setEditingSchemaTabDraft(targetTab.label);
+  }
+
+  function cancelSchemaTabEditing(tabId: string) {
+    if (editingSchemaTabId !== tabId) return;
+    setEditingSchemaTabId(null);
+    setEditingSchemaTabDraft('');
+  }
+
+  function commitSchemaTabEditing(tabId: string) {
+    const targetTab = schemaTabs.find((tab) => tab.id === tabId);
+    setEditingSchemaTabId(null);
+    if (!targetTab) {
+      setEditingSchemaTabDraft('');
+      return;
+    }
+    const nextLabel = editingSchemaTabDraft.trim();
+    setEditingSchemaTabDraft('');
+    if (!nextLabel) return;
+    if (nextLabel !== targetTab.label) {
+      renameSchemaTab(tabId, nextLabel);
     }
   }
 
@@ -591,7 +652,9 @@ export default function OwnerTemplateDesigner() {
       (field) => resolveFieldTabId(field, schemaTabs) === activeSchemaTabId,
     );
 
-    if (overId === CANVAS_DROPPABLE_ID) {
+    if (isCanvasDroppableId(overId)) {
+      const overTabId = canvasTabIdFromDroppable(overId);
+      if (overTabId && overTabId !== activeSchemaTabId) return null;
       const lastField = scopedFields[scopedFields.length - 1];
       if (!lastField) return null;
       if (activeData?.type === 'field' && activeData.fieldId === lastField.id) return null;
@@ -653,8 +716,13 @@ export default function OwnerTemplateDesigner() {
 
     const activeData = readDragPayload(event);
     const overId = String(over.id);
+    const overCanvasTabId = canvasTabIdFromDroppable(overId);
+    const isCurrentCanvasDrop =
+      isCanvasDroppableId(overId) && (!overCanvasTabId || overCanvasTabId === activeSchemaTabId);
+    const isCurrentTabField = activeTabFields.some((field) => field.id === overId);
 
     if (activeData?.type === 'material') {
+      if (!isCurrentCanvasDrop && !isCurrentTabField) return;
       // 物料拖到画布
       setSchema((prev) => {
         const field = {
@@ -676,6 +744,7 @@ export default function OwnerTemplateDesigner() {
     }
 
     if (activeData?.type === 'field') {
+      if (!isCurrentCanvasDrop && !isCurrentTabField) return;
       // 字段间排序
       setSchema((prev) => {
         if (!placement) return prev;
@@ -958,6 +1027,7 @@ export default function OwnerTemplateDesigner() {
           <Tabs
             activeKey={activeSchemaTabId}
             className="designer-tabs"
+            destroyOnHidden
             onChange={(key) => {
               if (key === NEW_SCHEMA_TAB_KEY) {
                 addSchemaTab();
@@ -978,15 +1048,23 @@ export default function OwnerTemplateDesigner() {
                     tab={tab}
                     isDefault={tab.id === DEFAULT_SCHEMA_TAB_ID}
                     disabled={isPublished}
-                    onRename={renameSchemaTab}
+                    editing={editingSchemaTabId === tab.id}
+                    draftLabel={editingSchemaTabId === tab.id ? editingSchemaTabDraft : tab.label}
+                    onDraftChange={setEditingSchemaTabDraft}
+                    onStartEditing={startSchemaTabEditing}
+                    onCommitEditing={commitSchemaTabEditing}
+                    onCancelEditing={cancelSchemaTabEditing}
                     onRemove={removeSchemaTab}
                   />
                 ),
                 children: (
                   <Canvas
-                    fields={activeTabFields}
-                    activeFieldId={activeFieldId}
-                    dropIndicator={dropIndicator}
+                    droppableId={canvasDroppableId(tab.id)}
+                    fields={schema.fields.filter(
+                      (field) => resolveFieldTabId(field, schemaTabs) === tab.id,
+                    )}
+                    activeFieldId={tab.id === activeSchemaTabId ? activeFieldId : null}
+                    dropIndicator={tab.id === activeSchemaTabId ? dropIndicator : null}
                     onSelect={setActiveFieldId}
                     onMove={moveField}
                     onRemove={removeField}
@@ -1118,6 +1196,7 @@ export default function OwnerTemplateDesigner() {
 
 /** 中间画布 */
 function Canvas({
+  droppableId,
   fields,
   activeFieldId,
   dropIndicator,
@@ -1126,6 +1205,7 @@ function Canvas({
   onRemove,
   onAdd,
 }: {
+  droppableId: string;
   fields: SchemaField[];
   activeFieldId: string | null;
   dropIndicator: DropIndicator | null;
@@ -1134,7 +1214,7 @@ function Canvas({
   onRemove: (id: string) => void;
   onAdd: () => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: CANVAS_DROPPABLE_ID });
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId });
 
   if (fields.length === 0) {
     return (
@@ -1178,52 +1258,69 @@ function DesignerSchemaTabLabel({
   tab,
   isDefault,
   disabled,
-  onRename,
+  editing,
+  draftLabel,
+  onDraftChange,
+  onStartEditing,
+  onCommitEditing,
+  onCancelEditing,
   onRemove,
 }: {
   tab: SchemaTab;
   isDefault: boolean;
   disabled: boolean;
-  onRename: (tabId: string, label: string) => void;
+  editing: boolean;
+  draftLabel: string;
+  onDraftChange: (label: string) => void;
+  onStartEditing: (tabId: string) => void;
+  onCommitEditing: (tabId: string) => void;
+  onCancelEditing: (tabId: string) => void;
   onRemove: (tabId: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draftLabel, setDraftLabel] = useState(tab.label);
+  const inputRef = useRef<InputRef | null>(null);
 
   useEffect(() => {
-    if (!editing) {
-      setDraftLabel(tab.label);
-    }
-  }, [tab.label, editing]);
+    if (!editing) return;
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editing]);
 
-  const commit = () => {
-    const next = draftLabel.trim();
-    setEditing(false);
-    if (!next) {
-      setDraftLabel(tab.label);
-      return;
-    }
-    if (next !== tab.label) {
-      onRename(tab.id, next);
-    }
+  const startEditing = (event: React.SyntheticEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onStartEditing(tab.id);
   };
 
   if (editing) {
     return (
-      <span className="designer-tab-label is-editing" onClick={(event) => event.stopPropagation()}>
+      <span
+        className="designer-tab-label is-editing"
+        onClick={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
         <Input
+          ref={inputRef}
           size="small"
           value={draftLabel}
           autoFocus
-          onChange={(event) => setDraftLabel(event.target.value)}
-          onBlur={commit}
-          onPressEnter={commit}
+          onChange={(event) => onDraftChange(event.target.value)}
+          onBlur={() => onCommitEditing(tab.id)}
+          onPressEnter={() => onCommitEditing(tab.id)}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
-              setDraftLabel(tab.label);
-              setEditing(false);
+              event.stopPropagation();
+              onCancelEditing(tab.id);
+              return;
             }
+            event.stopPropagation();
           }}
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
         />
       </span>
     );
@@ -1233,17 +1330,28 @@ function DesignerSchemaTabLabel({
     <span className="designer-tab-label">
       <span className="designer-tab-name">{tab.label}</span>
       {!disabled && (
-        <Button
-          size="small"
-          type="text"
-          icon={<EditOutlined />}
-          className="designer-tab-action"
-          aria-label={`重命名 ${tab.label}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            setEditing(true);
-          }}
-        />
+        <Tooltip title="重命名">
+          <Button
+            size="small"
+            type="text"
+            icon={<EditOutlined />}
+            className="designer-tab-action"
+            aria-label={`重命名 ${tab.label}`}
+            onPointerDown={(event) => {
+              startEditing(event);
+            }}
+            onMouseDown={(event) => {
+              startEditing(event);
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          />
+        </Tooltip>
       )}
       {!disabled && !isDefault && (
         <Button
@@ -1252,6 +1360,14 @@ function DesignerSchemaTabLabel({
           icon={<CloseOutlined />}
           className="designer-tab-action"
           aria-label={`删除 ${tab.label}`}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
           onClick={(event) => {
             event.stopPropagation();
             onRemove(tab.id);

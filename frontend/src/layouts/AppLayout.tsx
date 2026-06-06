@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AppstoreOutlined,
   ApiOutlined,
@@ -11,10 +11,12 @@ import {
   ExportOutlined,
   FileTextOutlined,
   HomeOutlined,
+  LeftOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   ProjectOutlined,
+  RightOutlined,
   SearchOutlined,
   ShopOutlined,
   SwapOutlined,
@@ -52,6 +54,7 @@ const { Header, Sider, Content } = Layout;
 
 /** 系统版本号:优先取构建时注入的 VITE_APP_VERSION,缺省回落到默认值 */
 const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.6';
+const SIDER_OPENING_ANIMATION_MS = 520;
 
 /** 角色顶层路径前缀,用于推断当前在哪个角色端 */
 type RoleSection = WorkspaceRole;
@@ -239,6 +242,8 @@ export default function AppLayout() {
 
   // 侧栏折叠状态:由顶部左侧折叠按钮控制(桌面端语义:窄轨/宽轨)
   const [collapsed, setCollapsed] = useState(false);
+  const [siderOpening, setSiderOpening] = useState(false);
+  const previousCollapsedRef = useRef(collapsed);
 
   /**
    * 移动端适配(阶段 A):
@@ -250,6 +255,25 @@ export default function AppLayout() {
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
   );
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    const wasCollapsed = previousCollapsedRef.current;
+    previousCollapsedRef.current = collapsed;
+    if (isMobile) {
+      setSiderOpening(false);
+      return;
+    }
+    if (wasCollapsed && !collapsed) {
+      setSiderOpening(true);
+      const timer = window.setTimeout(() => setSiderOpening(false), SIDER_OPENING_ANIMATION_MS);
+      return () => window.clearTimeout(timer);
+    }
+    setSiderOpening(false);
+  }, [collapsed, isMobile]);
+
+  const desktopSiderClassName = isMobile
+    ? undefined
+    : `app-sider-desktop${siderOpening ? ' is-opening' : ''}`;
 
   useEffect(() => {
     const mql = window.matchMedia('(max-width: 768px)');
@@ -467,8 +491,17 @@ export default function AppLayout() {
         collapsed={!isMobile && collapsed}
         theme="light"
         trigger={null}
-        className={isMobile ? `app-sider-mobile${mobileNavOpen ? ' is-open' : ''}` : undefined}
+        className={isMobile ? `app-sider-mobile${mobileNavOpen ? ' is-open' : ''}` : desktopSiderClassName}
       >
+        {!isMobile && (
+          <Button
+            type="text"
+            className="app-sider-collapse-trigger"
+            icon={collapsed ? <RightOutlined /> : <LeftOutlined />}
+            aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+            onClick={() => setCollapsed((value) => !value)}
+          />
+        )}
         <div className="app-sider-inner">
           <div className="app-logo">
             <span className="app-logo-mark">LH</span>
@@ -498,26 +531,16 @@ export default function AppLayout() {
 
       <Layout>
         <Header className={`app-header ${scrolled ? 'is-scrolled' : ''}`}>
-          {/* 左侧:折叠按钮 + 面包屑路径 + 搜索框 */}
+          {/* 左侧:移动端抽屉按钮 + 面包屑路径 + 搜索框 */}
           <div className="app-header-left">
-            <Button
-              type="text"
-              className="app-header-toggle"
-              icon={
-                isMobile
-                  ? mobileNavOpen
-                    ? <MenuFoldOutlined />
-                    : <MenuUnfoldOutlined />
-                  : collapsed
-                    ? <MenuUnfoldOutlined />
-                    : <MenuFoldOutlined />
-              }
-              onClick={() =>
-                isMobile
-                  ? setMobileNavOpen((value) => !value)
-                  : setCollapsed((value) => !value)
-              }
-            />
+            {isMobile && (
+              <Button
+                type="text"
+                className="app-header-toggle"
+                icon={mobileNavOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+                onClick={() => setMobileNavOpen((value) => !value)}
+              />
+            )}
             <Breadcrumb
               className="app-header-breadcrumb"
               separator="/"
@@ -556,6 +579,7 @@ export default function AppLayout() {
                 </div>
                 <Badge dot status="success" offset={[-6, 28]}>
                   <Avatar
+                    className="app-header-avatar"
                     icon={<UserOutlined />}
                     style={{ background: 'var(--lh-primary)' }}
                   />

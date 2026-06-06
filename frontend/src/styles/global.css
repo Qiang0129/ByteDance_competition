@@ -1040,7 +1040,15 @@ html.lh-public-page body {
   padding: 20px 14px;
   border-right: 1px solid rgba(226, 232, 240, 0.9);
   background: #f8fbff;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   transition: padding 0.24s ease, background 0.24s ease;
+}
+
+.landing-about-toc::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .landing-about-docs-shell.is-toc-collapsed .landing-about-toc {
@@ -1115,13 +1123,18 @@ html.lh-public-page body {
 .landing-about-toc-nav {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 
 .landing-about-docs-shell.is-toc-collapsed .landing-about-toc-nav {
   opacity: 0;
   pointer-events: none;
   transform: translateX(-12px);
+}
+
+.landing-about-toc-group {
+  display: flex;
+  flex-direction: column;
 }
 
 .landing-about-toc-link {
@@ -1137,6 +1150,33 @@ html.lh-public-page body {
   transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
 }
 
+.landing-about-toc-level-2 {
+  position: relative;
+}
+
+.landing-about-toc-level-2.has-children {
+  padding-right: 26px;
+}
+
+.landing-about-toc-level-2.has-children::after {
+  content: '';
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  opacity: 0.55;
+  transform: translateY(-60%) rotate(45deg);
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.landing-about-toc-group.is-expanded .landing-about-toc-level-2.has-children::after {
+  opacity: 0.85;
+  transform: translateY(-35%) rotate(225deg);
+}
+
 .landing-about-toc-link:hover {
   color: var(--lh-primary, #2f7bff);
   background: var(--lh-primary-bg-8, rgba(47, 123, 255, 0.08));
@@ -1148,12 +1188,45 @@ html.lh-public-page body {
   background: var(--lh-primary-bg-12, rgba(47, 123, 255, 0.12));
 }
 
+.landing-about-toc-link.is-active-group:not(.is-active) {
+  color: var(--lh-primary, #2f7bff);
+  background: var(--lh-primary-bg-6, rgba(47, 123, 255, 0.06));
+}
+
 .landing-about-toc-link.is-active:hover {
   background: var(--lh-primary-bg-14, rgba(47, 123, 255, 0.14));
 }
 
+.landing-about-toc-children {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    grid-template-rows 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+
+.landing-about-toc-group.is-expanded .landing-about-toc-children {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-about-toc-children-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.landing-about-toc-children-inner .landing-about-toc-level-3:first-child {
+  margin-top: 4px;
+}
+
 .landing-about-toc-level-3 {
-  padding-left: 22px;
+  margin-top: 3px;
+  padding-left: 20px;
   font-size: 12px;
   font-weight: 600;
 }
@@ -1208,7 +1281,6 @@ html.lh-public-page body {
 }
 
 .landing-about-readme-body::-webkit-scrollbar,
-.landing-about-toc::-webkit-scrollbar,
 .landing-about-table-scroll::-webkit-scrollbar,
 .landing-about-markdown pre::-webkit-scrollbar {
   width: 8px;
@@ -1216,7 +1288,6 @@ html.lh-public-page body {
 }
 
 .landing-about-readme-body::-webkit-scrollbar-thumb,
-.landing-about-toc::-webkit-scrollbar-thumb,
 .landing-about-table-scroll::-webkit-scrollbar-thumb,
 .landing-about-markdown pre::-webkit-scrollbar-thumb {
   border-radius: 999px;
@@ -1224,7 +1295,6 @@ html.lh-public-page body {
 }
 
 .landing-about-readme-body::-webkit-scrollbar-track,
-.landing-about-toc::-webkit-scrollbar-track,
 .landing-about-table-scroll::-webkit-scrollbar-track,
 .landing-about-markdown pre::-webkit-scrollbar-track {
   background: transparent;
@@ -2745,7 +2815,7 @@ html.lh-public-page body {
     0 1px 0 rgba(255, 255, 255, 0.9) inset,
     0 12px 28px rgba(15, 23, 42, 0.08),
     0 2px 6px rgba(15, 23, 42, 0.04);
-  overflow: hidden;
+  overflow: visible;
   height: calc(100vh - 32px);
   position: sticky;
   top: 16px;
@@ -2766,9 +2836,10 @@ html.lh-public-page body {
 .app-shell .ant-layout-sider .ant-menu-item-group-title,
 .app-shell .ant-layout-sider .ant-menu-title-content {
   transition:
-    padding 0.58s cubic-bezier(0.32, 0.72, 0, 1),
-    margin 0.58s cubic-bezier(0.32, 0.72, 0, 1),
-    width 0.58s cubic-bezier(0.32, 0.72, 0, 1) !important;
+    background 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.22s ease !important;
 }
 
 /* 菜单文字:折叠时随宽度快速淡出,展开时稍迟淡入,避免文字被挤压换行的生硬感 */
@@ -2786,12 +2857,54 @@ html.lh-public-page body {
 .app-shell .ant-layout-sider .ant-layout-sider-children {
   display: flex;
   flex-direction: column;
+  overflow: visible;
+  border-radius: inherit;
 }
 
 .app-sider-inner {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.app-sider-collapse-trigger.ant-btn {
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  z-index: 3;
+  width: 28px;
+  height: 56px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #94a3b8;
+  border: 1px solid #e6ebf2;
+  box-shadow:
+    0 8px 22px rgba(15, 23, 42, 0.12),
+    0 2px 6px rgba(15, 23, 42, 0.06);
+  transform: translateY(-50%);
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.app-sider-collapse-trigger.ant-btn:hover {
+  color: var(--lh-primary);
+  background: #ffffff !important;
+  border-color: var(--lh-primary-bg-25) !important;
+  box-shadow:
+    0 10px 26px rgba(15, 23, 42, 0.16),
+    0 2px 8px var(--lh-primary-bg-18);
+  transform: translateY(-50%) translateX(1px);
+}
+
+.app-sider-collapse-trigger.ant-btn .anticon {
+  font-size: 13px;
 }
 
 .app-sider-menu {
@@ -2905,6 +3018,53 @@ html.lh-public-page body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.app-sider-desktop.is-opening .app-logo-mark,
+.app-sider-desktop.is-opening .ant-menu-item .anticon,
+.app-sider-desktop.is-opening .ant-menu-item .ant-menu-item-icon {
+  animation: app-sider-icon-settle 0.48s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.app-sider-desktop.is-opening .app-logo-text,
+.app-sider-desktop.is-opening .app-sider-footer-full,
+.app-sider-desktop.is-opening .ant-menu-item .ant-menu-title-content {
+  animation: app-sider-text-reveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) 0.28s both;
+}
+
+.app-sider-desktop.is-opening .ant-menu-item-group-title {
+  animation: app-sider-group-reveal 0.26s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
+}
+
+@keyframes app-sider-icon-settle {
+  0% {
+    transform: translateX(8px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes app-sider-text-reveal {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes app-sider-group-reveal {
+  0% {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .app-shell .ant-layout-sider-collapsed .app-logo-text {
   opacity: 0;
   pointer-events: none;
@@ -2991,6 +3151,7 @@ html.lh-public-page body {
   justify-content: center;
   width: 44px !important;
   min-width: 0 !important;
+  margin: 4px auto !important;
   margin-inline: auto !important;
   padding-inline: 0 !important;
   padding-left: 0 !important;
@@ -3011,10 +3172,12 @@ html.lh-public-page body {
 
 /* 菜单项:浅色文字 + 圆角 */
 .app-shell .ant-menu-light .ant-menu-item {
+  box-sizing: border-box;
   height: 44px;
   line-height: 44px;
   border-radius: 12px;
-  margin: 4px 0;
+  width: calc(100% - 28px);
+  margin: 4px 20px 4px 8px;
   color: #475569;
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -3200,6 +3363,23 @@ html.lh-public-page body {
 
 .app-header-profile:hover .app-header-profile-role {
   color: var(--lh-primary);
+}
+
+.app-header-avatar.ant-avatar {
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background-clip: padding-box;
+  color: #ffffff;
+  filter: none;
+  transform: translateZ(0);
+}
+
+.app-header-avatar.ant-avatar .anticon,
+.app-header-avatar.ant-avatar svg {
+  color: #ffffff;
+  filter: none;
+  text-shadow: none;
 }
 
 .app-header-profile-text {
@@ -4696,20 +4876,26 @@ html.lh-public-page body {
 /* 任务卡 */
 .market-card.ant-card {
   border-radius: 14px;
-  border: 1px solid #eef0f5;
+  border: 0 !important;
   transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
   cursor: pointer;
 }
 
+.market-card.ant-card.ant-card-bordered {
+  border: 0 !important;
+}
+
 .market-card.ant-card:hover {
-  border-color: var(--lh-primary-bg-40);
-  box-shadow: 0 12px 28px var(--lh-primary-bg-12);
+  box-shadow: 0 0 0 1px var(--lh-primary-bg-40), 0 12px 28px var(--lh-primary-bg-12);
   transform: translateY(-2px);
 }
 
 .market-card.is-claimed {
-  border-color: rgba(34, 197, 94, 0.45);
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, #ffffff 60%);
+}
+
+.market-card.is-claimed:hover {
+  box-shadow: 0 0 0 1px var(--lh-primary-bg-40), 0 12px 28px var(--lh-primary-bg-12);
 }
 
 .market-card.is-exhausted {
@@ -5244,6 +5430,19 @@ html.lh-public-page body {
   height: 100%;
 }
 
+.designer-tabs .ant-tabs-content-holder,
+.designer-tabs .ant-tabs-content,
+.designer-tabs .ant-tabs-tabpane,
+.designer-tabs .ant-tabs-tabpane-active {
+  height: 100%;
+  min-height: 0;
+}
+
+.designer-tabs .ant-tabs-tabpane {
+  display: flex;
+  flex-direction: column;
+}
+
 .designer-tab-tip {
   font-size: 12px;
 }
@@ -5277,14 +5476,21 @@ html.lh-public-page body {
   width: 140px;
 }
 
+.designer-tab-label.is-editing .ant-input {
+  width: 100%;
+}
+
 .canvas-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding-top: 4px;
+  min-height: 100%;
 }
 
 .canvas-empty {
+  flex: 1 1 auto;
+  min-height: 520px;
   padding: 60px 0;
   display: flex;
   align-items: center;
@@ -8562,9 +8768,54 @@ html.lh-public-page body {
     radial-gradient(ellipse 55% 65% at 100% 100%, var(--lh-primary-bg-28) 0%, transparent 60%),
     radial-gradient(ellipse 40% 50% at 80% 20%, var(--lh-primary-bg-18) 0%, transparent 50%),
     transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
-/* Sider 和 Header 已经是白色浮卡,不会被背景渐变干扰,无需额外处理 */
+/* 渐变主题下白色描边会被浅蓝背景放大,统一改为无描边的玻璃浮层。 */
+:root[data-style-version='gradient'] .app-header,
+:root[data-style-version='gradient'] .app-header.is-scrolled {
+  border-color: transparent;
+  box-shadow:
+    0 10px 32px rgba(15, 23, 42, 0.08),
+    0 2px 6px rgba(15, 23, 42, 0.04);
+}
+
+:root[data-style-version='gradient'] .app-header-search.ant-input-affix-wrapper {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-style-version='gradient'] .app-content .ant-card {
+  border-color: transparent;
+}
+
+:root[data-style-version='gradient'] .app-content .ant-card.ant-card-bordered {
+  border-color: transparent;
+}
+
+:root[data-style-version='gradient'] .app-content .ant-card-head {
+  border-bottom-color: rgba(226, 232, 240, 0.72);
+}
+
+:root[data-style-version='gradient'] .app-header-toggle.ant-btn,
+:root[data-style-version='gradient'] .app-header-color-mode.ant-btn {
+  border-color: transparent;
+}
+
+:root[data-style-version='gradient'] .ai-wb-tabs {
+  border-color: transparent;
+  box-shadow:
+    0 8px 22px rgba(15, 23, 42, 0.08),
+    0 2px 6px rgba(15, 23, 42, 0.04);
+}
+
+:root[data-style-version='gradient'] .ai-wb-tab-count {
+  border-color: transparent;
+  box-shadow:
+    0 -1px 2px rgba(15, 23, 42, 0.05) inset,
+    0 2px 4px rgba(15, 23, 42, 0.1);
+}
 
 /* 1. antd 主按钮:背景从纯色 -> 渐变 */
 :root[data-style-version='gradient']
@@ -9039,6 +9290,33 @@ html.lh-public-page body {
   background: #1a1d24;
   border-color: #262a33;
   color: #e5e7eb;
+}
+
+:root[data-color-mode='dark'] .app-shell .ant-layout-sider {
+  border: 0 !important;
+  outline: none;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.34),
+    0 2px 6px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-color-mode='dark'] .app-sider-collapse-trigger.ant-btn {
+  background: rgba(32, 36, 45, 0.96);
+  border-color: #2c313b;
+  color: #94a3b8;
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+:root[data-color-mode='dark'] .app-sider-collapse-trigger.ant-btn:hover {
+  background: #262a33 !important;
+  border-color: #363b47 !important;
+  color: var(--lh-primary-light) !important;
+}
+
+:root[data-color-mode='dark'] .app-sider-footer {
+  border-top-color: #262a33;
 }
 
 :root[data-color-mode='dark'] .app-content {
@@ -13648,6 +13926,10 @@ html.lh-public-page body {
     width: 256px !important;
     min-width: 256px !important;
     max-width: 256px !important;
+  }
+
+  .app-sider-collapse-trigger.ant-btn {
+    display: none;
   }
 
   .app-sider-mobile.ant-layout-sider.is-open {

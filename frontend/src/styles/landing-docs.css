@@ -33,6 +33,13 @@
   z-index: 1;
 }
 
+.landing-docs-page.is-docs-preview-fullscreen .landing-header,
+.landing-docs-page.is-docs-preview-fullscreen .landing-footer {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
 .landing-docs-hero {
   position: relative;
   isolation: isolate;
@@ -326,6 +333,10 @@
 
 .landing-docs-workbench.is-sidebar-collapsed {
   grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.landing-docs-page.is-docs-preview-fullscreen .landing-docs-workbench {
+  overflow: visible;
 }
 
 .landing-docs-sidebar,
@@ -652,7 +663,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 14px;
-  scrollbar-width: none;
+  scrollbar-width: none !important;
   -ms-overflow-style: none;
 }
 
@@ -679,9 +690,16 @@
 }
 
 .landing-docs-resource-list::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+
+.landing-docs-resource-list::-webkit-scrollbar-thumb,
+.landing-docs-resource-list::-webkit-scrollbar-track {
+  display: none !important;
+  background: transparent !important;
 }
 
 .landing-docs-resource {
@@ -791,10 +809,11 @@
 .landing-docs-preview:fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: 10000;
   width: 100vw;
   height: 100vh;
   min-height: 0;
+  margin: 0;
   border-radius: 0;
   background: #ffffff;
   box-shadow: none;

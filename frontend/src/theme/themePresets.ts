@@ -134,7 +134,7 @@ export const THEME_PRESETS: ThemePreset[] = [
 ];
 
 export const DEFAULT_THEME_KEY: ThemeKey = 'enterprise';
-export const DEFAULT_STYLE_VERSION: StyleVersion = 'default';
+export const DEFAULT_STYLE_VERSION: StyleVersion = 'gradient';
 
 export function findPreset(key: ThemeKey): ThemePreset {
   return THEME_PRESETS.find((p) => p.key === key) ?? THEME_PRESETS[0];

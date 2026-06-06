@@ -103,7 +103,14 @@ type ReadmeHeading = {
   level: number;
 };
 
+type ReadmeTocGroup = {
+  heading: ReadmeHeading;
+  children: ReadmeHeading[];
+};
+
 const README_HEADINGS = createReadmeHeadings(readmeSource);
+const README_TOC_GROUPS = createReadmeTocGroups(README_HEADINGS);
+const README_PARENT_HEADING_ID_BY_ID = createReadmeParentHeadingIdMap(README_TOC_GROUPS);
 const SWAGGER_URL = 'http://127.0.0.1:8080/swagger-ui/index.html';
 
 const docsCategories: Array<{ key: DocsCategoryKey; label: string; description: string }> = [
@@ -347,6 +354,38 @@ function createReadmeHeadings(source: string): ReadmeHeading[] {
       };
     })
     .filter((item): item is ReadmeHeading => Boolean(item));
+}
+
+function createReadmeTocGroups(headings: ReadmeHeading[]): ReadmeTocGroup[] {
+  const groups: ReadmeTocGroup[] = [];
+  let currentGroup: ReadmeTocGroup | null = null;
+
+  headings.forEach((heading) => {
+    if (heading.level === 2) {
+      currentGroup = { heading, children: [] };
+      groups.push(currentGroup);
+      return;
+    }
+
+    if (heading.level === 3 && currentGroup) {
+      currentGroup.children.push(heading);
+    }
+  });
+
+  return groups;
+}
+
+function createReadmeParentHeadingIdMap(groups: ReadmeTocGroup[]) {
+  const parentByHeadingId = new Map<string, string>();
+
+  groups.forEach((group) => {
+    parentByHeadingId.set(group.heading.id, group.heading.id);
+    group.children.forEach((child) => {
+      parentByHeadingId.set(child.id, group.heading.id);
+    });
+  });
+
+  return parentByHeadingId;
 }
 
 function getNodeText(node: ReactNode): string {
@@ -724,6 +763,7 @@ function PublicPlaceholderPage({
 }
 
 export function DocsPlaceholder() {
+  const { message } = App.useApp();
   const docsPreviewRef = useRef<HTMLElement | null>(null);
   const docsWorkbenchRef = useRef<HTMLElement | null>(null);
   const docsFullscreenTimerRef = useRef<number | null>(null);
@@ -752,6 +792,7 @@ export function DocsPlaceholder() {
     clearDocsFullscreenTimer();
     setIsDocsPreviewFullscreen(true);
     setDocsFullscreenTransition('entering');
+    message.success('全屏模式');
     docsFullscreenTimerRef.current = window.setTimeout(() => {
       setDocsFullscreenTransition(null);
       docsFullscreenTimerRef.current = null;
@@ -761,6 +802,7 @@ export function DocsPlaceholder() {
   const startDocsPreviewFullscreenExit = () => {
     clearDocsFullscreenTimer();
     setDocsFullscreenTransition('leaving');
+    message.success('退出全屏');
     docsFullscreenTimerRef.current = window.setTimeout(() => {
       setIsDocsPreviewFullscreen(false);
       setDocsFullscreenTransition(null);
@@ -827,6 +869,7 @@ export function DocsPlaceholder() {
       return;
     }
 
+    message.loading('正在下载', 1.2);
     downloadDocsResource(activeResource);
   };
 
@@ -852,7 +895,7 @@ export function DocsPlaceholder() {
   };
 
   return (
-    <main className="landing-page landing-docs-page">
+    <main className={`landing-page landing-docs-page${isDocsPreviewFullscreen ? ' is-docs-preview-fullscreen' : ''}`}>
       <PublicHeader activeKey="docs" />
 
       <section className="landing-docs-hero" aria-labelledby="docs-title">
@@ -1326,6 +1369,9 @@ export function AboutPlaceholder() {
   const { message } = App.useApp();
   const [activeReadmeHeadingId, setActiveReadmeHeadingId] = useState(README_HEADINGS[0]?.id ?? '');
   const [isReadmeTocCollapsed, setIsReadmeTocCollapsed] = useState(false);
+  const [expandedReadmeHeadingIds, setExpandedReadmeHeadingIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const intro = useMemo(() => {
     const lines = readmeSource.split(/\r?\n/);
     const firstParagraph = lines.find((line) => {
@@ -1366,6 +1412,17 @@ export function AboutPlaceholder() {
     const nextTop = container.scrollTop + targetRect.top - containerRect.top - 20;
     container.scrollTo({ top: Math.max(nextTop, 0), behavior });
     setActiveReadmeHeadingId(heading.id);
+    const parentHeadingId = README_PARENT_HEADING_ID_BY_ID.get(heading.id);
+    if (parentHeadingId && parentHeadingId !== heading.id) {
+      setExpandedReadmeHeadingIds((previousIds) => {
+        if (previousIds.has(parentHeadingId)) {
+          return previousIds;
+        }
+        const nextIds = new Set(previousIds);
+        nextIds.add(parentHeadingId);
+        return nextIds;
+      });
+    }
 
     if (updateHash) {
       window.history.replaceState(null, '', `#${heading.id}`);
@@ -1382,7 +1439,39 @@ export function AboutPlaceholder() {
 
   const handleReadmeTocClick = (event: MouseEvent<HTMLAnchorElement>, heading: ReadmeHeading) => {
     event.preventDefault();
+
+    if (heading.level === 2) {
+      const group = README_TOC_GROUPS.find((item) => item.heading.id === heading.id);
+      if (!group || group.children.length === 0) {
+        scrollToReadmeHeading(heading);
+        return;
+      }
+
+      setExpandedReadmeHeadingIds((previousIds) => {
+        const nextIds = new Set(previousIds);
+        if (nextIds.has(heading.id)) {
+          nextIds.delete(heading.id);
+        } else {
+          nextIds.add(heading.id);
+        }
+        return nextIds;
+      });
+      return;
+    }
+
     scrollToReadmeHeading(heading);
+
+    const parentHeadingId = README_PARENT_HEADING_ID_BY_ID.get(heading.id);
+    if (parentHeadingId) {
+      setExpandedReadmeHeadingIds((previousIds) => {
+        if (previousIds.has(parentHeadingId)) {
+          return previousIds;
+        }
+        const nextIds = new Set(previousIds);
+        nextIds.add(parentHeadingId);
+        return nextIds;
+      });
+    }
   };
 
   const handleCopyCodeBlock = async (event: MouseEvent<HTMLButtonElement>) => {
@@ -1461,6 +1550,18 @@ export function AboutPlaceholder() {
       setActiveReadmeHeadingId((previousId) => (
         previousId === nextActiveId ? previousId : nextActiveId
       ));
+
+      const parentHeadingId = README_PARENT_HEADING_ID_BY_ID.get(nextActiveId);
+      if (parentHeadingId && parentHeadingId !== nextActiveId) {
+        setExpandedReadmeHeadingIds((previousIds) => {
+          if (previousIds.has(parentHeadingId)) {
+            return previousIds;
+          }
+          const nextIds = new Set(previousIds);
+          nextIds.add(parentHeadingId);
+          return nextIds;
+        });
+      }
     };
 
     const handleScroll = () => {
@@ -1539,19 +1640,52 @@ export function AboutPlaceholder() {
               </button>
             </div>
             <nav className="landing-about-toc-nav" aria-hidden={isReadmeTocCollapsed}>
-              {README_HEADINGS.map((heading) => (
-                <a
-                  key={`${heading.id}-${heading.text}`}
-                  className={`landing-about-toc-link landing-about-toc-level-${heading.level}${
-                    activeReadmeHeadingId === heading.id ? ' is-active' : ''
-                  }`}
-                  href={`#${heading.id}`}
-                  tabIndex={isReadmeTocCollapsed ? -1 : undefined}
-                  onClick={(event) => handleReadmeTocClick(event, heading)}
-                >
-                  {heading.text}
-                </a>
-              ))}
+              {README_TOC_GROUPS.map((group) => {
+                const isExpanded = expandedReadmeHeadingIds.has(group.heading.id);
+                const isActiveGroup =
+                  activeReadmeHeadingId === group.heading.id ||
+                  group.children.some((child) => child.id === activeReadmeHeadingId);
+
+                return (
+                  <div
+                    key={group.heading.id}
+                    className={`landing-about-toc-group${isExpanded ? ' is-expanded' : ''}`}
+                  >
+                    <a
+                      className={`landing-about-toc-link landing-about-toc-level-2${
+                        activeReadmeHeadingId === group.heading.id ? ' is-active' : ''
+                      }${isActiveGroup ? ' is-active-group' : ''}${
+                        group.children.length > 0 ? ' has-children' : ''
+                      }`}
+                      href={`#${group.heading.id}`}
+                      tabIndex={isReadmeTocCollapsed ? -1 : undefined}
+                      aria-expanded={group.children.length > 0 ? isExpanded : undefined}
+                      onClick={(event) => handleReadmeTocClick(event, group.heading)}
+                    >
+                      <span>{group.heading.text}</span>
+                    </a>
+                    {group.children.length > 0 ? (
+                      <div className="landing-about-toc-children" aria-hidden={!isExpanded}>
+                        <div className="landing-about-toc-children-inner">
+                          {group.children.map((heading) => (
+                            <a
+                              key={`${heading.id}-${heading.text}`}
+                              className={`landing-about-toc-link landing-about-toc-level-3${
+                                activeReadmeHeadingId === heading.id ? ' is-active' : ''
+                              }`}
+                              href={`#${heading.id}`}
+                              tabIndex={isReadmeTocCollapsed || !isExpanded ? -1 : undefined}
+                              onClick={(event) => handleReadmeTocClick(event, heading)}
+                            >
+                              {heading.text}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </nav>
           </aside>
 
