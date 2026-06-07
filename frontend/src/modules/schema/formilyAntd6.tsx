@@ -1,5 +1,5 @@
 import { CheckOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { useMemo, useState } from 'react';
+import { useContext, useMemo } from 'react';
 import {
   Alert,
   App as AntdApp,
@@ -13,9 +13,15 @@ import {
 } from 'antd';
 import { useField } from '@formily/react';
 
-import { labelerApi, type LlmTriggerStreamResult } from '../../api/labeler';
+import { labelerApi, type LlmTriggerFieldResult, type LlmTriggerStreamResult } from '../../api/labeler';
 import type { SchemaField } from '../../types/schema';
 import { formatDisplayValue, getValueByPath, isSubmittableField } from './schemaCompiler';
+import {
+  EMPTY_LLM_TRIGGER_STATE,
+  LlmTriggerStateContext,
+  type LlmTriggerStateUpdater,
+  type LlmTriggerUiState,
+} from './llmTriggerState';
 
 type ChoiceOption = { value: string; label: string };
 
@@ -33,13 +39,17 @@ interface LlmTriggerControlProps extends BaseControlProps {
   fieldName?: string;
   assignmentId?: string;
   targetField?: string;
+  targetFields?: string[];
   promptTemplate?: string;
   contextPaths?: string[];
   buttonText?: string;
   allFields?: SchemaField[];
   currentAnswerJson?: Record<string, unknown>;
   previewMode?: boolean;
+  llmTriggerState?: LlmTriggerUiState;
+  onUpdateLlmTriggerState?: (updater: LlmTriggerStateUpdater) => void;
   onApplyLlmResult?: (fieldName: string, value: unknown) => void;
+  onApplyLlmResults?: (values: Record<string, unknown>) => void;
 }
 
 export const formilyAntd6Components = {
@@ -235,18 +245,35 @@ function FileUpload(props: BaseControlProps) {
 function LlmTrigger(props: LlmTriggerControlProps) {
   const { message, modal } = AntdApp.useApp();
   const disabled = props.disabled || props.readOnly;
-  const targetFieldName = typeof props.targetField === 'string' ? props.targetField.trim() : '';
-  const targetField = useMemo(
-    () =>
-      (props.allFields ?? []).find(
-        (field) => field.fieldName === targetFieldName && isSubmittableField(field),
-      ),
-    [props.allFields, targetFieldName],
+  const sharedState = useContext(LlmTriggerStateContext);
+  const targetFieldNames = useMemo(
+    () => resolveLlmTargetFieldNames(props.targetFields, props.targetField),
+    [props.targetFields, props.targetField],
   );
-  const [generating, setGenerating] = useState(false);
-  const [streamText, setStreamText] = useState('');
-  const [result, setResult] = useState<LlmTriggerStreamResult | null>(null);
-  const [error, setError] = useState('');
+  const targetFields = useMemo(
+    () =>
+      targetFieldNames
+        .map((fieldName) =>
+          (props.allFields ?? []).find(
+            (field) => field.fieldName === fieldName && isSubmittableField(field),
+          ),
+        )
+        .filter((field): field is SchemaField => Boolean(field)),
+    [props.allFields, targetFieldNames],
+  );
+  const contextState = props.fieldName ? sharedState?.states[props.fieldName] : undefined;
+  const triggerState = contextState ?? props.llmTriggerState ?? EMPTY_LLM_TRIGGER_STATE;
+  const generating = triggerState.generating;
+  const streamText = triggerState.streamText;
+  const result = triggerState.result;
+  const error = triggerState.error;
+  const updateTriggerState = (updater: LlmTriggerStateUpdater) => {
+    if (props.fieldName && sharedState) {
+      sharedState.updateState(props.fieldName, updater);
+      return;
+    }
+    props.onUpdateLlmTriggerState?.(updater);
+  };
   const buttonText = typeof props.buttonText === 'string' && props.buttonText.trim()
     ? props.buttonText.trim()
     : '生成建议';
@@ -257,50 +284,79 @@ function LlmTrigger(props: LlmTriggerControlProps) {
       message.info('预览环境不调用模型');
       return;
     }
-    if (!props.fieldName || !targetFieldName || !targetField) {
+    if (!props.fieldName || targetFieldNames.length === 0 || targetFields.length !== targetFieldNames.length) {
       message.warning('请先配置 LLM 触发组件的目标字段');
       return;
     }
-    setGenerating(true);
-    setStreamText('');
-    setResult(null);
-    setError('');
+    updateTriggerState({
+      generating: true,
+      streamText: '',
+      result: null,
+      error: '',
+    });
     try {
       await labelerApi.streamLlmTrigger(
         props.assignmentId,
         {
           triggerFieldName: props.fieldName,
-          targetFieldName,
+          targetFieldName: targetFieldNames.length === 1 ? targetFieldNames[0] : undefined,
+          targetFieldNames,
           currentAnswerJson: props.currentAnswerJson ?? {},
         },
         {
-          onDelta: (delta) => setStreamText((prev) => prev + delta),
+          onDelta: (delta) =>
+            updateTriggerState((prev) => ({ ...prev, streamText: prev.streamText + delta })),
           onResult: (nextResult) => {
-            setResult(nextResult);
-            setStreamText((prev) => nextResult.displayText || prev);
+            updateTriggerState((prev) => ({
+              ...prev,
+              result: nextResult,
+              streamText: nextResult.displayText || prev.streamText,
+            }));
           },
-          onError: (nextError) => setError(nextError.message || 'LLM 生成失败'),
+          onError: (nextError) =>
+            updateTriggerState((prev) => ({
+              ...prev,
+              error: nextError.message || 'LLM 生成失败',
+            })),
         },
       );
     } catch (nextError) {
       const messageText = nextError instanceof Error ? nextError.message : 'LLM 生成失败';
-      setError(messageText);
+      updateTriggerState((prev) => ({ ...prev, error: messageText }));
       message.error(messageText);
     } finally {
-      setGenerating(false);
+      updateTriggerState((prev) => ({ ...prev, generating: false }));
     }
   };
 
-  const applyResult = () => {
-    if (!result) return;
+  const resultFields = normalizeLlmResultFields(result);
+  const targetFieldLabel = (fieldName: string) => {
+    const field = targetFields.find((item) => item.fieldName === fieldName);
+    return field ? `${field.label} (${field.fieldName})` : fieldName;
+  };
+  const targetFieldByName = (fieldName: string) =>
+    targetFields.find((item) => item.fieldName === fieldName);
+  const applyResults = (items: LlmTriggerFieldResult[]) => {
+    if (items.length === 0) return;
+    const patch = Object.fromEntries(
+      items.map((item) => [item.targetFieldName, item.normalizedValue]),
+    );
+    const overwritten = items.filter((item) =>
+      hasAnswerValue(props.currentAnswerJson?.[item.targetFieldName]),
+    );
     const apply = () => {
-      props.onApplyLlmResult?.(result.targetFieldName, result.normalizedValue);
-      message.success('已应用到目标字段');
+      props.onApplyLlmResults?.(patch);
+      if (!props.onApplyLlmResults) {
+        items.forEach((item) => props.onApplyLlmResult?.(item.targetFieldName, item.normalizedValue));
+      }
+      message.success(items.length > 1 ? '已应用到多个目标字段' : '已应用到目标字段');
     };
-    if (hasAnswerValue(props.currentAnswerJson?.[result.targetFieldName])) {
+    if (overwritten.length > 0) {
       modal.confirm({
         title: '覆盖当前字段值?',
-        content: `目标字段「${targetField?.label ?? result.targetFieldName}」已有内容,应用后会覆盖当前值。`,
+        content: `以下字段已有内容,应用后会覆盖当前值: ${overwritten
+          .map((item) => targetFieldLabel(item.targetFieldName))
+          .join('、')}`,
         okText: '覆盖并应用',
         cancelText: '取消',
         onOk: apply,
@@ -308,6 +364,11 @@ function LlmTrigger(props: LlmTriggerControlProps) {
       return;
     }
     apply();
+  };
+
+  const applyAllResults = () => {
+    if (!result) return;
+    applyResults(resultFields);
   };
 
   return (
@@ -322,9 +383,9 @@ function LlmTrigger(props: LlmTriggerControlProps) {
         >
           {buttonText}
         </Button>
-        {result && (
-          <Button icon={<CheckOutlined />} disabled={disabled} onClick={applyResult}>
-            应用到字段
+        {result && resultFields.length > 0 && (
+          <Button icon={<CheckOutlined />} disabled={disabled} onClick={applyAllResults}>
+            {resultFields.length > 1 ? '应用全部' : '应用到字段'}
           </Button>
         )}
         {(streamText || result || error) && (
@@ -339,7 +400,9 @@ function LlmTrigger(props: LlmTriggerControlProps) {
       </Space>
       <div className="lh-llm-trigger-meta">
         目标字段:{' '}
-        {targetField ? `${targetField.label} (${targetField.fieldName})` : targetFieldName || '未配置'}
+        {targetFields.length > 0
+          ? targetFields.map((field) => `${field.label} (${field.fieldName})`).join('、')
+          : targetFieldNames.join('、') || '未配置'}
       </div>
       {props.previewMode && (
         <Alert
@@ -355,10 +418,32 @@ function LlmTrigger(props: LlmTriggerControlProps) {
         </div>
       )}
       {result && (
-        <div className="lh-llm-trigger-normalized">
-          <Typography.Text type="secondary">
-            规范化值: {formatDisplayValue(result.normalizedValue)}
-          </Typography.Text>
+        <div className="lh-llm-trigger-results">
+          {resultFields.map((item) => (
+            <div key={item.targetFieldName} className="lh-llm-trigger-result-item">
+              <div className="lh-llm-trigger-result-head">
+                <Typography.Text strong>{targetFieldLabel(item.targetFieldName)}</Typography.Text>
+                <Button
+                  size="small"
+                  icon={<CheckOutlined />}
+                  disabled={disabled}
+                  onClick={() => applyResults([item])}
+                >
+                  应用此字段
+                </Button>
+              </div>
+              {item.displayText && (
+                <Typography.Text className="lh-llm-trigger-result-text">
+                  {item.displayText}
+                </Typography.Text>
+              )}
+              <div className="lh-llm-trigger-normalized">
+                <Typography.Text type="secondary">
+                  建议值: {displayLlmResultValue(item, targetFieldByName(item.targetFieldName))}
+                </Typography.Text>
+              </div>
+            </div>
+          ))}
         </div>
       )}
       {error && (
@@ -378,6 +463,62 @@ function hasAnswerValue(value: unknown) {
   if (typeof value === 'string') return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
   return true;
+}
+
+function resolveLlmTargetFieldNames(targetFields?: string[], legacyTargetField?: string) {
+  const result: string[] = [];
+  const add = (value?: string) => {
+    const next = typeof value === 'string' ? value.trim() : '';
+    if (next && !result.includes(next)) {
+      result.push(next);
+    }
+  };
+  (targetFields ?? []).forEach(add);
+  add(legacyTargetField);
+  return result;
+}
+
+function normalizeLlmResultFields(result: LlmTriggerStreamResult | null): LlmTriggerFieldResult[] {
+  if (!result) return [];
+  if (Array.isArray(result.results) && result.results.length > 0) {
+    return result.results;
+  }
+  if (result.targetFieldName) {
+    return [
+      {
+        targetFieldName: result.targetFieldName,
+        targetSemanticType: result.targetSemanticType ?? 'text',
+        displayText: result.displayText,
+        normalizedValue: result.normalizedValue,
+        normalizedDisplayValue: result.normalizedDisplayValue,
+      },
+    ];
+  }
+  return [];
+}
+
+function displayLlmResultValue(item: LlmTriggerFieldResult, targetField?: SchemaField) {
+  if (item.normalizedDisplayValue && item.normalizedDisplayValue.trim()) {
+    return item.normalizedDisplayValue;
+  }
+  if (!targetField?.options?.length) {
+    return formatDisplayValue(item.normalizedValue);
+  }
+  if (item.targetSemanticType === 'single_choice') {
+    const raw = String(item.normalizedValue ?? '');
+    return targetField.options.find((option) => option.value === raw)?.label ?? raw;
+  }
+  if (item.targetSemanticType === 'multi_choice' || item.targetSemanticType === 'tags') {
+    const values = Array.isArray(item.normalizedValue) ? item.normalizedValue : [item.normalizedValue];
+    return values
+      .map((value) => {
+        const raw = String(value ?? '');
+        return targetField.options?.find((option) => option.value === raw)?.label ?? raw;
+      })
+      .filter(Boolean)
+      .join('、');
+  }
+  return formatDisplayValue(item.normalizedValue);
 }
 
 function GroupContainer() {

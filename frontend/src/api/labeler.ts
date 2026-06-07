@@ -37,15 +37,26 @@ export interface AssistantStreamHandlers {
 
 export interface LlmTriggerRequest {
   triggerFieldName: string;
-  targetFieldName: string;
+  targetFieldName?: string;
+  targetFieldNames?: string[];
   currentAnswerJson: Record<string, unknown>;
+}
+
+export interface LlmTriggerFieldResult {
+  displayText: string;
+  normalizedValue: unknown;
+  normalizedDisplayValue?: string;
+  targetFieldName: string;
+  targetSemanticType: string;
 }
 
 export interface LlmTriggerStreamResult {
   displayText: string;
-  normalizedValue: unknown;
-  targetFieldName: string;
-  targetSemanticType: string;
+  results: LlmTriggerFieldResult[];
+  normalizedValue?: unknown;
+  normalizedDisplayValue?: string;
+  targetFieldName?: string;
+  targetSemanticType?: string;
 }
 
 export interface LlmTriggerStreamHandlers {

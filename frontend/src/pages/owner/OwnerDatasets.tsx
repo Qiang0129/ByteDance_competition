@@ -107,6 +107,8 @@ const datasetKindOptions = [
   { label: 'preference_compare · 偏好对比标注（Pairwise Preference / RLHF）', value: 'preference_compare' },
 ];
 
+const MOBILE_PREVIEW_LIMIT = 5;
+
 function normalizeDatasetKind(kind?: string): DatasetKind {
   const normalized = (kind ?? '')
     .trim()
@@ -176,6 +178,12 @@ function getRecordText(record: unknown) {
   } catch {
     return String(record);
   }
+}
+
+function getPreviewText(value: unknown, maxLength = 96) {
+  const text = getRecordText(value).replace(/\s+/g, ' ').trim();
+  if (!text) return '-';
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
 function getRecordId(record: Record<string, unknown>, index: number) {
@@ -252,6 +260,8 @@ export default function OwnerDatasets() {
   const [appendFileList, setAppendFileList] = useState<UploadFile[]>([]);
   const [kindDropdownOpen, setKindDropdownOpen] = useState(false);
   const [itemsReloadKey, setItemsReloadKey] = useState(0);
+  const [isDatasetFieldsExpanded, setIsDatasetFieldsExpanded] = useState(false);
+  const [isMobilePreviewExpanded, setIsMobilePreviewExpanded] = useState(false);
 
   const activeDataset = datasets.find((d) => d.id === activeId);
 
@@ -324,6 +334,8 @@ export default function OwnerDatasets() {
     if (!activeDataset) {
       setItems([]);
       setActiveItem(null);
+      setIsDatasetFieldsExpanded(false);
+      setIsMobilePreviewExpanded(false);
       return;
     }
     // 切换数据集时立刻清空旧数据并关闭抽屉,
@@ -332,6 +344,8 @@ export default function OwnerDatasets() {
     setActiveItem(null);
     setKeyword('');
     setMediaFilter('all');
+    setIsDatasetFieldsExpanded(false);
+    setIsMobilePreviewExpanded(false);
     setLoading(true);
     datasetApi
       .listItems(activeDataset.id)
@@ -369,6 +383,10 @@ export default function OwnerDatasets() {
       return true;
     });
   }, [items, activeDataset, mediaFilter, keyword]);
+
+  useEffect(() => {
+    setIsMobilePreviewExpanded(false);
+  }, [activeDataset?.id, keyword, mediaFilter]);
 
   const qaColumns: ColumnsType<QaQualityItem> = [
     {
@@ -495,6 +513,141 @@ export default function OwnerDatasets() {
   const showItemDetail = (record: DatasetItem) => {
     setActiveItem(record);
   };
+
+  const mobilePreviewItems = (
+    isMobilePreviewExpanded
+      ? filteredItems
+      : filteredItems.slice(0, MOBILE_PREVIEW_LIMIT)
+  ) as DatasetItem[];
+
+  const renderMobilePreviewItem = (record: DatasetItem, index: number) => {
+    const activeKind = normalizeDatasetKind(activeDataset?.kind);
+    if (activeKind === 'qa_quality') {
+      const it = record as QaQualityItem;
+      const meta = it.media_type ? mediaTypeMeta[it.media_type] : undefined;
+      return (
+        <button
+          type="button"
+          key={it.id || index}
+          className="dataset-mobile-preview-item"
+          onClick={() => showItemDetail(record)}
+        >
+          <div className="dataset-mobile-preview-item-head">
+            <code className="dataset-id">{it.id || `row-${index + 1}`}</code>
+            <Space size={4} wrap>
+              {meta && (
+                <Tag
+                  className="dataset-media-tag"
+                  style={{ background: `${meta.color}15`, color: meta.color, border: 'none' }}
+                >
+                  {meta.icon} {meta.label}
+                </Tag>
+              )}
+              {it.category && <Tag>{it.category}</Tag>}
+            </Space>
+          </div>
+          <div className="dataset-mobile-preview-summary">
+            <span>Prompt</span>
+            <p>{getPreviewText(it.prompt)}</p>
+          </div>
+          <div className="dataset-mobile-preview-summary">
+            <span>模型回答</span>
+            <p>{getPreviewText(it.model_answer)}</p>
+          </div>
+        </button>
+      );
+    }
+
+    if (activeKind === 'preference_compare') {
+      const it = record as PreferenceCompareItem;
+      return (
+        <button
+          type="button"
+          key={it.id || index}
+          className="dataset-mobile-preview-item"
+          onClick={() => showItemDetail(record)}
+        >
+          <div className="dataset-mobile-preview-item-head">
+            <code className="dataset-id">{it.id || `row-${index + 1}`}</code>
+            <Space size={4} wrap>
+              {it.task_type && <Tag>{it.task_type}</Tag>}
+              {it.preferred && <Tag color="blue">{it.preferred}</Tag>}
+            </Space>
+          </div>
+          <div className="dataset-mobile-preview-summary">
+            <span>Prompt</span>
+            <p>{getPreviewText(it.prompt)}</p>
+          </div>
+          <div className="dataset-mobile-preview-grid">
+            <div>
+              <span>A · {it.model_a || 'model_a'}</span>
+              <p>{getPreviewText(it.response_a, 56)}</p>
+            </div>
+            <div>
+              <span>B · {it.model_b || 'model_b'}</span>
+              <p>{getPreviewText(it.response_b, 56)}</p>
+            </div>
+          </div>
+        </button>
+      );
+    }
+
+    const genericRecord = record as Record<string, unknown>;
+    const recordId = getRecordId(genericRecord, index);
+    return (
+      <button
+        type="button"
+        key={recordId}
+        className="dataset-mobile-preview-item"
+        onClick={() => showItemDetail(record)}
+      >
+        <div className="dataset-mobile-preview-item-head">
+          <code className="dataset-id">{recordId}</code>
+          <DatasetKindTag kind={activeDataset?.kind} />
+        </div>
+        <div className="dataset-mobile-preview-summary">
+          <span>原始数据摘要</span>
+          <p>{getPreviewText(genericRecord)}</p>
+        </div>
+      </button>
+    );
+  };
+
+  const mobilePreviewList = (
+    <div className="dataset-mobile-preview-list">
+      {loading ? (
+        <div className="dataset-mobile-preview-empty">数据加载中...</div>
+      ) : mobilePreviewItems.length > 0 ? (
+        <>
+          {mobilePreviewItems.map((item, index) => renderMobilePreviewItem(item, index))}
+          {filteredItems.length > MOBILE_PREVIEW_LIMIT && (
+            <div className="dataset-mobile-preview-more">
+              <span>
+                {isMobilePreviewExpanded
+                  ? `已显示全部 ${filteredItems.length} 条匹配结果。`
+                  : `已显示前 ${mobilePreviewItems.length} 条，共 ${filteredItems.length} 条匹配结果。`}
+              </span>
+              <Button
+                type="primary"
+                size="small"
+                className="dataset-mobile-preview-more-button"
+                onClick={() => setIsMobilePreviewExpanded((value) => !value)}
+              >
+                {isMobilePreviewExpanded
+                  ? `收起，仅显示前 ${MOBILE_PREVIEW_LIMIT} 条`
+                  : `查看全部 ${filteredItems.length} 条`}
+              </Button>
+            </div>
+          )}
+        </>
+      ) : (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={keyword ? '暂无匹配数据' : '暂无数据条目'}
+        />
+      )}
+    </div>
+  );
 
   // 数据集创建入口已合并到"新建数据集"按钮(原"上传文件数据"流程),
   // 不再使用 openCreateModal / submitCreateDataset / createForm 等独立"新建空数据集"链路.
@@ -639,7 +792,7 @@ export default function OwnerDatasets() {
   };
 
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack dataset-page">
       {/* 标题 + CTA */}
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
@@ -799,10 +952,20 @@ export default function OwnerDatasets() {
                 </Col>
               </Row>
 
-              <div className="dataset-fields-block">
-                <div className="dataset-fields-title">
-                  <CheckCircleFilled style={{ color: '#22c55e' }} /> 字段映射
-                </div>
+              <div className={`dataset-fields-block${isDatasetFieldsExpanded ? ' is-expanded' : ''}`}>
+                <button
+                  type="button"
+                  className="dataset-fields-title"
+                  aria-expanded={isDatasetFieldsExpanded}
+                  onClick={() => setIsDatasetFieldsExpanded((value) => !value)}
+                >
+                  <span>
+                    <CheckCircleFilled style={{ color: '#22c55e' }} /> 字段映射
+                  </span>
+                  <span className="dataset-fields-toggle-label">
+                    {isDatasetFieldsExpanded ? '收起' : '展开'}
+                  </span>
+                </button>
                 <ul className="dataset-fields-list">
                   {getDatasetKindMeta(activeDataset.kind).guide.map((field) => (
                     <li key={field.key}>
@@ -830,11 +993,12 @@ export default function OwnerDatasets() {
         className="dataset-preview-card"
         title="数据预览"
         extra={
-          <Space size={12} wrap>
+          <Space size={12} wrap className="dataset-preview-toolbar">
             <Input
               prefix={<SearchOutlined />}
               placeholder="按 ID / Prompt / 类别搜索"
               allowClear
+              className="dataset-preview-search"
               style={{ width: 260 }}
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
@@ -861,35 +1025,44 @@ export default function OwnerDatasets() {
             description="暂无可预览的数据集"
           />
         ) : normalizeDatasetKind(activeDataset.kind) === 'qa_quality' ? (
-          <Table<QaQualityItem>
-            columns={qaColumns}
-            dataSource={filteredItems as QaQualityItem[]}
-            rowKey="id"
-            loading={loading}
-            pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
-            onRow={(record) => ({ onClick: () => showItemDetail(record) })}
-            rowClassName="dataset-table-row"
-          />
+          <>
+            {mobilePreviewList}
+            <Table<QaQualityItem>
+              columns={qaColumns}
+              dataSource={filteredItems as QaQualityItem[]}
+              rowKey="id"
+              loading={loading}
+              pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
+              onRow={(record) => ({ onClick: () => showItemDetail(record) })}
+              rowClassName="dataset-table-row"
+            />
+          </>
         ) : normalizeDatasetKind(activeDataset.kind) === 'preference_compare' ? (
-          <Table<PreferenceCompareItem>
-            columns={prefColumns}
-            dataSource={filteredItems as PreferenceCompareItem[]}
-            rowKey="id"
-            loading={loading}
-            pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
-            onRow={(record) => ({ onClick: () => showItemDetail(record) })}
-            rowClassName="dataset-table-row"
-          />
+          <>
+            {mobilePreviewList}
+            <Table<PreferenceCompareItem>
+              columns={prefColumns}
+              dataSource={filteredItems as PreferenceCompareItem[]}
+              rowKey="id"
+              loading={loading}
+              pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
+              onRow={(record) => ({ onClick: () => showItemDetail(record) })}
+              rowClassName="dataset-table-row"
+            />
+          </>
         ) : (
-          <Table<Record<string, unknown>>
-            columns={genericColumns}
-            dataSource={filteredItems as Record<string, unknown>[]}
-            rowKey={(record, index) => getRecordId(record, index ?? 0)}
-            loading={loading}
-            pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
-            onRow={(record) => ({ onClick: () => showItemDetail(record) })}
-            rowClassName="dataset-table-row"
-          />
+          <>
+            {mobilePreviewList}
+            <Table<Record<string, unknown>>
+              columns={genericColumns}
+              dataSource={filteredItems as Record<string, unknown>[]}
+              rowKey={(record, index) => getRecordId(record, index ?? 0)}
+              loading={loading}
+              pagination={{ defaultPageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 条匹配记录`, pageSizeOptions: [10, 20, 50, 100, 200] }}
+              onRow={(record) => ({ onClick: () => showItemDetail(record) })}
+              rowClassName="dataset-table-row"
+            />
+          </>
         )}
       </Card>
 

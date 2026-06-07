@@ -17,6 +17,7 @@ import {
   FontSizeOutlined,
   FormOutlined,
   GroupOutlined,
+  MoreOutlined,
   PicCenterOutlined,
   PlusOutlined,
   SaveOutlined,
@@ -55,6 +56,7 @@ import {
   App as AntdApp,
   Button,
   Drawer,
+  Dropdown,
   Empty,
   Input,
   Modal,
@@ -167,6 +169,8 @@ type DesignerDragPayload =
   | { type: 'material'; meta: MaterialMeta }
   | { type: 'field'; fieldId: string };
 
+type MobileDesignerSection = 'materials' | 'canvas' | 'properties';
+
 type DropIndicatorEvent = DragMoveEvent | DragOverEvent | DragEndEvent;
 
 const CANVAS_DROPPABLE_PREFIX = 'canvas-droppable';
@@ -278,9 +282,12 @@ const defaultDemoFields: SchemaField[] = [
     label: 'AI 建议清洗(LLM 触发组件)',
     placeholder: '调用模型生成参考标题,可一键填入 cleaned_title',
     componentProps: {
+      taskInstruction: '这是商品标题清洗任务，请根据原始标题生成更规范、更简洁的商品标题。',
       promptTemplate: '请根据原始商品标题生成一个简洁、规范、适合电商展示的清洗后标题。',
+      outputInstruction: '只生成可直接填入目标字段的建议，不要输出额外解释。',
       contextPaths: ['origin_title', 'model_answer', 'reference'],
       targetField: 'cleaned_title',
+      targetFields: ['cleaned_title'],
       buttonText: '生成参考',
       outputMode: 'structured',
     },
@@ -319,9 +326,11 @@ function createField(meta: MaterialMeta, existing: SchemaField[]): SchemaField {
     componentProps:
       meta.kind === 'llm-trigger'
         ? {
-            promptTemplate: '请根据当前题目和已填写答案,为目标字段生成一个候选值。',
+            taskInstruction: '',
+            promptTemplate: '请根据当前题目和已填写答案,为配置的目标字段生成合法候选值。',
+            outputInstruction: '',
             contextPaths: [],
-            targetField: '',
+            targetFields: [],
             buttonText: '生成建议',
             outputMode: 'structured',
           }
@@ -380,6 +389,7 @@ export default function OwnerTemplateDesigner() {
   const [draggingMaterial, setDraggingMaterial] = useState<MaterialMeta | null>(null);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
+  const [mobileSection, setMobileSection] = useState<MobileDesignerSection>('canvas');
 
   /** dnd-kit 传感器:按下 8px 才激活,避免与点击事件冲突 */
   const sensors = useSensors(
@@ -533,13 +543,20 @@ export default function OwnerTemplateDesigner() {
 
   function addMaterial(meta: MaterialMeta) {
     if (isPublished) return;
+    const field = {
+      ...createField(meta, schema.fields),
+      layout: { tab: activeSchemaTabId },
+    };
     setSchema((prev) => {
-      const field = {
-        ...createField(meta, prev.fields),
-        layout: { tab: activeSchemaTabId },
-      };
       return { ...prev, fields: [...prev.fields, field] };
     });
+    setActiveFieldId(field.id);
+    setMobileSection('canvas');
+  }
+
+  function selectCanvasField(fieldId: string) {
+    setActiveFieldId(fieldId);
+    setMobileSection('properties');
   }
 
   function addSchemaTab() {
@@ -944,6 +961,36 @@ export default function OwnerTemplateDesigner() {
   }
 
   const submittableCount = schema.fields.filter(isSubmittableField).length;
+  const designerMoreItems = [
+    {
+      key: 'version',
+      label: `当前版本 ${schema.versionNumber}`,
+      disabled: true,
+    },
+    ...(schema.taskId
+      ? [
+          {
+            key: 'task',
+            label: `绑定任务 ${schema.taskId}`,
+            disabled: true,
+          },
+        ]
+      : []),
+    {
+      key: 'export',
+      icon: <ExportOutlined />,
+      label: '导出 Schema JSON',
+    },
+    ...(isPublished
+      ? [
+          {
+            key: 'withdraw',
+            label: '收回发布',
+            danger: true,
+          },
+        ]
+      : []),
+  ];
 
   return (
     <DndContext
@@ -958,7 +1005,7 @@ export default function OwnerTemplateDesigner() {
       <div className="designer-shell">
       {/* 顶部工具栏 */}
       <div className="designer-topbar">
-        <Space>
+        <Space className="designer-topbar-main">
           <Button
             type="text"
             icon={<ArrowLeftOutlined />}
@@ -974,28 +1021,59 @@ export default function OwnerTemplateDesigner() {
           </Tag>
           {usingFallback && <Tag color="gold">详情加载失败</Tag>}
         </Space>
-        <Space>
-          <Tag className="designer-version-tag">当前版本 {schema.versionNumber}</Tag>
+        <Space className="designer-topbar-actions">
+          <Tag className="designer-version-tag designer-secondary-action">当前版本 {schema.versionNumber}</Tag>
           {schema.taskId && (
-            <Tag color="blue">绑定任务 {schema.taskId}</Tag>
+            <Tag color="blue" className="designer-secondary-action">绑定任务 {schema.taskId}</Tag>
           )}
           <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
             预览
           </Button>
-          <Button icon={<ExportOutlined />} onClick={() => setExportOpen(true)}>
+          <Button className="designer-secondary-action" icon={<ExportOutlined />} onClick={() => setExportOpen(true)}>
             导出 Schema JSON
           </Button>
-          <Button icon={<SaveOutlined />} disabled={isPublished} onClick={() => void handleSave()}>
+          <Button
+            className={`designer-save-draft-action${isPublished ? ' is-mobile-hidden-when-published' : ''}`}
+            icon={<SaveOutlined />}
+            disabled={isPublished}
+            onClick={() => void handleSave()}
+          >
             保存草稿
           </Button>
-          <Button type="primary" icon={<CheckOutlined />} disabled={isPublished} onClick={handlePublish}>
+          <Button
+            type="primary"
+            className={`designer-publish-action${isPublished ? ' is-mobile-hidden-when-published' : ''}`}
+            icon={<CheckOutlined />}
+            disabled={isPublished}
+            onClick={handlePublish}
+          >
             保存并发布
           </Button>
           {isPublished && (
-            <Button danger onClick={() => void handleWithdraw()}>
+            <Button className="designer-secondary-action" danger onClick={() => void handleWithdraw()}>
               收回发布
             </Button>
           )}
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: designerMoreItems,
+              onClick: ({ key, domEvent }) => {
+                domEvent.stopPropagation();
+                if (key === 'export') {
+                  setExportOpen(true);
+                  return;
+                }
+                if (key === 'withdraw') {
+                  void handleWithdraw();
+                }
+              },
+            }}
+          >
+            <Button className="designer-mobile-more" icon={<MoreOutlined />}>
+              更多
+            </Button>
+          </Dropdown>
         </Space>
       </div>
 
@@ -1050,7 +1128,19 @@ export default function OwnerTemplateDesigner() {
 
       <SchemaCheckPanel result={schemaCheck} />
 
-      <div className="designer-grid">
+      <Segmented
+        block
+        className="designer-mobile-section-switch"
+        options={[
+          { label: '物料', value: 'materials' },
+          { label: '画布', value: 'canvas' },
+          { label: '属性', value: 'properties' },
+        ]}
+        value={mobileSection}
+        onChange={(value) => setMobileSection(value as MobileDesignerSection)}
+      />
+
+      <div className={`designer-grid designer-mobile-section-${mobileSection}`}>
         {/* 左:物料区 */}
         <div className="designer-left">
           {groupedMaterials.map((group) => (
@@ -1112,10 +1202,13 @@ export default function OwnerTemplateDesigner() {
                     )}
                     activeFieldId={tab.id === activeSchemaTabId ? activeFieldId : null}
                     dropIndicator={tab.id === activeSchemaTabId ? dropIndicator : null}
-                    onSelect={setActiveFieldId}
+                    onSelect={selectCanvasField}
                     onMove={moveField}
                     onRemove={removeField}
-                    onAdd={() => message.info('从左侧物料栏点击物料即可追加新字段')}
+                    onAdd={() => {
+                      setMobileSection('materials');
+                      message.info('从左侧物料栏点击物料即可追加新字段');
+                    }}
                   />
                 ),
               })),
@@ -1605,22 +1698,38 @@ function renderFieldPreview(field: SchemaField) {
           typeof field.componentProps?.buttonText === 'string' && field.componentProps.buttonText.trim()
             ? field.componentProps.buttonText.trim()
             : '生成建议';
-        const targetField =
-          typeof field.componentProps?.targetField === 'string' && field.componentProps.targetField.trim()
-            ? field.componentProps.targetField.trim()
+        const targetFields = resolveLlmTargetFields(field.componentProps);
+        const targetText =
+          targetFields.length > 0
+            ? `应用到 ${targetFields.length} 个字段`
             : '未配置目标字段';
         return (
           <Space wrap>
             <Button size="small" type="primary" icon={<ThunderboltOutlined />}>
               {buttonText}
             </Button>
-            <Typography.Text type="secondary">应用到 {targetField}</Typography.Text>
+            <Typography.Text type="secondary">{targetText}</Typography.Text>
           </Space>
         );
       }
     default:
       return <Typography.Text type="secondary">布局容器</Typography.Text>;
   }
+}
+
+function resolveLlmTargetFields(componentProps?: Record<string, unknown>) {
+  const result: string[] = [];
+  const add = (value: unknown) => {
+    const next = typeof value === 'string' ? value.trim() : '';
+    if (next && !result.includes(next)) {
+      result.push(next);
+    }
+  };
+  if (Array.isArray(componentProps?.targetFields)) {
+    componentProps.targetFields.forEach(add);
+  }
+  add(componentProps?.targetField);
+  return result;
 }
 
 /** 右侧属性配置 */
@@ -1645,13 +1754,19 @@ function PropertyPanel({
     .map((item) => ({ label: `${item.label} (${item.fieldName})`, value: item.fieldName }));
   const tabOptions = tabs.map((tab) => ({ label: tab.label, value: tab.id }));
   const componentProps = field.componentProps ?? {};
-  const llmTargetField =
-    typeof componentProps.targetField === 'string' ? componentProps.targetField : undefined;
+  const llmTargetFields = resolveLlmTargetFields(componentProps);
+  const llmTargetFieldDetails = llmTargetFields
+    .map((fieldName) => fields.find((item) => item.fieldName === fieldName))
+    .filter((item): item is SchemaField => Boolean(item));
   const llmContextPaths = Array.isArray(componentProps.contextPaths)
     ? componentProps.contextPaths.filter((item): item is string => typeof item === 'string')
     : [];
+  const llmTaskInstruction =
+    typeof componentProps.taskInstruction === 'string' ? componentProps.taskInstruction : '';
   const llmPromptTemplate =
     typeof componentProps.promptTemplate === 'string' ? componentProps.promptTemplate : '';
+  const llmOutputInstruction =
+    typeof componentProps.outputInstruction === 'string' ? componentProps.outputInstruction : '';
   const llmButtonText =
     typeof componentProps.buttonText === 'string' ? componentProps.buttonText : '';
   const updateComponentProps = (patch: Record<string, unknown>) => {
@@ -1794,12 +1909,37 @@ function PropertyPanel({
                       <Select
                         allowClear
                         showSearch
+                        mode="multiple"
+                        maxTagCount="responsive"
                         placeholder="选择 AI 建议要应用到的字段"
                         options={targetFieldOptions}
-                        value={llmTargetField || undefined}
-                        onChange={(value) => updateComponentProps({ targetField: value ?? '' })}
+                        value={llmTargetFields}
+                        onChange={(value) =>
+                          updateComponentProps({ targetFields: value, targetField: '' })
+                        }
                       />
                     </Field>
+                    {llmTargetFieldDetails.some((item) => item.options?.length) && (
+                      <div className="llm-option-mapping-preview">
+                        <Typography.Text type="secondary">选项映射预览</Typography.Text>
+                        {llmTargetFieldDetails
+                          .filter((item) => item.options?.length)
+                          .map((target) => (
+                            <div key={target.fieldName} className="llm-option-mapping-group">
+                              <Typography.Text strong>
+                                {target.label} ({target.fieldName})
+                              </Typography.Text>
+                              <Space wrap size={[6, 6]}>
+                                {(target.options ?? []).map((option) => (
+                                  <Tag key={option.value} className="llm-option-mapping-tag">
+                                    {option.value} = {option.label}
+                                  </Tag>
+                                ))}
+                              </Space>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                     <Field label="上下文 raw 字段">
                       <Select
                         allowClear
@@ -1811,6 +1951,18 @@ function PropertyPanel({
                         onChange={(value) => updateComponentProps({ contextPaths: value })}
                       />
                     </Field>
+                    <Field label="任务语义说明">
+                      <Input.TextArea
+                        rows={4}
+                        maxLength={2000}
+                        showCount
+                        placeholder="说明当前数据集和标注任务的业务含义，例如 PREFERRED=A 表示 A 优于 B，但目标字段要判断是否通过。"
+                        value={llmTaskInstruction}
+                        onChange={(event) =>
+                          updateComponentProps({ taskInstruction: event.target.value })
+                        }
+                      />
+                    </Field>
                     <Field label="按钮文案">
                       <Input
                         value={llmButtonText}
@@ -1820,18 +1972,30 @@ function PropertyPanel({
                         }
                       />
                     </Field>
-                    <Field label="字段级 Prompt">
+                    <Field label="生成规则 / 判断规则">
                       <Input.TextArea
                         rows={5}
                         maxLength={3000}
                         showCount
-                        placeholder="告诉模型如何根据上下文生成目标字段候选值"
+                        placeholder="告诉模型如何根据任务语义、上下文和已填写答案生成目标字段候选值"
                         value={llmPromptTemplate}
                         onChange={(event) =>
                           updateComponentProps({
                             promptTemplate: event.target.value,
                             outputMode: 'structured',
                           })
+                        }
+                      />
+                    </Field>
+                    <Field label="输出要求">
+                      <Input.TextArea
+                        rows={3}
+                        maxLength={1200}
+                        showCount
+                        placeholder="补充输出要求，例如建议文案使用“通过/不通过”，不要直接展示 option_a/option_b。"
+                        value={llmOutputInstruction}
+                        onChange={(event) =>
+                          updateComponentProps({ outputInstruction: event.target.value })
                         }
                       />
                     </Field>

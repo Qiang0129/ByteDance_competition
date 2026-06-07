@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, PointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import {
   CloseOutlined,
   CopyOutlined,
@@ -51,7 +52,9 @@ const SUGGESTED_PROMPTS = [
 ];
 const ASSISTANT_STREAM_TIMEOUT_MS = 120_000;
 const ASSISTANT_TRIGGER_SIZE = 48;
-const ASSISTANT_TRIGGER_MARGIN = 16;
+const ASSISTANT_TRIGGER_EDGE_MARGIN = 0;
+const ASSISTANT_TRIGGER_DEFAULT_RIGHT_GAP = 32;
+const ASSISTANT_TRIGGER_DEFAULT_BOTTOM_GAP = 36;
 const ASSISTANT_TRIGGER_STORAGE_KEY = 'labelhub:labeler-assistant-trigger-position';
 const ASSISTANT_TRIGGER_DRAG_THRESHOLD = 6;
 
@@ -69,23 +72,48 @@ interface TriggerDragState {
   moved: boolean;
 }
 
+function getTriggerViewportBounds() {
+  if (typeof window === 'undefined') {
+    return {
+      minX: ASSISTANT_TRIGGER_EDGE_MARGIN,
+      minY: ASSISTANT_TRIGGER_EDGE_MARGIN,
+      maxX: ASSISTANT_TRIGGER_EDGE_MARGIN,
+      maxY: ASSISTANT_TRIGGER_EDGE_MARGIN,
+    };
+  }
+
+  const viewport = window.visualViewport;
+  const viewportWidth = viewport?.width ?? window.innerWidth;
+  const viewportHeight = viewport?.height ?? window.innerHeight;
+
+  const minX = ASSISTANT_TRIGGER_EDGE_MARGIN;
+  const minY = ASSISTANT_TRIGGER_EDGE_MARGIN;
+
+  return {
+    minX,
+    minY,
+    maxX: Math.max(minX, viewportWidth - ASSISTANT_TRIGGER_SIZE - ASSISTANT_TRIGGER_EDGE_MARGIN),
+    maxY: Math.max(minY, viewportHeight - ASSISTANT_TRIGGER_SIZE - ASSISTANT_TRIGGER_EDGE_MARGIN),
+  };
+}
+
 function defaultTriggerPosition(): TriggerPosition {
   if (typeof window === 'undefined') {
     return { x: 0, y: 0 };
   }
+  const bounds = getTriggerViewportBounds();
   return {
-    x: window.innerWidth - ASSISTANT_TRIGGER_SIZE - 32,
-    y: window.innerHeight - ASSISTANT_TRIGGER_SIZE - 36,
+    x: Math.max(bounds.minX, bounds.maxX - ASSISTANT_TRIGGER_DEFAULT_RIGHT_GAP),
+    y: Math.max(bounds.minY, bounds.maxY - ASSISTANT_TRIGGER_DEFAULT_BOTTOM_GAP),
   };
 }
 
 function clampTriggerPosition(position: TriggerPosition): TriggerPosition {
   if (typeof window === 'undefined') return position;
-  const maxX = Math.max(ASSISTANT_TRIGGER_MARGIN, window.innerWidth - ASSISTANT_TRIGGER_SIZE - ASSISTANT_TRIGGER_MARGIN);
-  const maxY = Math.max(ASSISTANT_TRIGGER_MARGIN, window.innerHeight - ASSISTANT_TRIGGER_SIZE - ASSISTANT_TRIGGER_MARGIN);
+  const bounds = getTriggerViewportBounds();
   return {
-    x: Math.min(Math.max(position.x, ASSISTANT_TRIGGER_MARGIN), maxX),
-    y: Math.min(Math.max(position.y, ASSISTANT_TRIGGER_MARGIN), maxY),
+    x: Math.min(Math.max(position.x, bounds.minX), bounds.maxX),
+    y: Math.min(Math.max(position.y, bounds.minY), bounds.maxY),
   };
 }
 
@@ -135,8 +163,15 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
         return next;
       });
     };
+    const viewport = window.visualViewport;
+
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    viewport?.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      viewport?.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   /** 滚到对话底部:每次发消息后调用,保证最新内容可见 */
@@ -338,25 +373,29 @@ export default function LabelerAssistantPanel({ item }: { item: AssignmentItem }
     setOpen(true);
   }, []);
 
+  const triggerButton = (
+    <button
+      type="button"
+      className={`labeler-assistant-trigger${triggerDragging ? ' is-dragging' : ''}`}
+      style={{
+        left: triggerPosition.x,
+        top: triggerPosition.y,
+      }}
+      onPointerDown={handleTriggerPointerDown}
+      onPointerMove={handleTriggerPointerMove}
+      onPointerUp={handleTriggerPointerEnd}
+      onPointerCancel={handleTriggerPointerEnd}
+      onClick={handleTriggerClick}
+      aria-label="打开 AI 标注助手"
+    >
+      <AiAssistantIcon style={{ fontSize: 22 }} />
+    </button>
+  );
+
   return (
     <>
       {/* 浮动入口按钮:右下角悬浮,内容不滚动跟随 */}
-      <button
-        type="button"
-        className={`labeler-assistant-trigger${triggerDragging ? ' is-dragging' : ''}`}
-        style={{
-          left: triggerPosition.x,
-          top: triggerPosition.y,
-        }}
-        onPointerDown={handleTriggerPointerDown}
-        onPointerMove={handleTriggerPointerMove}
-        onPointerUp={handleTriggerPointerEnd}
-        onPointerCancel={handleTriggerPointerEnd}
-        onClick={handleTriggerClick}
-        aria-label="打开 AI 标注助手"
-      >
-        <AiAssistantIcon style={{ fontSize: 22 }} />
-      </button>
+      {typeof document === 'undefined' ? triggerButton : createPortal(triggerButton, document.body)}
 
       <Drawer
         title={

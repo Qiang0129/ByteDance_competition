@@ -1,4 +1,5 @@
 import type { MaterialKind, SchemaField, SchemaReactionRule, SchemaSemanticType, SchemaTab } from '../../types/schema';
+import type { LlmTriggerStateUpdater, LlmTriggerUiState } from './llmTriggerState';
 import { normalizeValidators, SUBMITTABLE_KINDS } from './schemaValidation';
 
 const SUBMITTABLE_SEMANTIC_TYPES = new Set<SchemaSemanticType>([
@@ -24,6 +25,9 @@ export interface CompileOptions {
   previewMode?: boolean;
   allFields?: SchemaField[];
   onApplyLlmResult?: (fieldName: string, value: unknown) => void;
+  onApplyLlmResults?: (values: Record<string, unknown>) => void;
+  llmTriggerStates?: Record<string, LlmTriggerUiState>;
+  onUpdateLlmTriggerState?: (fieldName: string, updater: LlmTriggerStateUpdater) => void;
 }
 
 export const DEFAULT_SCHEMA_TAB_ID = 'annotation';
@@ -196,7 +200,11 @@ function toFormilyFieldSchema(
     assignmentId: options.assignmentId,
     currentAnswerJson: options.values ?? {},
     previewMode: options.previewMode ?? !options.assignmentId,
+    llmTriggerState: options.llmTriggerStates?.[field.fieldName],
+    onUpdateLlmTriggerState: (updater: LlmTriggerStateUpdater) =>
+      options.onUpdateLlmTriggerState?.(field.fieldName, updater),
     onApplyLlmResult: options.onApplyLlmResult,
+    onApplyLlmResults: options.onApplyLlmResults,
   };
 
   return {

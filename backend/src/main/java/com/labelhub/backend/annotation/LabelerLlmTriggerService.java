@@ -30,8 +30,11 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -123,26 +126,38 @@ public class LabelerLlmTriggerService {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_REQUEST", "llm trigger request is required");
     }
     String triggerFieldName = trimToNull(request.triggerFieldName());
-    String targetFieldName = trimToNull(request.targetFieldName());
-    if (triggerFieldName == null || targetFieldName == null) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_REQUEST", "triggerFieldName and targetFieldName are required");
+    List<String> requestedTargetFieldNames = readRequestedTargetFieldNames(request);
+    if (triggerFieldName == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_REQUEST", "triggerFieldName is required");
     }
     JsonNode schema = readSchemaJson(assignment);
     ArrayNode fields = fieldsNode(schema);
     JsonNode triggerField = findField(fields, triggerFieldName);
-    JsonNode targetField = findField(fields, targetFieldName);
     if (triggerField == null || !"llm-trigger".equals(text(triggerField, "kind", ""))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_FIELD", "trigger field is not an llm trigger");
     }
-    if (targetField == null || !isSubmittableTarget(targetField)) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TARGET_FIELD", "target field is not submittable");
-    }
     JsonNode componentProps = triggerField.path("componentProps");
-    String configuredTarget = text(componentProps, "targetField", "");
-    if (!configuredTarget.isBlank() && !configuredTarget.equals(targetFieldName)) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TARGET_FIELD", "target field does not match trigger configuration");
+    List<String> configuredTargetFieldNames = readConfiguredTargetFieldNames(componentProps);
+    List<String> targetFieldNames = requestedTargetFieldNames.isEmpty()
+        ? configuredTargetFieldNames
+        : requestedTargetFieldNames;
+    if (configuredTargetFieldNames.isEmpty() || targetFieldNames.isEmpty()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TARGET_FIELD", "trigger target fields are not configured");
     }
+    List<TargetFieldContext> targetFields = new ArrayList<>();
+    for (String targetFieldName : targetFieldNames) {
+      if (!configuredTargetFieldNames.contains(targetFieldName)) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TARGET_FIELD", "target field does not match trigger configuration");
+      }
+      JsonNode targetField = findField(fields, targetFieldName);
+      if (targetField == null || !isSubmittableTarget(targetField)) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TARGET_FIELD", "target field is not submittable");
+      }
+      targetFields.add(new TargetFieldContext(targetFieldName, targetField, semanticType(targetField)));
+    }
+    String taskInstruction = truncate(text(componentProps, "taskInstruction", ""), MAX_PROMPT_LENGTH);
     String promptTemplate = truncate(blankToDefault(text(componentProps, "promptTemplate", ""), defaultUserPrompt()), MAX_PROMPT_LENGTH);
+    String outputInstruction = truncate(text(componentProps, "outputInstruction", ""), MAX_PROMPT_LENGTH);
     List<String> contextPaths = readContextPaths(componentProps);
     JsonNode rawPayload = buildRawPayload(assignment);
     JsonNode currentAnswer = request.currentAnswerJson() != null && request.currentAnswerJson().isObject()
@@ -150,11 +165,12 @@ public class LabelerLlmTriggerService {
         : objectMapper.createObjectNode();
     return new LlmTriggerContext(
         triggerFieldName,
-        targetFieldName,
+        assignment.taskTitle(),
         triggerField,
-        targetField,
-        semanticType(targetField),
+        targetFields,
+        taskInstruction,
         promptTemplate,
+        outputInstruction,
         contextPaths,
         rawPayload,
         currentAnswer,
@@ -177,20 +193,88 @@ public class LabelerLlmTriggerService {
   private String buildSystemPrompt() {
     return promptTemplateLoader.loadOrDefault("labeler-llm-trigger-system.md", """
         你是 LabelHub 的字段级 LLM 生成组件。你必须只输出 JSON。
-        输出结构固定为 {"displayText":"给标注员看的建议","value":"目标字段的候选值"}。
+        输出结构固定为 {"displayText":"整体建议","results":[{"targetFieldName":"字段名","displayText":"字段建议","value":"目标字段的候选值"}]}。
         single_choice 必须输出合法 options value; multi_choice/tags 必须输出合法 options value 数组; json 必须输出合法 JSON。
+        options[].value 是提交值，options[].label 是标注员可见文案。displayText 必须使用 label，不要把 option_a / option_b 这类内部值当作建议文案。
+        必须按 currentAnswerJson 和本次生成值共同计算 reactionRules。最终隐藏的目标字段不要返回；最终可见且属于 targetFields 的字段必须返回。
         """);
   }
 
   private String buildUserPrompt(LlmTriggerContext context) {
     ObjectNode payload = objectMapper.createObjectNode();
+    payload.put("taskTitle", blankToDefault(context.taskTitle(), ""));
+    payload.put("taskInstruction", blankToDefault(context.taskInstruction(), ""));
     payload.put("ownerPrompt", context.promptTemplate());
+    payload.put("outputInstruction", blankToDefault(context.outputInstruction(), ""));
     payload.set("rawPayload", selectedRawPayload(context.rawPayload(), context.contextPaths()));
     payload.set("currentAnswerJson", context.currentAnswerJson());
     payload.set("triggerField", context.triggerField());
-    payload.set("targetField", context.targetField());
-    payload.put("targetSemanticType", context.targetSemanticType());
+    payload.set("targetFields", targetFieldsPayload(context.targetFields()));
+    payload.set("reactionRules", reactionRulesPayload(context.fields()));
+    if (context.targetFields().size() == 1) {
+      TargetFieldContext target = context.targetFields().get(0);
+      payload.set("targetField", target.field());
+      payload.put("targetSemanticType", target.semanticType());
+    }
     return truncateForContext(writeJson(payload));
+  }
+
+  private ArrayNode targetFieldsPayload(List<TargetFieldContext> targetFields) {
+    ArrayNode result = objectMapper.createArrayNode();
+    for (TargetFieldContext target : targetFields) {
+      ObjectNode node = objectMapper.createObjectNode();
+      node.put("targetFieldName", target.fieldName());
+      node.put("targetSemanticType", target.semanticType());
+      node.put("label", text(target.field(), "label", target.fieldName()));
+      node.set("field", target.field());
+      node.set("optionMappings", optionMappings(target.field()));
+      result.add(node);
+    }
+    return result;
+  }
+
+  private ArrayNode reactionRulesPayload(ArrayNode fields) {
+    ArrayNode result = objectMapper.createArrayNode();
+    for (JsonNode field : fields) {
+      JsonNode reactions = field.path("reactions");
+      if (!reactions.isArray()) {
+        continue;
+      }
+      for (JsonNode reaction : reactions) {
+        String sourceFieldName = text(reaction, "sourceField", "");
+        String targetFieldName = text(reaction, "targetField", "");
+        JsonNode sourceField = findField(fields, sourceFieldName);
+        JsonNode targetField = findField(fields, targetFieldName);
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("sourceField", sourceFieldName);
+        node.put("sourceLabel", sourceField == null ? sourceFieldName : text(sourceField, "label", sourceFieldName));
+        node.put("operator", text(reaction, "operator", ""));
+        node.put("value", text(reaction, "value", ""));
+        node.put("valueLabel", sourceField == null
+            ? text(reaction, "value", "")
+            : optionLabel(text(reaction, "value", ""), sourceField).orElse(text(reaction, "value", "")));
+        node.put("targetField", targetFieldName);
+        node.put("targetLabel", targetField == null ? targetFieldName : text(targetField, "label", targetFieldName));
+        node.put("action", text(reaction, "action", ""));
+        result.add(node);
+      }
+    }
+    return result;
+  }
+
+  private ArrayNode optionMappings(JsonNode field) {
+    ArrayNode result = objectMapper.createArrayNode();
+    JsonNode options = field.path("options");
+    if (!options.isArray()) {
+      return result;
+    }
+    for (JsonNode option : options) {
+      ObjectNode node = objectMapper.createObjectNode();
+      node.put("value", text(option, "value", ""));
+      node.put("label", text(option, "label", ""));
+      result.add(node);
+    }
+    return result;
   }
 
   private void streamChatCompletion(
@@ -260,6 +344,11 @@ public class LabelerLlmTriggerService {
         safeAuditTriggerCall(labeler, assignment, context, config.modelName(), null, "cancelled", exception.getMessage());
         return;
       }
+      if (exception instanceof ApiException apiException) {
+        safeAuditTriggerCall(labeler, assignment, context, config.modelName(), null, "failed", apiException.getMessage());
+        safeSendEvent(writer, "error", apiException.getCode());
+        return;
+      }
       safeAuditTriggerCall(labeler, assignment, context, config.modelName(), null, "failed", exception.getMessage());
       safeSendEvent(writer, "error", "LLM_TRIGGER_REQUEST_FAILED");
     }
@@ -268,14 +357,84 @@ public class LabelerLlmTriggerService {
   private ObjectNode normalizeModelOutput(String raw, LlmTriggerContext context) {
     JsonNode root = parseJsonObject(extractJsonObject(raw));
     String displayText = text(root, "displayText", "");
-    JsonNode rawValue = root.has("value") ? root.get("value") : root.path("normalizedValue");
-    JsonNode normalizedValue = normalizeValue(rawValue, context.targetField(), context.targetSemanticType());
     ObjectNode result = objectMapper.createObjectNode();
-    result.put("displayText", blankToDefault(displayText, formatDisplayValue(normalizedValue)));
-    result.set("normalizedValue", normalizedValue);
-    result.put("targetFieldName", context.targetFieldName());
-    result.put("targetSemanticType", context.targetSemanticType());
+    ObjectNode mergedAnswer = context.currentAnswerJson().isObject()
+        ? (ObjectNode) context.currentAnswerJson().deepCopy()
+        : objectMapper.createObjectNode();
+    Map<String, ObjectNode> normalizedByField = new LinkedHashMap<>();
+    JsonNode rawResults = root.path("results");
+    for (TargetFieldContext target : context.targetFields()) {
+      JsonNode fieldSource = context.targetFields().size() == 1 && !rawResults.isArray()
+          ? root
+          : findResultNode(rawResults, target.fieldName());
+      if (fieldSource == null || fieldSource.isMissingNode() || fieldSource.isNull() || !hasModelValue(fieldSource)) {
+        continue;
+      }
+      ObjectNode normalized = normalizeFieldResult(fieldSource, target, displayText);
+      normalizedByField.put(target.fieldName(), normalized);
+      mergedAnswer.set(target.fieldName(), normalized.path("normalizedValue"));
+    }
+    Set<String> visibleFields = resolveVisibleFields(context.fields(), mergedAnswer);
+    ArrayNode fieldResults = objectMapper.createArrayNode();
+    for (TargetFieldContext target : context.targetFields()) {
+      if (!visibleFields.contains(target.fieldName())) {
+        continue;
+      }
+      ObjectNode normalized = normalizedByField.get(target.fieldName());
+      if (normalized == null) {
+        throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_RESULT", "model result target field is missing");
+      }
+      fieldResults.add(normalized);
+    }
+    result.put("displayText", blankToDefault(displayText, summarizeFieldResults(fieldResults)));
+    result.set("results", fieldResults);
+    if (fieldResults.size() == 1) {
+      JsonNode first = fieldResults.get(0);
+      result.put("targetFieldName", text(first, "targetFieldName", ""));
+      result.put("targetSemanticType", text(first, "targetSemanticType", ""));
+      result.set("normalizedValue", first.path("normalizedValue"));
+      result.put("normalizedDisplayValue", text(first, "normalizedDisplayValue", formatDisplayValue(first.path("normalizedValue"))));
+    }
     return result;
+  }
+
+  private boolean hasModelValue(JsonNode fieldSource) {
+    return fieldSource != null
+        && !fieldSource.isMissingNode()
+        && !fieldSource.isNull()
+        && (fieldSource.has("value") || fieldSource.has("normalizedValue"));
+  }
+
+  private ObjectNode normalizeFieldResult(JsonNode fieldSource, TargetFieldContext target, String rootDisplayText) {
+    JsonNode rawValue = fieldSource.has("value") ? fieldSource.get("value") : fieldSource.path("normalizedValue");
+    JsonNode normalizedValue = normalizeValue(rawValue, target.field(), target.semanticType());
+    ObjectNode result = objectMapper.createObjectNode();
+    result.put("targetFieldName", target.fieldName());
+    result.put("targetSemanticType", target.semanticType());
+    result.put("displayText", blankToDefault(text(fieldSource, "displayText", ""), blankToDefault(rootDisplayText, formatDisplayValue(normalizedValue))));
+    result.set("normalizedValue", normalizedValue);
+    result.put("normalizedDisplayValue", displayValue(normalizedValue, target.field(), target.semanticType()));
+    return result;
+  }
+
+  private JsonNode findResultNode(JsonNode results, String targetFieldName) {
+    if (!results.isArray()) {
+      return null;
+    }
+    for (JsonNode item : results) {
+      if (targetFieldName.equals(text(item, "targetFieldName", ""))) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  private String summarizeFieldResults(ArrayNode fieldResults) {
+    List<String> parts = new ArrayList<>();
+    for (JsonNode item : fieldResults) {
+      parts.add(text(item, "targetFieldName", "") + ": " + text(item, "normalizedDisplayValue", formatDisplayValue(item.path("normalizedValue"))));
+    }
+    return String.join("; ", parts);
   }
 
   private JsonNode normalizeValue(JsonNode value, JsonNode targetField, String semanticType) {
@@ -336,6 +495,172 @@ public class LabelerLlmTriggerService {
       }
     }
     return java.util.Optional.empty();
+  }
+
+  private String displayValue(JsonNode value, JsonNode targetField, String semanticType) {
+    if (value == null || value.isMissingNode() || value.isNull()) {
+      return "";
+    }
+    return switch (semanticType) {
+      case "single_choice" -> optionLabel(value.asText(), targetField).orElse(value.asText());
+      case "multi_choice", "tags" -> displayMultiChoiceValue(value, targetField);
+      default -> formatDisplayValue(value);
+    };
+  }
+
+  private String displayMultiChoiceValue(JsonNode value, JsonNode targetField) {
+    List<String> labels = new ArrayList<>();
+    if (value.isArray()) {
+      for (JsonNode item : value) {
+        String raw = item.isTextual() ? item.asText() : item.toString();
+        labels.add(optionLabel(raw, targetField).orElse(raw));
+      }
+      return String.join("、", labels);
+    }
+    String raw = value.isTextual() ? value.asText() : value.toString();
+    return optionLabel(raw, targetField).orElse(raw);
+  }
+
+  private java.util.Optional<String> optionLabel(String raw, JsonNode targetField) {
+    JsonNode options = targetField.path("options");
+    if (!options.isArray()) {
+      return java.util.Optional.empty();
+    }
+    String normalized = raw == null ? "" : raw.trim();
+    for (JsonNode option : options) {
+      String value = text(option, "value", "");
+      String label = text(option, "label", "");
+      if (normalized.equals(value) || normalized.equals(label)) {
+        return java.util.Optional.of(label.isBlank() ? value : label);
+      }
+    }
+    return java.util.Optional.empty();
+  }
+
+  private Set<String> resolveVisibleFields(ArrayNode fields, ObjectNode values) {
+    Set<String> visible = new LinkedHashSet<>();
+    for (JsonNode field : fields) {
+      String fieldName = text(field, "fieldName", "");
+      if (!fieldName.isBlank()) {
+        visible.add(fieldName);
+      }
+    }
+    for (JsonNode field : fields) {
+      JsonNode reactions = field.path("reactions");
+      if (!reactions.isArray()) {
+        continue;
+      }
+      for (JsonNode reaction : reactions) {
+        String action = text(reaction, "action", "");
+        String targetField = text(reaction, "targetField", "");
+        if (!targetField.isBlank() && isDisplayRequiredAction(action)) {
+          visible.remove(targetField);
+        }
+      }
+    }
+    for (JsonNode field : fields) {
+      JsonNode reactions = field.path("reactions");
+      if (!reactions.isArray()) {
+        continue;
+      }
+      for (JsonNode reaction : reactions) {
+        String targetField = text(reaction, "targetField", "");
+        if (targetField.isBlank()) {
+          continue;
+        }
+        JsonNode sourceField = findField(fields, text(reaction, "sourceField", ""));
+        if (!matchesReaction(reaction, values.get(text(reaction, "sourceField", "")), sourceField)) {
+          continue;
+        }
+        switch (text(reaction, "action", "")) {
+          case "visible", "visibleRequired", "required" -> visible.add(targetField);
+          case "hidden" -> visible.remove(targetField);
+          default -> {
+            // optional 只影响必填状态，LLM 结果过滤只关心可见性。
+          }
+        }
+      }
+    }
+    return visible;
+  }
+
+  private boolean matchesReaction(JsonNode reaction, JsonNode value, JsonNode sourceField) {
+    String operator = text(reaction, "operator", "");
+    List<String> expectedValues = resolveExpectedValues(reaction, sourceField);
+    return switch (operator) {
+      case "eq" -> valueMatchesExpected(value, expectedValues);
+      case "ne" -> !valueMatchesExpected(value, expectedValues);
+      case "empty" -> isEmptyAnswerValue(value);
+      case "notEmpty" -> !isEmptyAnswerValue(value);
+      case "includes" -> valueIncludesExpected(value, expectedValues);
+      default -> false;
+    };
+  }
+
+  private List<String> resolveExpectedValues(JsonNode reaction, JsonNode sourceField) {
+    LinkedHashSet<String> values = new LinkedHashSet<>();
+    String raw = text(reaction, "value", "");
+    values.add(raw);
+    if (sourceField != null) {
+      JsonNode options = sourceField.path("options");
+      if (options.isArray()) {
+        for (JsonNode option : options) {
+          String value = text(option, "value", "");
+          String label = text(option, "label", "");
+          if (raw.equals(value) || raw.equals(label)) {
+            values.add(value);
+            values.add(label);
+          }
+        }
+      }
+    }
+    return List.copyOf(values);
+  }
+
+  private boolean valueMatchesExpected(JsonNode value, List<String> expectedValues) {
+    if (value == null || value.isMissingNode() || value.isNull()) {
+      return expectedValues.contains("");
+    }
+    if (value.isArray()) {
+      for (JsonNode item : value) {
+        if (valueMatchesExpected(item, expectedValues)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    String actual = value.isTextual() ? value.asText() : value.toString();
+    return expectedValues.contains(actual);
+  }
+
+  private boolean valueIncludesExpected(JsonNode value, List<String> expectedValues) {
+    if (value == null || value.isMissingNode() || value.isNull()) {
+      return false;
+    }
+    if (value.isArray()) {
+      for (JsonNode item : value) {
+        if (valueMatchesExpected(item, expectedValues)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    String actual = value.isTextual() ? value.asText() : value.toString();
+    return expectedValues.stream().anyMatch(expected -> !expected.isBlank() && actual.contains(expected));
+  }
+
+  private boolean isEmptyAnswerValue(JsonNode value) {
+    if (value == null || value.isMissingNode() || value.isNull()) {
+      return true;
+    }
+    if (value.isArray()) {
+      return value.isEmpty();
+    }
+    return value.isTextual() && value.asText().isBlank();
+  }
+
+  private boolean isDisplayRequiredAction(String action) {
+    return "visibleRequired".equals(action) || "required".equals(action);
   }
 
   private String normalizeJsonValue(JsonNode value) {
@@ -458,6 +783,41 @@ public class LabelerLlmTriggerService {
     return result;
   }
 
+  private List<String> readRequestedTargetFieldNames(LlmTriggerRequest request) {
+    List<String> result = new ArrayList<>();
+    if (request.targetFieldNames() != null) {
+      for (String fieldName : request.targetFieldNames()) {
+        addUniqueTrimmed(result, fieldName);
+      }
+    }
+    addUniqueTrimmed(result, request.targetFieldName());
+    return result;
+  }
+
+  private List<String> readConfiguredTargetFieldNames(JsonNode componentProps) {
+    LinkedHashSet<String> result = new LinkedHashSet<>();
+    JsonNode targetFields = componentProps.path("targetFields");
+    if (targetFields.isArray()) {
+      for (JsonNode item : targetFields) {
+        if (item.isTextual() && !item.asText().isBlank()) {
+          result.add(item.asText().trim());
+        }
+      }
+    }
+    String legacyTarget = trimToNull(text(componentProps, "targetField", ""));
+    if (legacyTarget != null) {
+      result.add(legacyTarget);
+    }
+    return List.copyOf(result);
+  }
+
+  private void addUniqueTrimmed(List<String> result, String value) {
+    String trimmed = trimToNull(value);
+    if (trimmed != null && !result.contains(trimmed)) {
+      result.add(trimmed);
+    }
+  }
+
   private String extractStreamDelta(String data) {
     JsonNode root = readJson(data);
     JsonNode delta = root.path("choices").path(0).path("delta").path("content");
@@ -555,9 +915,20 @@ public class LabelerLlmTriggerService {
     snapshot.put("taskId", assignment.taskId());
     snapshot.put("itemId", assignment.itemId());
     snapshot.put("triggerFieldName", context.triggerFieldName());
-    snapshot.put("targetFieldName", context.targetFieldName());
-    snapshot.put("targetSemanticType", context.targetSemanticType());
+    ArrayNode targetFieldNames = snapshot.putArray("targetFieldNames");
+    ArrayNode targetSemanticTypes = snapshot.putArray("targetSemanticTypes");
+    for (TargetFieldContext target : context.targetFields()) {
+      targetFieldNames.add(target.fieldName());
+      targetSemanticTypes.add(target.semanticType());
+    }
+    if (context.targetFields().size() == 1) {
+      TargetFieldContext target = context.targetFields().get(0);
+      snapshot.put("targetFieldName", target.fieldName());
+      snapshot.put("targetSemanticType", target.semanticType());
+    }
     snapshot.put("promptPreview", truncate(context.promptTemplate(), MAX_PREVIEW_LENGTH));
+    snapshot.put("taskInstructionPreview", truncate(context.taskInstruction(), MAX_PREVIEW_LENGTH));
+    snapshot.put("outputInstructionPreview", truncate(context.outputInstruction(), MAX_PREVIEW_LENGTH));
     snapshot.put("modelName", blankToDefault(modelName, ""));
     snapshot.put("status", status);
     if (result != null) {
@@ -689,7 +1060,7 @@ public class LabelerLlmTriggerService {
   }
 
   private String defaultUserPrompt() {
-    return "请根据当前题目和已填写答案，为目标字段生成一个候选值。";
+    return "请根据当前题目和已填写答案，为配置的目标字段生成合法候选值。";
   }
 
   private String blankToDefault(String value, String fallback) {
@@ -736,13 +1107,19 @@ public class LabelerLlmTriggerService {
 
   private record LlmTriggerContext(
       String triggerFieldName,
-      String targetFieldName,
+      String taskTitle,
       JsonNode triggerField,
-      JsonNode targetField,
-      String targetSemanticType,
+      List<TargetFieldContext> targetFields,
+      String taskInstruction,
       String promptTemplate,
+      String outputInstruction,
       List<String> contextPaths,
       JsonNode rawPayload,
       JsonNode currentAnswerJson,
       ArrayNode fields) {}
+
+  private record TargetFieldContext(
+      String fieldName,
+      JsonNode field,
+      String semanticType) {}
 }

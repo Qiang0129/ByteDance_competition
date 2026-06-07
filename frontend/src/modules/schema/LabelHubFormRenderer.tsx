@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Space, Tabs } from 'antd';
 import { createForm, onFormValuesChange } from '@formily/core';
 import { createSchemaField, FormProvider } from '@formily/react';
@@ -13,6 +13,12 @@ import {
   resolveRuntimeRules,
 } from './schemaCompiler';
 import { formilyAntd6Components } from './formilyAntd6';
+import {
+  EMPTY_LLM_TRIGGER_STATE,
+  LlmTriggerStateContext,
+  type LlmTriggerStateUpdater,
+  type LlmTriggerUiState,
+} from './llmTriggerState';
 
 const SchemaFieldRenderer = createSchemaField({
   components: formilyAntd6Components,
@@ -45,6 +51,7 @@ export function LabelHubFormRenderer({
 }: LabelHubFormRendererProps) {
   const onChangeRef = useRef(onChange);
   const suppressChangeRef = useRef(false);
+  const [llmTriggerStates, setLlmTriggerStates] = useState<Record<string, LlmTriggerUiState>>({});
   onChangeRef.current = onChange;
 
   const form = useMemo(
@@ -71,13 +78,13 @@ export function LabelHubFormRenderer({
     });
   }, [form, value]);
 
-  const applyLlmResult = useCallback(
-    (fieldName: string, nextValue: unknown) => {
+  const applyLlmResults = useCallback(
+    (nextValuesPatch: Record<string, unknown>) => {
       suppressChangeRef.current = true;
-      form.setValues({ [fieldName]: nextValue }, 'merge');
+      form.setValues(nextValuesPatch, 'merge');
       const nextValues = {
         ...(form.values as Record<string, unknown>),
-        [fieldName]: nextValue,
+        ...nextValuesPatch,
       };
       onChangeRef.current?.(nextValues);
       queueMicrotask(() => {
@@ -85,6 +92,47 @@ export function LabelHubFormRenderer({
       });
     },
     [form],
+  );
+
+  const applyLlmResult = useCallback(
+    (fieldName: string, nextValue: unknown) => {
+      applyLlmResults({ [fieldName]: nextValue });
+    },
+    [applyLlmResults],
+  );
+
+  const schemaTabs = useMemo(() => normalizeSchemaTabs(tabs), [tabs]);
+  const schemaRenderKey = useMemo(
+    () => buildSchemaRenderKey(schema, schemaTabs, rawPayload),
+    [schema, schemaTabs, rawPayload],
+  );
+  const llmStateScopeKey = useMemo(
+    () => JSON.stringify({ assignmentId: assignmentId ?? '', schemaRenderKey }),
+    [assignmentId, schemaRenderKey],
+  );
+
+  useEffect(() => {
+    setLlmTriggerStates({});
+  }, [llmStateScopeKey]);
+
+  const updateLlmTriggerState = useCallback(
+    (fieldName: string, updater: LlmTriggerStateUpdater) => {
+      setLlmTriggerStates((previous) => {
+        const current = previous[fieldName] ?? EMPTY_LLM_TRIGGER_STATE;
+        const next = typeof updater === 'function'
+          ? updater(current)
+          : { ...current, ...updater };
+        return { ...previous, [fieldName]: next };
+      });
+    },
+    [],
+  );
+  const llmTriggerContextValue = useMemo(
+    () => ({
+      states: llmTriggerStates,
+      updateState: updateLlmTriggerState,
+    }),
+    [llmTriggerStates, updateLlmTriggerState],
   );
 
   const formilySchema = useMemo(
@@ -97,13 +145,22 @@ export function LabelHubFormRenderer({
         previewMode,
         allFields: schema,
         onApplyLlmResult: applyLlmResult,
+        onApplyLlmResults: applyLlmResults,
+        llmTriggerStates,
+        onUpdateLlmTriggerState: updateLlmTriggerState,
       }),
-    [schema, rawPayload, value, readonly, assignmentId, previewMode, applyLlmResult],
-  );
-  const schemaTabs = useMemo(() => normalizeSchemaTabs(tabs), [tabs]);
-  const schemaRenderKey = useMemo(
-    () => buildSchemaRenderKey(schema, schemaTabs, rawPayload),
-    [schema, schemaTabs, rawPayload],
+    [
+      schema,
+      rawPayload,
+      value,
+      readonly,
+      assignmentId,
+      previewMode,
+      applyLlmResult,
+      applyLlmResults,
+      llmTriggerStates,
+      updateLlmTriggerState,
+    ],
   );
   const useTabbedRenderer = schemaTabs.length > 1;
   const tabbedSchemas = useMemo(
@@ -119,11 +176,26 @@ export function LabelHubFormRenderer({
             previewMode,
             allFields: schema,
             onApplyLlmResult: applyLlmResult,
+            onApplyLlmResults: applyLlmResults,
+            llmTriggerStates,
+            onUpdateLlmTriggerState: updateLlmTriggerState,
             fieldFilter: (field) => resolveFieldTabId(field, schemaTabs) === tab.id,
           }),
         ]),
       ) as Record<string, unknown>,
-    [schema, schemaTabs, rawPayload, value, readonly, assignmentId, previewMode, applyLlmResult],
+    [
+      schema,
+      schemaTabs,
+      rawPayload,
+      value,
+      readonly,
+      assignmentId,
+      previewMode,
+      applyLlmResult,
+      applyLlmResults,
+      llmTriggerStates,
+      updateLlmTriggerState,
+    ],
   );
   const runtimeRuleKey = useMemo(
     () => JSON.stringify(resolveRuntimeRules(schema, value ?? {})),
@@ -132,39 +204,41 @@ export function LabelHubFormRenderer({
 
   return (
     <FormProvider form={form}>
-      <div className="lh-formily-renderer">
-        {useTabbedRenderer ? (
-          <Tabs
-            className="lh-formily-tabs"
-            items={schemaTabs.map((tab) => ({
-              key: tab.id,
-              label: tab.label,
-              children: (
-                <SchemaFieldRenderer
-                  key={`${schemaRenderKey}-${runtimeRuleKey}-${tab.id}`}
-                  schema={tabbedSchemas[tab.id] as never}
-                />
-              ),
-            }))}
-          />
-        ) : (
-          <SchemaFieldRenderer
-            key={`${schemaRenderKey}-${runtimeRuleKey}`}
-            schema={formilySchema as never}
-          />
-        )}
-        {onSubmit && (
-          <Space className="lh-formily-actions">
-            <Button
-              type="primary"
-              disabled={readonly}
-              onClick={() => void onSubmit({ ...(form.values as Record<string, unknown>) })}
-            >
-              {readonly ? '已锁定' : submitText}
-            </Button>
-          </Space>
-        )}
-      </div>
+      <LlmTriggerStateContext.Provider value={llmTriggerContextValue}>
+        <div className="lh-formily-renderer">
+          {useTabbedRenderer ? (
+            <Tabs
+              className="lh-formily-tabs"
+              items={schemaTabs.map((tab) => ({
+                key: tab.id,
+                label: tab.label,
+                children: (
+                  <SchemaFieldRenderer
+                    key={`${schemaRenderKey}-${runtimeRuleKey}-${tab.id}`}
+                    schema={tabbedSchemas[tab.id] as never}
+                  />
+                ),
+              }))}
+            />
+          ) : (
+            <SchemaFieldRenderer
+              key={`${schemaRenderKey}-${runtimeRuleKey}`}
+              schema={formilySchema as never}
+            />
+          )}
+          {onSubmit && (
+            <Space className="lh-formily-actions">
+              <Button
+                type="primary"
+                disabled={readonly}
+                onClick={() => void onSubmit({ ...(form.values as Record<string, unknown>) })}
+              >
+                {readonly ? '已锁定' : submitText}
+              </Button>
+            </Space>
+          )}
+        </div>
+      </LlmTriggerStateContext.Provider>
     </FormProvider>
   );
 }

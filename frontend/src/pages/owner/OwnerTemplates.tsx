@@ -6,6 +6,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   ExportOutlined,
+  MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -15,6 +16,7 @@ import {
   Button,
   Card,
   Col,
+  Dropdown,
   Empty,
   Input,
   Modal,
@@ -132,7 +134,7 @@ export default function OwnerTemplates() {
   }
 
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack template-page">
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
           <Typography.Title level={3}>模板搭建</Typography.Title>
@@ -148,7 +150,7 @@ export default function OwnerTemplates() {
       </div>
 
       {/* 概览卡 */}
-      <Row gutter={16}>
+      <Row gutter={16} className="template-stat-row">
         <Col xs={24} sm={8}>
           <Card className="owner-stat-card">
             <div className="owner-stat-label">模板总数</div>
@@ -214,7 +216,7 @@ export default function OwnerTemplates() {
           <Empty description="还没有匹配的模板,试试新建一个或调整筛选。" />
         </Card>
       ) : (
-        <Row gutter={[16, 16]}>
+        <Row gutter={[16, 16]} className="template-list-row">
           {filtered.map((template) => (
             <Col key={template.versionId} xs={24} md={12} xl={8}>
               <TemplateCard
@@ -243,6 +245,29 @@ function TemplateCard({
   onDelete: () => void;
 }) {
   const isPublished = template.status === 'published';
+  const moreItems = [
+    {
+      key: 'duplicate',
+      icon: <CopyOutlined />,
+      label: '复制',
+    },
+    {
+      key: 'export',
+      icon: <ExportOutlined />,
+      label: '导出',
+    },
+    ...(!isPublished
+      ? [
+          {
+            key: 'delete',
+            icon: <DeleteOutlined />,
+            label: '删除',
+            danger: true,
+          },
+        ]
+      : []),
+  ];
+
   return (
     <Card className="template-card" onClick={onOpen}>
       <div className="template-card-head">
@@ -278,23 +303,45 @@ function TemplateCard({
       </div>
 
       <div className="template-card-foot" onClick={(event) => event.stopPropagation()}>
-        <Tooltip title="复制为新草稿">
-          <Button size="small" icon={<CopyOutlined />} onClick={onDuplicate}>
-            复制
-          </Button>
-        </Tooltip>
-        <Tooltip title="导出 Schema JSON">
-          <Button size="small" icon={<ExportOutlined />}>
-            导出
-          </Button>
-        </Tooltip>
-        {!isPublished && (
-          <Tooltip title="删除草稿模板">
-            <Button size="small" danger icon={<DeleteOutlined />} onClick={onDelete}>
-              删除
+        <div className="template-card-secondary-actions">
+          <Tooltip title="复制为新草稿">
+            <Button size="small" icon={<CopyOutlined />} onClick={onDuplicate}>
+              复制
             </Button>
           </Tooltip>
-        )}
+          <Tooltip title="导出 Schema JSON">
+            <Button size="small" icon={<ExportOutlined />}>
+              导出
+            </Button>
+          </Tooltip>
+          {!isPublished && (
+            <Tooltip title="删除草稿模板">
+              <Button size="small" danger icon={<DeleteOutlined />} onClick={onDelete}>
+                删除
+              </Button>
+            </Tooltip>
+          )}
+        </div>
+        <Dropdown
+          trigger={['click']}
+          menu={{
+            items: moreItems,
+            onClick: ({ key, domEvent }) => {
+              domEvent.stopPropagation();
+              if (key === 'duplicate') {
+                onDuplicate();
+                return;
+              }
+              if (key === 'delete') {
+                onDelete();
+              }
+            },
+          }}
+        >
+          <Button className="template-card-more" size="small" icon={<MoreOutlined />}>
+            更多
+          </Button>
+        </Dropdown>
         <Button type="primary" size="small" onClick={onOpen}>
           打开 Designer
         </Button>
