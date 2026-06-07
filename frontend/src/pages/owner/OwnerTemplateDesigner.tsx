@@ -40,6 +40,7 @@ import type {
   CollisionDetection,
   DragCancelEvent,
   DragEndEvent,
+  DragMoveEvent,
   DragOverEvent,
   DragStartEvent,
 } from '@dnd-kit/core';
@@ -48,7 +49,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { CSS, getEventCoordinates } from '@dnd-kit/utilities';
 import {
   Alert,
   App as AntdApp,
@@ -164,6 +165,8 @@ type DropIndicator = {
 type DesignerDragPayload =
   | { type: 'material'; meta: MaterialMeta }
   | { type: 'field'; fieldId: string };
+
+type DropIndicatorEvent = DragMoveEvent | DragOverEvent | DragEndEvent;
 
 const CANVAS_DROPPABLE_PREFIX = 'canvas-droppable';
 const NEW_SCHEMA_TAB_KEY = '__new_schema_tab__';
@@ -421,6 +424,7 @@ export default function OwnerTemplateDesigner() {
     if (!previewDatasetId) {
       setPreviewItems([]);
       setPreviewItemIndex(0);
+      setPreviewAnswer({});
       return;
     }
     let cancelled = false;
@@ -430,9 +434,12 @@ export default function OwnerTemplateDesigner() {
         if (cancelled) return;
         setPreviewItems(items);
         setPreviewItemIndex(0);
+        setPreviewAnswer({});
       } catch {
         if (!cancelled) {
           setPreviewItems([]);
+          setPreviewItemIndex(0);
+          setPreviewAnswer({});
           message.warning('数据集条目加载失败,预览将使用内置示例数据。');
         }
       }
@@ -456,6 +463,10 @@ export default function OwnerTemplateDesigner() {
   const previewRawPayload = useMemo(
     () => normalizePreviewItem(previewItems[previewItemIndex]) ?? fallbackPreviewPayload,
     [previewItems, previewItemIndex],
+  );
+  const previewRendererKey = useMemo(
+    () => `${previewDatasetId ?? 'fallback'}:${previewItemIndex}:${JSON.stringify(previewRawPayload)}`,
+    [previewDatasetId, previewItemIndex, previewRawPayload],
   );
   const rawPathOptions = useMemo(
     () => extractRawPaths(previewRawPayload).map((path) => ({ label: path, value: path })),
@@ -627,13 +638,20 @@ export default function OwnerTemplateDesigner() {
     });
   }
 
-  function readDragPayload(event: DragStartEvent | DragOverEvent | DragEndEvent | DragCancelEvent) {
+  function readDragPayload(
+    event: DragStartEvent | DragMoveEvent | DragOverEvent | DragEndEvent | DragCancelEvent,
+  ) {
     return event.active.data.current as DesignerDragPayload | undefined;
   }
 
-  function getDraggedCenterY(event: DragOverEvent | DragEndEvent) {
+  function getDraggedCenterY(event: DropIndicatorEvent) {
     const activeRect = event.active.rect.current.translated ?? event.active.rect.current.initial;
     return activeRect ? activeRect.top + activeRect.height / 2 : null;
+  }
+
+  function getDragPointerY(event: DropIndicatorEvent) {
+    const startCoordinates = getEventCoordinates(event.activatorEvent);
+    return startCoordinates ? startCoordinates.y + event.delta.y : null;
   }
 
   function clearDragState() {
@@ -642,7 +660,7 @@ export default function OwnerTemplateDesigner() {
     setDropIndicator(null);
   }
 
-  function resolveDropIndicator(event: DragOverEvent | DragEndEvent): DropIndicator | null {
+  function resolveDropIndicator(event: DropIndicatorEvent): DropIndicator | null {
     const { active, over } = event;
     if (!over) return null;
 
@@ -665,16 +683,18 @@ export default function OwnerTemplateDesigner() {
     if (!overField) return null;
     if (activeData?.type === 'field' && activeData.fieldId === overField.id) return null;
 
+    const pointerY = getDragPointerY(event);
     const draggedCenterY = getDraggedCenterY(event);
     const overCenterY = over.rect.top + over.rect.height / 2;
+    const compareY = pointerY ?? draggedCenterY;
 
     return {
       fieldId: overField.id,
-      position: draggedCenterY != null && draggedCenterY > overCenterY ? 'after' : 'before',
+      position: compareY != null && compareY > overCenterY ? 'after' : 'before',
     };
   }
 
-  function handleDragOver(event: DragOverEvent) {
+  function updateDropIndicator(event: DropIndicatorEvent) {
     const nextIndicator = resolveDropIndicator(event);
     setDropIndicator((prev) => {
       if (
@@ -685,6 +705,14 @@ export default function OwnerTemplateDesigner() {
       }
       return nextIndicator;
     });
+  }
+
+  function handleDragMove(event: DragMoveEvent) {
+    updateDropIndicator(event);
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    updateDropIndicator(event);
   }
 
   /** dnd-kit drag start */
@@ -904,6 +932,7 @@ export default function OwnerTemplateDesigner() {
       sensors={sensors}
       collisionDetection={designerCollisionDetection}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
@@ -1128,7 +1157,11 @@ export default function OwnerTemplateDesigner() {
               placeholder="选择数据集样本"
               value={previewDatasetId}
               options={datasetOptions}
-              onChange={(value) => setPreviewDatasetId(value)}
+              onChange={(value) => {
+                setPreviewDatasetId(value);
+                setPreviewItemIndex(0);
+                setPreviewAnswer({});
+              }}
             />
             <Select
               style={{ minWidth: 160 }}
@@ -1139,10 +1172,14 @@ export default function OwnerTemplateDesigner() {
                 label: `第 ${index + 1} 条`,
                 value: index,
               }))}
-              onChange={(value) => setPreviewItemIndex(value)}
+              onChange={(value) => {
+                setPreviewItemIndex(value);
+                setPreviewAnswer({});
+              }}
             />
           </Space>
           <LabelHubFormRenderer
+            key={previewRendererKey}
             schema={schema.fields}
             tabs={schemaTabs}
             rawPayload={previewRawPayload}

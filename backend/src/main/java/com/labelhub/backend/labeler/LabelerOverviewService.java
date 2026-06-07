@@ -30,11 +30,18 @@ public class LabelerOverviewService {
     long todayAvgDurationSec = repository.averageDurationTodaySec(labeler.id());
     long submittedAssignments = repository.countSubmittedAssignments(labeler.id());
     long acceptedAssignments = repository.countAcceptedAssignments(labeler.id());
+    List<LabelerOverviewResponse.RewardDetail> monthlyRewardDetails = repository
+        .listMonthlyRewardDetails(labeler.id()).stream()
+        .map(this::toRewardDetail)
+        .toList();
 
     LabelerOverviewResponse.HeroStats heroStats = new LabelerOverviewResponse.HeroStats(
         repository.countWeeklySubmitted(labeler.id()),
         submittedAssignments == 0 ? 0D : (double) acceptedAssignments / submittedAssignments,
-        roundMoney(repository.sumMonthlyRewardEstimate(labeler.id())));
+        roundMoney(monthlyRewardDetails.stream()
+            .mapToDouble(LabelerOverviewResponse.RewardDetail::rewardPerItem)
+            .sum()),
+        monthlyRewardDetails);
     LabelerOverviewResponse.Kpis kpis = new LabelerOverviewResponse.Kpis(
         repository.countActiveTasks(labeler.id()),
         submittedToday,
@@ -109,6 +116,24 @@ public class LabelerOverviewService {
         type.key(),
         type.label(),
         record.count());
+  }
+
+  private LabelerOverviewResponse.RewardDetail toRewardDetail(
+      LabelerOverviewRepository.RewardDetailRecord record) {
+    String taskTitle = record.taskTitle() == null || record.taskTitle().isBlank()
+        ? "标注任务"
+        : record.taskTitle();
+    int itemIndex = Math.max(record.itemIndex(), 1);
+    return new LabelerOverviewResponse.RewardDetail(
+        Long.toString(record.taskId()),
+        Long.toString(record.assignmentId()),
+        Long.toString(record.annotationId()),
+        taskTitle,
+        Long.toString(record.itemId()),
+        itemIndex,
+        taskTitle + " · 第 " + itemIndex + " 题",
+        formatDateTime(record.acceptedAt()),
+        record.rewardPerItem() == null ? 0D : record.rewardPerItem());
   }
 
   private int progressPercent(long submittedToday) {

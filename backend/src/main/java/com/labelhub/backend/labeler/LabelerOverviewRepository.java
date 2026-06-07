@@ -148,37 +148,137 @@ public class LabelerOverviewRepository {
   }
 
   public double sumMonthlyRewardEstimate(long labelerId) {
-    return queryDouble(
+    return sumAcceptedRewardEstimate(
+        labelerId,
         """
-        SELECT COALESCE(SUM(
-          COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0)
-        ), 0)
-        FROM assignments a
-        JOIN tasks t ON t.id = a.task_id
-        WHERE a.labeler_id = ?
-          AND a.status IN ('submitted', 'accepted')
-          AND t.deleted_at IS NULL
-          AND COALESCE(a.submitted_at, a.updated_at) >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
-        """,
-        labelerId);
+        accepted_rewards.accepted_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
+          AND accepted_rewards.accepted_at < DATE_ADD(DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+        """);
   }
 
   public double sumTodayRewardEstimate(long labelerId) {
+    return sumAcceptedRewardEstimate(
+        labelerId,
+        """
+        accepted_rewards.accepted_at >= CURRENT_DATE()
+          AND accepted_rewards.accepted_at < DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+        """);
+  }
+
+  private double sumAcceptedRewardEstimate(long labelerId, String acceptedAtFilter) {
     return queryDouble(
         """
-        SELECT COALESCE(SUM(
-          COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0)
-        ), 0)
-        FROM annotations an
-        JOIN assignments a ON a.id = an.assignment_id
-        JOIN tasks t ON t.id = a.task_id
-        WHERE a.labeler_id = ?
-          AND a.status <> 'voided'
-          AND an.status <> 'voided'
-          AND t.deleted_at IS NULL
-          AND COALESCE(an.submitted_at, an.created_at) >= CURRENT_DATE()
-          AND COALESCE(an.submitted_at, an.created_at) < DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+        SELECT COALESCE(SUM(accepted_rewards.reward_per_item), 0)
+        FROM (
+          SELECT
+            COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0) AS reward_per_item,
+            COALESCE(accepted_audit.created_at, accepted_hr.created_at, an.updated_at) AS accepted_at
+          FROM assignments a
+          JOIN tasks t ON t.id = a.task_id
+          JOIN annotations an ON an.id = (
+            SELECT latest.id
+            FROM annotations latest
+            WHERE latest.assignment_id = a.id
+              AND latest.status <> 'voided'
+            ORDER BY latest.revision_no DESC, latest.id DESC
+            LIMIT 1
+          )
+          LEFT JOIN audit_logs accepted_audit ON accepted_audit.id = (
+            SELECT al.id
+            FROM audit_logs al
+            WHERE al.entity_type = 'annotation'
+              AND al.entity_id = an.id
+              AND al.action IN ('human_review.approve', 'human_review.revise.accept')
+              AND al.to_state = 'accepted'
+            ORDER BY al.created_at ASC, al.id ASC
+            LIMIT 1
+          )
+          LEFT JOIN human_reviews accepted_hr ON accepted_hr.id = (
+            SELECT hr.id
+            FROM human_reviews hr
+            WHERE hr.annotation_id = an.id
+              AND LOWER(hr.decision) IN ('approve', 'approved', 'revise')
+            ORDER BY hr.created_at ASC, hr.id ASC
+            LIMIT 1
+          )
+          WHERE a.labeler_id = ?
+            AND a.status IN ('accepted', 'exported')
+            AND an.status IN ('accepted', 'exported')
+            AND t.deleted_at IS NULL
+        ) accepted_rewards
+        WHERE
+        """
+            + acceptedAtFilter,
+        labelerId);
+  }
+
+  public List<RewardDetailRecord> listMonthlyRewardDetails(long labelerId) {
+    return jdbcTemplate.query(
+        """
+        SELECT *
+        FROM (
+          SELECT
+            t.id AS task_id,
+            a.id AS assignment_id,
+            an.id AS annotation_id,
+            t.title AS task_title,
+            a.item_id,
+            (
+              SELECT COUNT(*)
+              FROM assignments ranked
+              WHERE ranked.task_id = a.task_id
+                AND ranked.labeler_id = a.labeler_id
+                AND ranked.status <> 'voided'
+                AND ranked.id <= a.id
+            ) AS item_index,
+            COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0) AS reward_per_item,
+            COALESCE(accepted_audit.created_at, accepted_hr.created_at, an.updated_at) AS accepted_at
+          FROM assignments a
+          JOIN tasks t ON t.id = a.task_id
+          JOIN annotations an ON an.id = (
+            SELECT latest.id
+            FROM annotations latest
+            WHERE latest.assignment_id = a.id
+              AND latest.status <> 'voided'
+            ORDER BY latest.revision_no DESC, latest.id DESC
+            LIMIT 1
+          )
+          LEFT JOIN audit_logs accepted_audit ON accepted_audit.id = (
+            SELECT al.id
+            FROM audit_logs al
+            WHERE al.entity_type = 'annotation'
+              AND al.entity_id = an.id
+              AND al.action IN ('human_review.approve', 'human_review.revise.accept')
+              AND al.to_state = 'accepted'
+            ORDER BY al.created_at ASC, al.id ASC
+            LIMIT 1
+          )
+          LEFT JOIN human_reviews accepted_hr ON accepted_hr.id = (
+            SELECT hr.id
+            FROM human_reviews hr
+            WHERE hr.annotation_id = an.id
+              AND LOWER(hr.decision) IN ('approve', 'approved', 'revise')
+            ORDER BY hr.created_at ASC, hr.id ASC
+            LIMIT 1
+          )
+          WHERE a.labeler_id = ?
+            AND a.status IN ('accepted', 'exported')
+            AND an.status IN ('accepted', 'exported')
+            AND t.deleted_at IS NULL
+        ) accepted_rewards
+        WHERE accepted_rewards.accepted_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
+          AND accepted_rewards.accepted_at < DATE_ADD(DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+        ORDER BY accepted_rewards.accepted_at DESC, accepted_rewards.annotation_id DESC
         """,
+        (rs, rowNum) -> new RewardDetailRecord(
+            rs.getLong("task_id"),
+            rs.getLong("assignment_id"),
+            rs.getLong("annotation_id"),
+            rs.getString("task_title"),
+            rs.getLong("item_id"),
+            rs.getInt("item_index"),
+            toDouble(rs.getObject("reward_per_item")),
+            toLocalDateTime(rs.getTimestamp("accepted_at"))),
         labelerId);
   }
 
@@ -427,4 +527,14 @@ public class LabelerOverviewRepository {
   public record PendingTypeRecord(
       String mediaType,
       long count) {}
+
+  public record RewardDetailRecord(
+      long taskId,
+      long assignmentId,
+      long annotationId,
+      String taskTitle,
+      long itemId,
+      int itemIndex,
+      Double rewardPerItem,
+      LocalDateTime acceptedAt) {}
 }

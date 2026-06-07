@@ -5,7 +5,9 @@ import {
   Button,
   Card,
   Col,
+  Drawer,
   Empty,
+  Popover,
   Progress,
   Row,
   Skeleton,
@@ -36,6 +38,7 @@ import type {
   LabelerOverview,
   LabelerOverviewPendingTypeDistribution,
   LabelerOverviewRecentBatch,
+  LabelerOverviewRewardDetail,
 } from '../../types/labelerOverview';
 
 interface KpiItem {
@@ -47,6 +50,14 @@ interface KpiItem {
   trendUp?: boolean;
   icon: ReactNode;
   accent: string;
+}
+
+interface RewardTaskSummary {
+  taskId: string;
+  taskTitle: string;
+  itemCount: number;
+  rewardTotal: number;
+  details: LabelerOverviewRewardDetail[];
 }
 
 const reviewLegendConfig = [
@@ -70,6 +81,8 @@ export default function LabelerOverview() {
   const [data, setData] = useState<LabelerOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeRewardTask, setActiveRewardTask] = useState<RewardTaskSummary | null>(null);
+  const [rewardPopoverOpen, setRewardPopoverOpen] = useState(false);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -121,13 +134,11 @@ export default function LabelerOverview() {
       },
       {
         key: 'today-reward',
-        title: '今日奖励',
+        title: '今日通过奖励',
         value: `¥${data.kpis.todayReward.toFixed(2)}`,
         icon: <CheckCircleFilled />,
         accent: '#16a34a',
-        trend: data.kpis.submittedToday > 0
-          ? `今日提交 ${data.kpis.submittedToday} 条`
-          : '暂无今日提交',
+        trend: data.kpis.todayReward > 0 ? '已通过入库题目' : '暂无今日通过',
         trendUp: data.kpis.todayReward > 0,
       },
     ];
@@ -141,6 +152,11 @@ export default function LabelerOverview() {
     }));
   }, [data]);
   const reviewTotal = reviewItems.reduce((sum, item) => sum + item.value, 0);
+  const monthlyRewardDetails = data?.heroStats.monthlyRewardDetails ?? [];
+  const monthlyRewardTaskSummaries = useMemo(
+    () => buildRewardTaskSummaries(monthlyRewardDetails),
+    [monthlyRewardDetails]
+  );
 
   if (loading) {
     return (
@@ -180,8 +196,8 @@ export default function LabelerOverview() {
   }
 
   const pendingTypeDistribution = data.pendingTypeDistribution ?? [];
-
   return (
+    <>
     <Space direction="vertical" size="large" className="page-stack labeler-overview">
       <section className="overview-hero">
         <div className="overview-hero-content">
@@ -222,7 +238,28 @@ export default function LabelerOverview() {
           <div className="overview-hero-divider" />
           <HeroStat value={formatPercent(data.heroStats.reviewPassRate)} label="审核通过率" />
           <div className="overview-hero-divider" />
-          <HeroStat value={`¥${data.heroStats.monthlyRewardEstimate.toFixed(2)}`} label="本月奖励预估" />
+          <Popover
+            trigger={['hover', 'focus']}
+            placement="bottomRight"
+            overlayClassName="labeler-reward-popover"
+            open={rewardPopoverOpen}
+            onOpenChange={setRewardPopoverOpen}
+            content={
+              <MonthlyRewardPreview
+                taskSummaries={monthlyRewardTaskSummaries}
+                totalItemCount={monthlyRewardDetails.length}
+                totalReward={data.heroStats.monthlyRewardEstimate}
+                onOpenTask={(taskSummary) => {
+                  setActiveRewardTask(taskSummary);
+                  setRewardPopoverOpen(false);
+                }}
+              />
+            }
+          >
+            <div className="overview-hero-stat-trigger" role="button" tabIndex={0}>
+              <HeroStat value={`¥${data.heroStats.monthlyRewardEstimate.toFixed(2)}`} label="本月通过奖励" />
+            </div>
+          </Popover>
         </div>
       </section>
 
@@ -390,6 +427,12 @@ export default function LabelerOverview() {
         </Col>
       </Row>
     </Space>
+    <RewardTaskDrawer
+      task={activeRewardTask}
+      open={!!activeRewardTask}
+      onClose={() => setActiveRewardTask(null)}
+    />
+    </>
   );
 }
 
@@ -399,6 +442,143 @@ function HeroStat({ value, label }: { value: number | string; label: string }) {
       <span className="overview-hero-stat-value">{value}</span>
       <span className="overview-hero-stat-label">{label}</span>
     </div>
+  );
+}
+
+function buildRewardTaskSummaries(details: LabelerOverviewRewardDetail[]): RewardTaskSummary[] {
+  const grouped = new Map<string, RewardTaskSummary>();
+
+  details.forEach((detail) => {
+    const taskId = detail.taskId || 'unknown';
+    const taskTitle = detail.taskTitle || '未命名任务';
+    const groupKey = `${taskId}::${taskTitle}`;
+    const existed = grouped.get(groupKey);
+
+    if (existed) {
+      existed.itemCount += 1;
+      existed.rewardTotal += detail.rewardPerItem;
+      existed.details.push(detail);
+      return;
+    }
+
+    grouped.set(groupKey, {
+      taskId,
+      taskTitle,
+      itemCount: 1,
+      rewardTotal: detail.rewardPerItem,
+      details: [detail],
+    });
+  });
+
+  return Array.from(grouped.values());
+}
+
+function MonthlyRewardPreview({
+  taskSummaries,
+  totalItemCount,
+  totalReward,
+  onOpenTask,
+}: {
+  taskSummaries: RewardTaskSummary[];
+  totalItemCount: number;
+  totalReward: number;
+  onOpenTask: (taskSummary: RewardTaskSummary) => void;
+}) {
+  return (
+    <div className="labeler-reward-preview">
+      <Space direction="vertical" size={2}>
+        <Typography.Text strong>本月通过奖励明细</Typography.Text>
+        <div className="labeler-reward-summary-line">
+          <Typography.Text type="secondary">共 {totalItemCount} 题 · 合计</Typography.Text>
+          <RewardAmountBubble amount={totalReward} />
+        </div>
+      </Space>
+      {taskSummaries.length === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无本月通过奖励明细" />
+      ) : (
+        <div className="labeler-reward-preview-list">
+          {taskSummaries.map((taskSummary) => (
+            <button
+              key={`${taskSummary.taskId}-${taskSummary.taskTitle}`}
+              type="button"
+              className="labeler-reward-preview-item labeler-reward-task-item"
+              onClick={() => onOpenTask(taskSummary)}
+            >
+              <span className="labeler-reward-task-copy">
+                <Typography.Text strong className="labeler-reward-task-main">
+                  {taskSummary.taskTitle}
+                </Typography.Text>
+                <span className="labeler-reward-task-meta">
+                  <Typography.Text type="secondary">{taskSummary.itemCount} 题 · 小计</Typography.Text>
+                  <RewardAmountBubble amount={taskSummary.rewardTotal} />
+                </span>
+              </span>
+              <RightOutlined className="labeler-reward-task-arrow" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RewardTaskDrawer({
+  task,
+  open,
+  onClose,
+}: {
+  task: RewardTaskSummary | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const details = task?.details ?? [];
+
+  return (
+    <Drawer
+      title={
+        <div className="labeler-reward-drawer-title">
+          <Typography.Text strong>{task?.taskTitle ?? '本月通过奖励明细'}</Typography.Text>
+          <div className="labeler-reward-summary-line">
+            <Typography.Text type="secondary">共 {task?.itemCount ?? 0} 题 · 合计</Typography.Text>
+            <RewardAmountBubble amount={task?.rewardTotal ?? 0} />
+          </div>
+        </div>
+      }
+      placement="right"
+      width="min(520px, 92vw)"
+      open={open}
+      onClose={onClose}
+      destroyOnHidden
+      rootClassName="labeler-reward-drawer"
+    >
+      {details.length === 0 ? (
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无本月通过奖励明细" />
+      ) : (
+        <div className="labeler-reward-drawer-list">
+          {details.map((detail) => (
+            <div key={detail.annotationId} className="labeler-reward-drawer-item">
+              <Typography.Text strong>
+                {detail.itemTitle || `${detail.taskTitle} · 第 ${detail.itemIndex} 题`}
+              </Typography.Text>
+              <div className="labeler-reward-detail-meta">
+                <Typography.Text type="secondary">
+                  题目 ID {detail.itemId} · {detail.acceptedAt || '通过时间缺失'}
+                </Typography.Text>
+                <RewardAmountBubble amount={detail.rewardPerItem} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+function RewardAmountBubble({ amount }: { amount: number }) {
+  return (
+    <Tag className="labeler-reward-amount-bubble">
+      ¥{amount.toFixed(2)}
+    </Tag>
   );
 }
 

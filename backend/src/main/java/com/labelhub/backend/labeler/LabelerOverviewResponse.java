@@ -14,7 +14,19 @@ public record LabelerOverviewResponse(
   public record HeroStats(
       long weeklySubmitted,
       double reviewPassRate,
-      double monthlyRewardEstimate) {}
+      double monthlyRewardEstimate,
+      List<RewardDetail> monthlyRewardDetails) {}
+
+  public record RewardDetail(
+      String taskId,
+      String assignmentId,
+      String annotationId,
+      String taskTitle,
+      String itemId,
+      int itemIndex,
+      String itemTitle,
+      String acceptedAt,
+      double rewardPerItem) {}
 
   public record Kpis(
       long activeTasks,

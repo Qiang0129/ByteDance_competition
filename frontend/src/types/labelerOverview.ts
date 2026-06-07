@@ -3,6 +3,7 @@ export interface LabelerOverview {
     weeklySubmitted: number;
     reviewPassRate: number;
     monthlyRewardEstimate: number;
+    monthlyRewardDetails: LabelerOverviewRewardDetail[];
   };
   kpis: {
     activeTasks: number;
@@ -30,6 +31,18 @@ export interface LabelerOverview {
   recentBatches: LabelerOverviewRecentBatch[];
   supportedItemTypes: LabelerOverviewSupportedItemType[];
   pendingTypeDistribution: LabelerOverviewPendingTypeDistribution[];
+}
+
+export interface LabelerOverviewRewardDetail {
+  taskId: string;
+  assignmentId: string;
+  annotationId: string;
+  taskTitle: string;
+  itemId: string;
+  itemIndex: number;
+  itemTitle: string;
+  acceptedAt: string;
+  rewardPerItem: number;
 }
 
 export interface LabelerOverviewRecentBatch {

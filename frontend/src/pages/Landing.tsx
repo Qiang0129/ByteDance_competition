@@ -1,6 +1,9 @@
 import {
   isValidElement,
+  memo,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -27,7 +30,7 @@ import {
 } from '@ant-design/icons';
 import { App, Button } from 'antd';
 import { parseAsync, renderDocument } from 'docx-preview';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
 import architectureSource from '../../../docs/architecture.md?raw';
@@ -35,10 +38,7 @@ import apiDocsSource from '../../../docs/api-docs.md?raw';
 import demoScriptSource from '../../../docs/demo-script.md?raw';
 import stateMachineSource from '../../../docs/state-machine.md?raw';
 import submissionDemoSource from '../../../submission/demo-video.md?raw';
-import interfaceDocsSource from '../../../接口文档.md?raw';
 import readmeSource from '../../../README.md?raw';
-import phaseImplementationSource from '../../../阶段实现.md?raw';
-import phasePlanSource from '../../../阶段计划.md?raw';
 import courseRequirementDocxUrl from '../../../LabelHub 数据标注平台 · AI全栈课题实现要求.docx?url';
 import englishImplementationPlanDocxUrl from '../../../LabelHub_Project_Implementation_Plan_EN.docx?url';
 import implementationPlanDocxUrl from '../../../项目实施计划书.docx?url';
@@ -71,7 +71,7 @@ type LandingRouteTransition = {
 
 type DocsCategoryKey = 'project' | 'technical' | 'demo' | 'coding' | 'external';
 type DocsResourceKind = 'markdown' | 'docx' | 'image' | 'external' | 'missing';
-type DocsPanelMode = 'categories' | 'resources';
+type DocsPanelMode = 'categories' | 'resources' | 'document-toc';
 type DocsPanelTransition = 'forward' | 'back';
 type DocsFullscreenTransition = 'entering' | 'leaving' | null;
 
@@ -84,6 +84,7 @@ type DocsResource = {
   status: 'available' | 'missing' | 'external';
   badge: string;
   source?: string;
+  loadSource?: () => Promise<string>;
   fileUrl?: string;
   externalUrl?: string;
   downloadName?: string;
@@ -96,12 +97,13 @@ type DocsPreviewStage = 'prepare' | 'fetch' | 'parse' | 'render' | 'layout' | 'd
 type DocsPreviewState = {
   status: DocsPreviewStatus;
   stage: DocsPreviewStage;
+  progress?: number;
   runId?: number;
   error?: string;
 };
 
 type DocsPreviewCache =
-  | { kind: 'markdown' }
+  | { kind: 'markdown'; source: string; headings?: MarkdownHeading[]; tocGroups?: MarkdownTocGroup[] }
   | { kind: 'image' }
   | {
       kind: 'docx';
@@ -113,6 +115,47 @@ type DocsPreviewCache =
 type DocsPreviewStageMeta = {
   key: DocsPreviewStage;
   label: string;
+};
+
+type MarkdownRawModule = {
+  default: string;
+};
+
+type MarkdownVirtualBlock = {
+  id: string;
+  content: string;
+};
+
+type MarkdownVirtualBlockOffset = {
+  id: string;
+  top: number;
+  height: number;
+};
+
+type DocsPreviewProgressTimer = {
+  runId: number;
+  intervalId?: number;
+  completionTimeoutId?: number;
+  startedAt: number;
+};
+
+type MarkdownHeading = {
+  id: string;
+  text: string;
+  level: number;
+  lineIndex: number;
+};
+
+type MarkdownTocGroup = {
+  heading: MarkdownHeading;
+  children: MarkdownHeading[];
+};
+
+type MarkdownOutline = {
+  source: string;
+  headings: MarkdownHeading[];
+  tocGroups: MarkdownTocGroup[];
+  parentHeadingIdById: Map<string, string>;
 };
 
 const DOCX_PREVIEW_OPTIONS = {
@@ -137,22 +180,54 @@ const docsPreviewStages: DocsPreviewStageMeta[] = [
   { key: 'done', label: '预览完成' },
 ];
 
+const MARKDOWN_VIRTUAL_THRESHOLD = 80 * 1024;
+const MARKDOWN_BLOCK_TARGET_CHARS = 6000;
+const MARKDOWN_VIRTUAL_OVERSCAN = 4;
+const MARKDOWN_HEIGHT_MEASURE_TOLERANCE = 4;
+const MIN_LARGE_MARKDOWN_PROGRESS_MS = 1500;
+const MARKDOWN_MAX_LOADING_PROGRESS = 96;
+const MARKDOWN_PROGRESS_INTERVAL_MS = 120;
+const MARKDOWN_PROGRESS_STAGE_STOPS: Array<{ stage: DocsPreviewStage; progress: number }> = [
+  { stage: 'prepare', progress: 8 },
+  { stage: 'fetch', progress: 28 },
+  { stage: 'parse', progress: 52 },
+  { stage: 'render', progress: 76 },
+  { stage: 'layout', progress: 92 },
+];
+
+const docsMarkdownRemarkPlugins = [remarkGfm];
+const docsMarkdownComponents: Components = {
+  a: ({ children, href, node: _node, ...props }) => (
+    <a
+      href={href}
+      target={href?.startsWith('http') ? '_blank' : undefined}
+      rel={href?.startsWith('http') ? 'noreferrer' : undefined}
+      {...props}
+    >
+      {children}
+    </a>
+  ),
+  table: ({ children, node: _node, ...props }) => (
+    <div className="landing-about-table-scroll">
+      <table {...props}>{children}</table>
+    </div>
+  ),
+};
+
+const loadPhasePlanSource = () => import('../../../阶段计划.md?raw').then((module: MarkdownRawModule) => module.default);
+const loadPhaseImplementationSource = () =>
+  import('../../../阶段实现.md?raw').then((module: MarkdownRawModule) => module.default);
+const loadInterfaceDocsSource = () =>
+  import('../../../接口文档.md?raw').then((module: MarkdownRawModule) => module.default);
+
 const navItems: Array<{ key: PublicNavKey; label: string; path: string }> = [
   { key: 'home', label: '首页', path: '/' },
   { key: 'docs', label: '文档', path: '/docs' },
   { key: 'about', label: '关于', path: '/about' },
 ];
 
-type ReadmeHeading = {
-  id: string;
-  text: string;
-  level: number;
-};
-
-type ReadmeTocGroup = {
-  heading: ReadmeHeading;
-  children: ReadmeHeading[];
-};
+type ReadmeHeading = MarkdownHeading;
+type ReadmeTocGroup = MarkdownTocGroup;
 
 const README_HEADINGS = createReadmeHeadings(readmeSource);
 const README_TOC_GROUPS = createReadmeTocGroups(README_HEADINGS);
@@ -314,7 +389,7 @@ const docsResources: DocsResource[] = [
     kind: 'markdown',
     status: 'available',
     badge: 'MD',
-    source: phasePlanSource,
+    loadSource: loadPhasePlanSource,
     downloadName: '阶段计划.md',
     meta: '根目录',
   },
@@ -326,7 +401,7 @@ const docsResources: DocsResource[] = [
     kind: 'markdown',
     status: 'available',
     badge: 'MD',
-    source: phaseImplementationSource,
+    loadSource: loadPhaseImplementationSource,
     downloadName: '阶段实现.md',
     meta: '根目录',
   },
@@ -338,7 +413,7 @@ const docsResources: DocsResource[] = [
     kind: 'markdown',
     status: 'available',
     badge: 'MD + Swagger',
-    source: interfaceDocsSource,
+    loadSource: loadInterfaceDocsSource,
     externalUrl: SWAGGER_URL,
     downloadName: '接口文档.md',
     meta: '根目录',
@@ -379,11 +454,11 @@ function createHeadingId(text: string, occurrence = 1) {
   return occurrence > 1 ? `${base}-${occurrence}` : base;
 }
 
-function createReadmeHeadings(source: string): ReadmeHeading[] {
+function createMarkdownHeadings(source: string): MarkdownHeading[] {
   const counts = new Map<string, number>();
   return source
     .split(/\r?\n/)
-    .map((line) => {
+    .map((line, lineIndex) => {
       const match = /^(#{2,3})\s+(.+)$/.exec(line.trim());
       if (!match) return null;
 
@@ -397,14 +472,15 @@ function createReadmeHeadings(source: string): ReadmeHeading[] {
         id: createHeadingId(text, occurrence),
         text,
         level,
+        lineIndex,
       };
     })
-    .filter((item): item is ReadmeHeading => Boolean(item));
+    .filter((item): item is MarkdownHeading => Boolean(item));
 }
 
-function createReadmeTocGroups(headings: ReadmeHeading[]): ReadmeTocGroup[] {
-  const groups: ReadmeTocGroup[] = [];
-  let currentGroup: ReadmeTocGroup | null = null;
+function createMarkdownTocGroups(headings: MarkdownHeading[]): MarkdownTocGroup[] {
+  const groups: MarkdownTocGroup[] = [];
+  let currentGroup: MarkdownTocGroup | null = null;
 
   headings.forEach((heading) => {
     if (heading.level === 2) {
@@ -421,7 +497,7 @@ function createReadmeTocGroups(headings: ReadmeHeading[]): ReadmeTocGroup[] {
   return groups;
 }
 
-function createReadmeParentHeadingIdMap(groups: ReadmeTocGroup[]) {
+function createMarkdownParentHeadingIdMap(groups: MarkdownTocGroup[]) {
   const parentByHeadingId = new Map<string, string>();
 
   groups.forEach((group) => {
@@ -432,6 +508,18 @@ function createReadmeParentHeadingIdMap(groups: ReadmeTocGroup[]) {
   });
 
   return parentByHeadingId;
+}
+
+function createReadmeHeadings(source: string): ReadmeHeading[] {
+  return createMarkdownHeadings(source);
+}
+
+function createReadmeTocGroups(headings: ReadmeHeading[]): ReadmeTocGroup[] {
+  return createMarkdownTocGroups(headings);
+}
+
+function createReadmeParentHeadingIdMap(groups: ReadmeTocGroup[]) {
+  return createMarkdownParentHeadingIdMap(groups);
 }
 
 function getNodeText(node: ReactNode): string {
@@ -815,14 +903,19 @@ export function DocsPlaceholder() {
   const docsFullscreenTimerRef = useRef<number | null>(null);
   const docsPreviewCacheRef = useRef<Record<string, DocsPreviewCache>>({});
   const docsQuickPreviewTimersRef = useRef<Record<string, number>>({});
+  const docsPreviewProgressTimersRef = useRef<Record<string, DocsPreviewProgressTimer>>({});
+  const docsMarkdownTocOpenedResourceIdsRef = useRef<Set<string>>(new Set());
   const docsPreviewRunSequenceRef = useRef(0);
   const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('project');
   const [activeResourceId, setActiveResourceId] = useState(docsResources[0]?.id ?? '');
   const [docsPanelMode, setDocsPanelMode] = useState<DocsPanelMode>('categories');
   const [docsPanelTransition, setDocsPanelTransition] = useState<DocsPanelTransition>('forward');
+  const [activeMarkdownHeadingIdByResourceId, setActiveMarkdownHeadingIdByResourceId] = useState<Record<string, string>>({});
+  const [expandedMarkdownHeadingIdsByResourceId, setExpandedMarkdownHeadingIdsByResourceId] = useState<Record<string, string[]>>({});
   const [pendingDocsQuickScroll, setPendingDocsQuickScroll] = useState(false);
   const [isDocsSidebarCollapsed, setIsDocsSidebarCollapsed] = useState(false);
   const [isDocsPreviewFullscreen, setIsDocsPreviewFullscreen] = useState(false);
+  const [isDocsFullscreenTocCollapsed, setIsDocsFullscreenTocCollapsed] = useState(false);
   const [docsFullscreenTransition, setDocsFullscreenTransition] = useState<DocsFullscreenTransition>(null);
   const [docsPreviewStates, setDocsPreviewStates] = useState<Record<string, DocsPreviewState>>({});
   const activeResource = docsResources.find((resource) => resource.id === activeResourceId) ?? docsResources[0];
@@ -830,6 +923,22 @@ export function DocsPlaceholder() {
   const activeCategoryMeta = docsCategories.find((category) => category.key === activeCategory) ?? docsCategories[0];
   const activePreviewState = docsPreviewStates[activeResource.id] ?? docsPreviewIdleState;
   const activePreviewCache = docsPreviewCacheRef.current[activeResource.id];
+  const activeMarkdownOutline = useMemo(
+    () => getDocsMarkdownOutline(activeResource, activePreviewState, activePreviewCache),
+    [activePreviewCache, activePreviewState, activeResource],
+  );
+  const activeMarkdownHeadingId = activeMarkdownOutline
+    ? activeMarkdownHeadingIdByResourceId[activeResource.id] ?? activeMarkdownOutline.headings[0]?.id
+    : undefined;
+  const activeMarkdownHeading = activeMarkdownOutline?.headings.find((heading) => heading.id === activeMarkdownHeadingId)
+    ?? activeMarkdownOutline?.headings[0];
+  const activeMarkdownSectionSource = activeMarkdownOutline && activeMarkdownHeading
+    ? extractMarkdownSection(activeMarkdownOutline.source, activeMarkdownHeading, activeMarkdownOutline.headings)
+    : undefined;
+  const expandedMarkdownHeadingIds = useMemo(
+    () => new Set(expandedMarkdownHeadingIdsByResourceId[activeResource.id] ?? []),
+    [activeResource.id, expandedMarkdownHeadingIdsByResourceId],
+  );
 
   usePublicPageClass();
 
@@ -843,12 +952,102 @@ export function DocsPlaceholder() {
     delete docsQuickPreviewTimersRef.current[resourceId];
   };
 
+  const clearDocsPreviewProgressTimer = (resourceId: string, runId?: number) => {
+    const timer = docsPreviewProgressTimersRef.current[resourceId];
+    if (!timer) {
+      return;
+    }
+    if (runId !== undefined && timer.runId !== runId) {
+      return;
+    }
+
+    if (timer.intervalId !== undefined) {
+      window.clearInterval(timer.intervalId);
+    }
+    if (timer.completionTimeoutId !== undefined) {
+      window.clearTimeout(timer.completionTimeoutId);
+    }
+    delete docsPreviewProgressTimersRef.current[resourceId];
+  };
+
   const cancelDocsPreview = (resourceId: string) => {
     clearDocsQuickPreviewTimer(resourceId);
+    clearDocsPreviewProgressTimer(resourceId);
     setDocsPreviewStates((previousStates) => ({
       ...previousStates,
       [resourceId]: docsPreviewIdleState,
     }));
+  };
+
+  const setDocsPreviewProgress = (
+    resourceId: string,
+    runId: number,
+    nextState: Pick<DocsPreviewState, 'stage' | 'progress'>,
+  ) => {
+    setDocsPreviewStates((previousStates) => {
+      const currentState = previousStates[resourceId];
+      if (currentState?.status !== 'loading' || currentState.runId !== runId) {
+        return previousStates;
+      }
+
+      const progress = Math.min(
+        MARKDOWN_MAX_LOADING_PROGRESS,
+        Math.max(currentState.progress ?? 0, nextState.progress ?? 0),
+      );
+
+      return {
+        ...previousStates,
+        [resourceId]: {
+          ...currentState,
+          stage: nextState.stage,
+          progress,
+        },
+      };
+    });
+  };
+
+  const startMarkdownPreviewProgress = (resourceId: string, runId: number) => {
+    clearDocsPreviewProgressTimer(resourceId);
+
+    const startedAt = window.performance.now();
+    setDocsPreviewProgress(resourceId, runId, getMarkdownPreviewProgressState(0));
+
+    const intervalId = window.setInterval(() => {
+      const timer = docsPreviewProgressTimersRef.current[resourceId];
+      const elapsed = timer ? window.performance.now() - timer.startedAt : 0;
+      setDocsPreviewProgress(resourceId, runId, getMarkdownPreviewProgressState(elapsed));
+    }, MARKDOWN_PROGRESS_INTERVAL_MS);
+
+    docsPreviewProgressTimersRef.current[resourceId] = {
+      runId,
+      intervalId,
+      startedAt,
+    };
+  };
+
+  const completeMarkdownPreviewWhenReady = (resource: DocsResource, runId: number, source: string) => {
+    const isLargeMarkdown = source.length >= MARKDOWN_VIRTUAL_THRESHOLD;
+    const timer = docsPreviewProgressTimersRef.current[resource.id];
+    if (!timer || timer.runId !== runId) {
+      return;
+    }
+
+    const elapsed = window.performance.now() - timer.startedAt;
+    const waitMs = isLargeMarkdown ? Math.max(0, MIN_LARGE_MARKDOWN_PROGRESS_MS - elapsed) : 0;
+
+    if (waitMs <= 0) {
+      setDocsPreviewProgress(resource.id, runId, {
+        stage: 'layout',
+        progress: MARKDOWN_MAX_LOADING_PROGRESS,
+      });
+      completeDocsPreview(resource.id, runId, createMarkdownPreviewCache(source));
+      return;
+    }
+
+    setDocsPreviewProgress(resource.id, runId, getMarkdownPreviewProgressState(elapsed));
+    timer.completionTimeoutId = window.setTimeout(() => {
+      completeDocsPreview(resource.id, runId, createMarkdownPreviewCache(source));
+    }, waitMs);
   };
 
   const startDocsPreview = (resource: DocsResource) => {
@@ -857,6 +1056,7 @@ export function DocsPlaceholder() {
     }
 
     clearDocsQuickPreviewTimer(resource.id);
+    clearDocsPreviewProgressTimer(resource.id);
 
     const cachedPreview = docsPreviewCacheRef.current[resource.id];
     if (cachedPreview) {
@@ -865,6 +1065,7 @@ export function DocsPlaceholder() {
         [resource.id]: {
           status: 'success',
           stage: 'done',
+          progress: 100,
         },
       }));
       return;
@@ -885,25 +1086,21 @@ export function DocsPlaceholder() {
       return;
     }
 
-    const quickPreviewKind: 'markdown' | 'image' = resource.kind === 'image' ? 'image' : 'markdown';
-    docsQuickPreviewTimersRef.current[resource.id] = window.setTimeout(() => {
-      docsPreviewCacheRef.current[resource.id] = { kind: quickPreviewKind };
-      delete docsQuickPreviewTimersRef.current[resource.id];
-      setDocsPreviewStates((previousStates) => {
-        const currentState = previousStates[resource.id];
-        if (currentState?.status !== 'loading' || currentState.runId !== runId) {
-          return previousStates;
-        }
+    if (resource.kind === 'markdown') {
+      startMarkdownPreviewProgress(resource.id, runId);
+      loadMarkdownPreviewSource(resource)
+        .then((source) => {
+          completeMarkdownPreviewWhenReady(resource, runId, source);
+        })
+        .catch((reason: unknown) => {
+          failDocsPreview(resource.id, runId, reason instanceof Error ? reason.message : 'Markdown 预览加载失败');
+        });
+      return;
+    }
 
-        return {
-          ...previousStates,
-          [resource.id]: {
-            status: 'success',
-            stage: 'done',
-            runId,
-          },
-        };
-      });
+    docsQuickPreviewTimersRef.current[resource.id] = window.setTimeout(() => {
+      completeDocsPreview(resource.id, runId, { kind: 'image' });
+      delete docsQuickPreviewTimersRef.current[resource.id];
     }, 180);
   };
 
@@ -925,18 +1122,21 @@ export function DocsPlaceholder() {
   };
 
   const completeDocsPreview = (resourceId: string, runId: number, cache: DocsPreviewCache) => {
-    docsPreviewCacheRef.current[resourceId] = cache;
+    clearDocsPreviewProgressTimer(resourceId, runId);
     setDocsPreviewStates((previousStates) => {
       const currentState = previousStates[resourceId];
       if (currentState?.status !== 'loading' || currentState.runId !== runId) {
         return previousStates;
       }
 
+      docsPreviewCacheRef.current[resourceId] = cache;
+
       return {
         ...previousStates,
         [resourceId]: {
           status: 'success',
           stage: 'done',
+          progress: 100,
           runId,
         },
       };
@@ -944,6 +1144,7 @@ export function DocsPlaceholder() {
   };
 
   const failDocsPreview = (resourceId: string, runId: number, error: string) => {
+    clearDocsPreviewProgressTimer(resourceId, runId);
     setDocsPreviewStates((previousStates) => {
       const currentState = previousStates[resourceId];
       if (currentState?.status !== 'loading' || currentState.runId !== runId) {
@@ -979,6 +1180,9 @@ export function DocsPlaceholder() {
 
   const startDocsPreviewFullscreenEnter = () => {
     clearDocsFullscreenTimer();
+    if (activeMarkdownOutline && activeMarkdownHeading) {
+      setIsDocsFullscreenTocCollapsed(window.innerWidth <= 900);
+    }
     setIsDocsPreviewFullscreen(true);
     setDocsFullscreenTransition('entering');
     message.success('全屏模式');
@@ -1003,7 +1207,34 @@ export function DocsPlaceholder() {
 
   useEffect(() => () => {
     Object.keys(docsQuickPreviewTimersRef.current).forEach(clearDocsQuickPreviewTimer);
+    Object.keys(docsPreviewProgressTimersRef.current).forEach((resourceId) => clearDocsPreviewProgressTimer(resourceId));
   }, []);
+
+  useEffect(() => {
+    if (!activeMarkdownOutline || !activeMarkdownHeading) {
+      return;
+    }
+
+    if (activeMarkdownHeadingIdByResourceId[activeResource.id] !== activeMarkdownHeading.id) {
+      setActiveMarkdownHeadingIdByResourceId((previousIds) => ({
+        ...previousIds,
+        [activeResource.id]: activeMarkdownHeading.id,
+      }));
+    }
+
+    if (docsMarkdownTocOpenedResourceIdsRef.current.has(activeResource.id)) {
+      return;
+    }
+
+    docsMarkdownTocOpenedResourceIdsRef.current.add(activeResource.id);
+    setDocsPanelTransition('forward');
+    setDocsPanelMode('document-toc');
+  }, [
+    activeMarkdownHeading,
+    activeMarkdownHeadingIdByResourceId,
+    activeMarkdownOutline,
+    activeResource.id,
+  ]);
 
   useEffect(() => {
     if (
@@ -1061,13 +1292,89 @@ export function DocsPlaceholder() {
     setDocsPanelMode('categories');
   };
 
+  const backToDocsResources = () => {
+    setDocsPanelTransition('back');
+    setDocsPanelMode('resources');
+  };
+
+  const scrollDocsPreviewBodyToTop = () => {
+    const previewBody = docsPreviewRef.current?.querySelector<HTMLElement>('.landing-docs-preview-body');
+    previewBody?.scrollTo({ top: 0, behavior: 'auto' });
+  };
+
+  const toggleExpandedMarkdownHeading = (resourceId: string, headingId: string) => {
+    setExpandedMarkdownHeadingIdsByResourceId((previousByResourceId) => {
+      const previousIds = new Set(previousByResourceId[resourceId] ?? []);
+      if (previousIds.has(headingId)) {
+        previousIds.delete(headingId);
+      } else {
+        previousIds.add(headingId);
+      }
+
+      return {
+        ...previousByResourceId,
+        [resourceId]: Array.from(previousIds),
+      };
+    });
+  };
+
+  const ensureExpandedMarkdownHeading = (resourceId: string, headingId: string) => {
+    setExpandedMarkdownHeadingIdsByResourceId((previousByResourceId) => {
+      const previousIds = new Set(previousByResourceId[resourceId] ?? []);
+      if (previousIds.has(headingId)) {
+        return previousByResourceId;
+      }
+
+      previousIds.add(headingId);
+      return {
+        ...previousByResourceId,
+        [resourceId]: Array.from(previousIds),
+      };
+    });
+  };
+
+  const selectMarkdownHeading = (heading: MarkdownHeading, hasChildren = false) => {
+    setActiveMarkdownHeadingIdByResourceId((previousIds) => ({
+      ...previousIds,
+      [activeResource.id]: heading.id,
+    }));
+
+    if (heading.level === 2 && hasChildren) {
+      toggleExpandedMarkdownHeading(activeResource.id, heading.id);
+    }
+
+    if (heading.level === 3 && activeMarkdownOutline) {
+      const parentHeadingId = activeMarkdownOutline.parentHeadingIdById.get(heading.id);
+      if (parentHeadingId) {
+        ensureExpandedMarkdownHeading(activeResource.id, parentHeadingId);
+      }
+    }
+
+    scrollDocsPreviewBodyToTop();
+  };
+
+  const selectFullscreenMarkdownHeading = (heading: MarkdownHeading, hasChildren = false) => {
+    selectMarkdownHeading(heading, hasChildren);
+    if (window.innerWidth <= 900) {
+      setIsDocsFullscreenTocCollapsed(true);
+    }
+  };
+
   const handleDownload = () => {
-    if (!activeResource.fileUrl && !activeResource.source) {
+    if (!activeResource.fileUrl && !activeResource.source && !activeResource.loadSource) {
       return;
     }
 
     message.loading('正在下载', 1.2);
-    downloadDocsResource(activeResource);
+    downloadDocsResource(activeResource, activePreviewCache)
+      .then((markdownSource) => {
+        if (markdownSource && activeResource.kind === 'markdown') {
+          docsPreviewCacheRef.current[activeResource.id] = createMarkdownPreviewCache(markdownSource);
+        }
+      })
+      .catch((reason: unknown) => {
+        message.error(reason instanceof Error ? reason.message : '下载失败');
+      });
   };
 
   const handleQuickStart = () => {
@@ -1094,6 +1401,14 @@ export function DocsPlaceholder() {
 
     startDocsPreviewFullscreenEnter();
   };
+
+  const docsSidebarTitle = docsPanelMode === 'document-toc' && activeMarkdownOutline
+    ? '文档目录'
+    : docsPanelMode === 'resources' || docsPanelMode === 'document-toc'
+      ? activeCategoryMeta.label
+      : '资源分类';
+  const shouldShowDocumentTocPanel = docsPanelMode === 'document-toc' && activeMarkdownOutline;
+  const shouldShowFullscreenToc = Boolean(isDocsPreviewFullscreen && activeMarkdownOutline && activeMarkdownHeading);
 
   return (
     <main className={`landing-page landing-docs-page${isDocsPreviewFullscreen ? ' is-docs-preview-fullscreen' : ''}`}>
@@ -1155,7 +1470,7 @@ export function DocsPlaceholder() {
         <aside className="landing-docs-sidebar" aria-label="文档分类">
           <div className="landing-docs-sidebar-header">
             <div className="landing-docs-sidebar-title">
-              {docsPanelMode === 'resources' ? activeCategoryMeta.label : '资源分类'}
+              {docsSidebarTitle}
             </div>
             <button
               type="button"
@@ -1193,6 +1508,15 @@ export function DocsPlaceholder() {
                     })}
                   </nav>
                 </>
+              ) : shouldShowDocumentTocPanel ? (
+                <DocsMarkdownTocPanel
+                  resource={activeResource}
+                  outline={activeMarkdownOutline}
+                  activeHeadingId={activeMarkdownHeading?.id}
+                  expandedHeadingIds={expandedMarkdownHeadingIds}
+                  onBack={backToDocsResources}
+                  onSelectHeading={selectMarkdownHeading}
+                />
               ) : (
                 <>
                   <div className="landing-docs-resource-panel-head">
@@ -1221,9 +1545,8 @@ export function DocsPlaceholder() {
                         </span>
                         <span className="landing-docs-resource-text">
                           <strong>{resource.title}</strong>
-                          <small>{resource.description}</small>
+                          <span className="landing-docs-resource-badge">{resource.badge}</span>
                         </span>
-                        <span className="landing-docs-resource-badge">{resource.badge}</span>
                       </button>
                     ))}
                   </div>
@@ -1236,63 +1559,98 @@ export function DocsPlaceholder() {
         <article
           ref={docsPreviewRef}
           className={`landing-docs-preview${isDocsPreviewFullscreen ? ' is-fullscreen' : ''}${
+            shouldShowFullscreenToc ? ' has-fullscreen-toc' : ''
+          }${isDocsFullscreenTocCollapsed ? ' is-fullscreen-toc-collapsed' : ''}${
             docsFullscreenTransition ? ` is-fullscreen-${docsFullscreenTransition}` : ''
           }`}
           aria-labelledby="docs-preview-title"
         >
-          <header className="landing-docs-preview-head">
-            <div>
-              <span className="landing-docs-preview-kicker">{activeResource.meta}</span>
-              <h2 id="docs-preview-title">{activeResource.title}</h2>
-              <p>{activeResource.description}</p>
-            </div>
-            <div className="landing-docs-preview-actions">
-              <button
-                type="button"
-                className="landing-docs-action-link landing-docs-fullscreen-button"
-                onClick={toggleDocsPreviewFullscreen}
-                aria-label={isDocsPreviewFullscreen ? '退出全屏观看文档' : '全屏观看文档'}
-                title={isDocsPreviewFullscreen ? '退出全屏' : '全屏观看'}
-              >
-                {isDocsPreviewFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                {isDocsPreviewFullscreen ? '退出全屏' : '全屏'}
-              </button>
-              {activeResource.externalUrl ? (
-                <a
-                  className="landing-docs-action-link"
-                  href={activeResource.externalUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <LinkOutlined />
-                  打开外部链接
-                </a>
-              ) : null}
-              {activeResource.status !== 'missing' && (activeResource.fileUrl || activeResource.source) ? (
+          <div className="landing-docs-preview-fullscreen-shell">
+            {shouldShowFullscreenToc && activeMarkdownOutline && activeMarkdownHeading ? (
+              <aside className="landing-docs-fullscreen-toc" aria-label={`${activeResource.title} 全屏标题目录`}>
                 <button
                   type="button"
-                  className="landing-docs-action-link"
-                  onClick={handleDownload}
+                  className="landing-docs-fullscreen-toc-toggle"
+                  onClick={() => setIsDocsFullscreenTocCollapsed((value) => !value)}
+                  aria-label={isDocsFullscreenTocCollapsed ? '展开全屏目录' : '收起全屏目录'}
+                  aria-expanded={!isDocsFullscreenTocCollapsed}
+                  title={isDocsFullscreenTocCollapsed ? '展开目录' : '收起目录'}
                 >
-                  <DownloadOutlined />
-                  下载
+                  {isDocsFullscreenTocCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                 </button>
-              ) : null}
-            </div>
-          </header>
+                <div className="landing-docs-fullscreen-toc-panel" aria-hidden={isDocsFullscreenTocCollapsed}>
+                  <DocsMarkdownTocPanel
+                    resource={activeResource}
+                    outline={activeMarkdownOutline}
+                    activeHeadingId={activeMarkdownHeading.id}
+                    expandedHeadingIds={expandedMarkdownHeadingIds}
+                    onSelectHeading={selectFullscreenMarkdownHeading}
+                    showBackButton={false}
+                    onCollapse={() => setIsDocsFullscreenTocCollapsed(true)}
+                    variant="fullscreen"
+                  />
+                </div>
+              </aside>
+            ) : null}
 
-          <div className="landing-docs-preview-body">
-            <DocsPreview
-              resource={activeResource}
-              previewState={activePreviewState}
-              previewCache={activePreviewCache}
-              onStartPreview={startDocsPreview}
-              onCancelPreview={() => cancelDocsPreview(activeResource.id)}
-              onDownload={handleDownload}
-              onStageChange={setDocsPreviewStage}
-              onPreviewSuccess={completeDocsPreview}
-              onPreviewError={failDocsPreview}
-            />
+            <div className="landing-docs-preview-content">
+              <header className="landing-docs-preview-head">
+                <div>
+                  <span className="landing-docs-preview-kicker">{activeResource.meta}</span>
+                  <h2 id="docs-preview-title">{activeResource.title}</h2>
+                  <p>{activeResource.description}</p>
+                </div>
+                <div className="landing-docs-preview-actions">
+                  <button
+                    type="button"
+                    className="landing-docs-action-link landing-docs-fullscreen-button"
+                    onClick={toggleDocsPreviewFullscreen}
+                    aria-label={isDocsPreviewFullscreen ? '退出全屏观看文档' : '全屏观看文档'}
+                    title={isDocsPreviewFullscreen ? '退出全屏' : '全屏观看'}
+                  >
+                    {isDocsPreviewFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                    {isDocsPreviewFullscreen ? '退出全屏' : '全屏'}
+                  </button>
+                  {activeResource.externalUrl ? (
+                    <a
+                      className="landing-docs-action-link"
+                      href={activeResource.externalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <LinkOutlined />
+                      打开外部链接
+                    </a>
+                  ) : null}
+                  {activeResource.status !== 'missing' && (activeResource.fileUrl || activeResource.source || activeResource.loadSource) ? (
+                    <button
+                      type="button"
+                      className="landing-docs-action-link"
+                      onClick={handleDownload}
+                    >
+                      <DownloadOutlined />
+                      下载
+                    </button>
+                  ) : null}
+                </div>
+              </header>
+
+              <div className="landing-docs-preview-body">
+                <DocsPreview
+                  resource={activeResource}
+                  previewState={activePreviewState}
+                  previewCache={activePreviewCache}
+                  markdownSectionSource={activeMarkdownSectionSource}
+                  markdownSectionHeading={activeMarkdownHeading}
+                  onStartPreview={startDocsPreview}
+                  onCancelPreview={() => cancelDocsPreview(activeResource.id)}
+                  onDownload={handleDownload}
+                  onStageChange={setDocsPreviewStage}
+                  onPreviewSuccess={completeDocsPreview}
+                  onPreviewError={failDocsPreview}
+                />
+              </div>
+            </div>
           </div>
         </article>
       </section>
@@ -1302,10 +1660,113 @@ export function DocsPlaceholder() {
   );
 }
 
+function DocsMarkdownTocPanel({
+  resource,
+  outline,
+  activeHeadingId,
+  expandedHeadingIds,
+  onBack,
+  onSelectHeading,
+  variant = 'sidebar',
+  showBackButton = true,
+  onCollapse,
+}: {
+  resource: DocsResource;
+  outline: MarkdownOutline;
+  activeHeadingId?: string;
+  expandedHeadingIds: Set<string>;
+  onBack?: () => void;
+  onSelectHeading: (heading: MarkdownHeading, hasChildren?: boolean) => void;
+  variant?: 'sidebar' | 'fullscreen';
+  showBackButton?: boolean;
+  onCollapse?: () => void;
+}) {
+  return (
+    <>
+      <div className={`landing-docs-resource-panel-head landing-docs-document-toc-head is-${variant}`}>
+        {showBackButton && onBack ? (
+          <button type="button" className="landing-docs-back-button" onClick={onBack}>
+            <ArrowLeftOutlined />
+            文件列表
+          </button>
+        ) : (
+          <span className="landing-docs-document-toc-root-label">根目录</span>
+        )}
+        <div>
+          <span>{resource.title}</span>
+          <small>按标题分节预览</small>
+        </div>
+        {onCollapse ? (
+          <button
+            type="button"
+            className="landing-docs-document-toc-collapse"
+            onClick={onCollapse}
+            aria-label="收起全屏目录"
+            title="收起目录"
+          >
+            <MenuFoldOutlined />
+          </button>
+        ) : (
+          <strong>{outline.headings.length}</strong>
+        )}
+      </div>
+      <nav className="landing-docs-document-toc" aria-label={`${resource.title} 标题目录`}>
+        {outline.tocGroups.map((group) => {
+          const isExpanded = expandedHeadingIds.has(group.heading.id);
+          const isActiveGroup =
+            activeHeadingId === group.heading.id ||
+            group.children.some((child) => child.id === activeHeadingId);
+
+          return (
+            <div
+              key={group.heading.id}
+              className={`landing-docs-document-toc-group${isExpanded ? ' is-expanded' : ''}`}
+            >
+              <button
+                type="button"
+                className={`landing-docs-document-toc-link landing-docs-document-toc-level-2${
+                  activeHeadingId === group.heading.id ? ' is-active' : ''
+                }${isActiveGroup ? ' is-active-group' : ''}${
+                  group.children.length > 0 ? ' has-children' : ''
+                }`}
+                aria-expanded={group.children.length > 0 ? isExpanded : undefined}
+                onClick={() => onSelectHeading(group.heading, group.children.length > 0)}
+              >
+                <span>{group.heading.text}</span>
+              </button>
+              {group.children.length > 0 ? (
+                <div className="landing-docs-document-toc-children" aria-hidden={!isExpanded}>
+                  <div className="landing-docs-document-toc-children-inner">
+                    {group.children.map((heading) => (
+                      <button
+                        key={`${heading.id}-${heading.text}`}
+                        type="button"
+                        className={`landing-docs-document-toc-link landing-docs-document-toc-level-3${
+                          activeHeadingId === heading.id ? ' is-active' : ''
+                        }`}
+                        tabIndex={!isExpanded ? -1 : undefined}
+                        onClick={() => onSelectHeading(heading)}
+                      >
+                        {heading.text}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </nav>
+    </>
+  );
+}
+
 function DocsPreview({
   resource,
   previewState,
   previewCache,
+  markdownSectionSource,
+  markdownSectionHeading,
   onStartPreview,
   onCancelPreview,
   onDownload,
@@ -1316,6 +1777,8 @@ function DocsPreview({
   resource: DocsResource;
   previewState: DocsPreviewState;
   previewCache?: DocsPreviewCache;
+  markdownSectionSource?: string;
+  markdownSectionHeading?: MarkdownHeading;
   onStartPreview: (resource: DocsResource) => void;
   onCancelPreview: () => void;
   onDownload: () => void;
@@ -1369,7 +1832,13 @@ function DocsPreview({
   }
 
   if (resource.kind === 'markdown') {
-    return <MarkdownDocsPreview source={resource.source ?? ''} />;
+    const markdownSource = previewCache?.kind === 'markdown' ? previewCache.source : resource.source ?? '';
+    return (
+      <MarkdownDocsPreview
+        source={markdownSectionSource ?? markdownSource}
+        sectionHeading={markdownSectionHeading}
+      />
+    );
   }
 
   if (resource.kind === 'image' && resource.fileUrl) {
@@ -1383,30 +1852,232 @@ function DocsPreview({
   return <MissingDocsPreview resource={resource} />;
 }
 
-function MarkdownDocsPreview({ source }: { source: string }) {
+const MarkdownDocsPreview = memo(function MarkdownDocsPreview({
+  source,
+  sectionHeading,
+}: {
+  source: string;
+  sectionHeading?: MarkdownHeading;
+}) {
+  if (!sectionHeading && source.length >= MARKDOWN_VIRTUAL_THRESHOLD) {
+    return <VirtualMarkdownPreview source={source} />;
+  }
+
   return (
-    <div className="landing-docs-markdown landing-about-markdown">
+    <div className={`landing-docs-markdown landing-about-markdown${sectionHeading ? ' is-section-preview' : ''}`}>
+      {sectionHeading ? (
+        <div className="landing-docs-section-context">
+          当前章节：{sectionHeading.text}
+        </div>
+      ) : null}
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ children, href, node: _node, ...props }) => (
-            <a
-              href={href}
-              target={href?.startsWith('http') ? '_blank' : undefined}
-              rel={href?.startsWith('http') ? 'noreferrer' : undefined}
-              {...props}
-            >
-              {children}
-            </a>
-          ),
-          table: ({ children, node: _node, ...props }) => (
-            <div className="landing-about-table-scroll">
-              <table {...props}>{children}</table>
-            </div>
-          ),
-        }}
+        remarkPlugins={docsMarkdownRemarkPlugins}
+        components={docsMarkdownComponents}
       >
         {source}
+      </ReactMarkdown>
+    </div>
+  );
+});
+
+function VirtualMarkdownPreview({ source }: { source: string }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const blockHeightsRef = useRef<Record<string, number>>({});
+  const blockOffsetsRef = useRef<MarkdownVirtualBlockOffset[]>([]);
+  const pendingScrollAnchorRef = useRef<{ id: string; offset: number } | null>(null);
+  const blocks = useMemo(() => splitMarkdownVirtualBlocks(source), [source]);
+  const [viewport, setViewport] = useState({ scrollTop: 0, height: 680 });
+  const [heightVersion, setHeightVersion] = useState(0);
+
+  const blockOffsets = useMemo(() => {
+    let top = 0;
+    return blocks.map((block) => {
+      const height = blockHeightsRef.current[block.id] ?? estimateMarkdownBlockHeight(block);
+      const offset = { id: block.id, top, height };
+      top += height;
+      return offset;
+    });
+  }, [blocks, heightVersion]);
+  blockOffsetsRef.current = blockOffsets;
+
+  const totalHeight = blockOffsets.length
+    ? blockOffsets[blockOffsets.length - 1].top + blockOffsets[blockOffsets.length - 1].height
+    : 0;
+
+  const rawFirstVisibleIndex = blockOffsets.findIndex((block) => block.top + block.height >= viewport.scrollTop);
+  const firstVisibleIndex = Math.max(0, (rawFirstVisibleIndex === -1 ? 0 : rawFirstVisibleIndex) - MARKDOWN_VIRTUAL_OVERSCAN);
+  const nextBlockIndex = blockOffsets.findIndex((block) => block.top >= viewport.scrollTop + viewport.height);
+  const visibleEndIndex = nextBlockIndex === -1 ? blocks.length - 1 : nextBlockIndex + MARKDOWN_VIRTUAL_OVERSCAN;
+  const lastVisibleIndex = Math.min(
+    blocks.length - 1,
+    Math.max(firstVisibleIndex, visibleEndIndex),
+  );
+  const normalizedLastVisibleIndex = lastVisibleIndex < firstVisibleIndex ? blocks.length - 1 : lastVisibleIndex;
+  const visibleBlocks = blocks.slice(firstVisibleIndex, normalizedLastVisibleIndex + 1);
+
+  useEffect(() => {
+    const container = getMarkdownScrollContainer(rootRef.current);
+    if (!container) {
+      return undefined;
+    }
+    scrollContainerRef.current = container;
+
+    const updateViewport = () => {
+      setViewport({
+        scrollTop: container.scrollTop,
+        height: container.clientHeight || 680,
+      });
+    };
+
+    updateViewport();
+    container.addEventListener('scroll', updateViewport, { passive: true });
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(updateViewport);
+      resizeObserver.observe(container);
+    }
+
+    return () => {
+      container.removeEventListener('scroll', updateViewport);
+      resizeObserver?.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current ?? getMarkdownScrollContainer(rootRef.current);
+    blockHeightsRef.current = {};
+    pendingScrollAnchorRef.current = null;
+    container?.scrollTo({ top: 0 });
+    setViewport({ scrollTop: 0, height: container?.clientHeight || 680 });
+    setHeightVersion((value) => value + 1);
+  }, [source]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingScrollAnchorRef.current;
+    const container = scrollContainerRef.current;
+    if (!anchor || !container) {
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+
+    const nextAnchorOffset = blockOffsets.find((block) => block.id === anchor.id);
+    if (!nextAnchorOffset) {
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+
+    const nextScrollTop = Math.max(0, nextAnchorOffset.top + anchor.offset);
+    if (Math.abs(container.scrollTop - nextScrollTop) > 1) {
+      container.scrollTop = nextScrollTop;
+      setViewport({
+        scrollTop: container.scrollTop,
+        height: container.clientHeight || 680,
+      });
+    }
+    pendingScrollAnchorRef.current = null;
+  }, [blockOffsets]);
+
+  const handleBlockMeasured = useCallback((blockId: string, height: number) => {
+    const previousHeight = blockHeightsRef.current[blockId] ?? 0;
+    if (previousHeight && Math.abs(previousHeight - height) < MARKDOWN_HEIGHT_MEASURE_TOLERANCE) {
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    if (container) {
+      const anchorOffset =
+        blockOffsetsRef.current.find((block) => block.top + block.height >= container.scrollTop) ??
+        blockOffsetsRef.current[0];
+      pendingScrollAnchorRef.current = anchorOffset
+        ? {
+            id: anchorOffset.id,
+            offset: container.scrollTop - anchorOffset.top,
+          }
+        : null;
+    }
+
+    blockHeightsRef.current[blockId] = height;
+    setHeightVersion((value) => value + 1);
+  }, []);
+
+  return (
+    <div ref={rootRef} className="landing-docs-virtual-markdown">
+      <div className="landing-docs-virtual-markdown-spacer" style={{ height: `${totalHeight}px` }}>
+        {visibleBlocks.map((block, index) => {
+          const blockIndex = firstVisibleIndex + index;
+          const offset = blockOffsets[blockIndex];
+          return (
+            <VirtualMarkdownBlock
+              key={block.id}
+              block={block}
+              top={offset?.top ?? 0}
+              onMeasured={handleBlockMeasured}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function VirtualMarkdownBlock({
+  block,
+  top,
+  onMeasured,
+}: {
+  block: MarkdownVirtualBlock;
+  top: number;
+  onMeasured: (blockId: string, height: number) => void;
+}) {
+  const blockRef = useRef<HTMLDivElement | null>(null);
+  const resizeFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const element = blockRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const measure = () => {
+      if (resizeFrameRef.current !== null) {
+        return;
+      }
+
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        onMeasured(block.id, element.getBoundingClientRect().height);
+      });
+    };
+    measure();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return () => {
+        if (resizeFrameRef.current !== null) {
+          window.cancelAnimationFrame(resizeFrameRef.current);
+        }
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(element);
+    return () => {
+      resizeObserver.disconnect();
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+      }
+    };
+  }, [block.id, onMeasured]);
+
+  return (
+    <div
+      ref={blockRef}
+      className="landing-docs-markdown landing-about-markdown landing-docs-virtual-markdown-block"
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      <ReactMarkdown remarkPlugins={docsMarkdownRemarkPlugins} components={docsMarkdownComponents}>
+        {block.content}
       </ReactMarkdown>
     </div>
   );
@@ -1425,7 +2096,7 @@ function ManualDocsPreviewState({
   onCancelPreview: () => void;
   onDownload: () => void;
 }) {
-  const canDownload = Boolean(resource.fileUrl || resource.source);
+  const canDownload = Boolean(resource.fileUrl || resource.source || resource.loadSource);
   const isLoading = previewState.status === 'loading';
   const isError = previewState.status === 'error';
 
@@ -1436,7 +2107,7 @@ function ManualDocsPreviewState({
       </span>
       <strong>{isError ? '预览失败' : resource.title}</strong>
       <p>{isError ? previewState.error : resource.description}</p>
-      {isLoading ? <DocsPreviewProgress stage={previewState.stage} /> : null}
+      {isLoading ? <DocsPreviewProgress stage={previewState.stage} progress={previewState.progress} /> : null}
       <div className="landing-docs-preview-state-actions">
         {isLoading ? (
           <button type="button" className="landing-docs-preview-secondary-action" onClick={onCancelPreview}>
@@ -1459,14 +2130,23 @@ function ManualDocsPreviewState({
   );
 }
 
-function DocsPreviewProgress({ stage }: { stage: DocsPreviewStage }) {
+function DocsPreviewProgress({ stage, progress }: { stage: DocsPreviewStage; progress?: number }) {
   const activeStageIndex = Math.max(0, docsPreviewStages.findIndex((item) => item.key === stage));
-  const progress = Math.round(((activeStageIndex + 1) / docsPreviewStages.length) * 100);
+  const displayedProgress = Math.max(
+    4,
+    Math.min(100, Math.round(progress ?? ((activeStageIndex + 1) / docsPreviewStages.length) * 100)),
+  );
 
   return (
     <div className="landing-docs-preview-progress" aria-label="文档预览进度">
-      <div className="landing-docs-preview-progress-track">
-        <span style={{ width: `${progress}%` }} />
+      <div
+        className="landing-docs-preview-progress-track"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={displayedProgress}
+      >
+        <span className="landing-docs-preview-progress-bar" style={{ width: `${displayedProgress}%` }} />
       </div>
       <div className="landing-docs-preview-progress-steps">
         {docsPreviewStages.map((item, index) => (
@@ -1618,6 +2298,93 @@ function waitForDocxLayoutFrame() {
   });
 }
 
+function getMarkdownPreviewProgressState(elapsedMs: number): Pick<DocsPreviewState, 'stage' | 'progress'> {
+  const ratio = Math.min(1, Math.max(0, elapsedMs / MIN_LARGE_MARKDOWN_PROGRESS_MS));
+  const progress = Math.min(
+    MARKDOWN_MAX_LOADING_PROGRESS,
+    Math.round(8 + (MARKDOWN_MAX_LOADING_PROGRESS - 8) * ratio),
+  );
+  const stageStop =
+    MARKDOWN_PROGRESS_STAGE_STOPS.find((item) => progress <= item.progress) ??
+    MARKDOWN_PROGRESS_STAGE_STOPS[MARKDOWN_PROGRESS_STAGE_STOPS.length - 1];
+
+  return {
+    stage: stageStop.stage,
+    progress,
+  };
+}
+
+function createMarkdownPreviewCache(source: string): Extract<DocsPreviewCache, { kind: 'markdown' }> {
+  if (source.length < MARKDOWN_VIRTUAL_THRESHOLD) {
+    return { kind: 'markdown', source };
+  }
+
+  const headings = createMarkdownHeadings(source);
+  const tocGroups = createMarkdownTocGroups(headings);
+  return headings.length > 0 && tocGroups.length > 0
+    ? { kind: 'markdown', source, headings, tocGroups }
+    : { kind: 'markdown', source };
+}
+
+function getDocsMarkdownOutline(
+  resource: DocsResource,
+  previewState: DocsPreviewState,
+  previewCache?: DocsPreviewCache,
+): MarkdownOutline | undefined {
+  if (resource.kind !== 'markdown' || previewState.status !== 'success') {
+    return undefined;
+  }
+
+  const source = previewCache?.kind === 'markdown' ? previewCache.source : resource.source ?? '';
+  if (source.length < MARKDOWN_VIRTUAL_THRESHOLD) {
+    return undefined;
+  }
+
+  const headings = previewCache?.kind === 'markdown' && previewCache.headings
+    ? previewCache.headings
+    : createMarkdownHeadings(source);
+  const tocGroups = previewCache?.kind === 'markdown' && previewCache.tocGroups
+    ? previewCache.tocGroups
+    : createMarkdownTocGroups(headings);
+  if (headings.length === 0 || tocGroups.length === 0) {
+    return undefined;
+  }
+
+  return {
+    source,
+    headings,
+    tocGroups,
+    parentHeadingIdById: createMarkdownParentHeadingIdMap(tocGroups),
+  };
+}
+
+function extractMarkdownSection(source: string, heading: MarkdownHeading, headings: MarkdownHeading[]) {
+  const lines = source.split(/\r?\n/);
+  const headingIndex = headings.findIndex((item) => item.id === heading.id);
+  if (headingIndex === -1) {
+    return source;
+  }
+
+  const nextHeading = headings.slice(headingIndex + 1).find((item) => (
+    heading.level === 2 ? item.level <= 3 : item.level <= heading.level
+  ));
+  const endLineIndex = nextHeading?.lineIndex ?? lines.length;
+  const sectionLines = lines.slice(heading.lineIndex, endLineIndex);
+  return sectionLines.join('\n').trim() || lines[heading.lineIndex] || '';
+}
+
+function estimateMarkdownBlockHeight(block: MarkdownVirtualBlock) {
+  const lineCount = block.content.split('\n').length;
+  const headingBonus = /^#{1,3}\s/m.test(block.content) ? 44 : 0;
+  const tableBonus = block.content.includes('|') ? 36 : 0;
+  const codeBonus = block.content.includes('```') ? 42 : 0;
+  return Math.max(120, Math.ceil(lineCount * 24 + block.content.length / 72 + headingBonus + tableBonus + codeBonus));
+}
+
+function getMarkdownScrollContainer(element: HTMLElement | null) {
+  return element?.closest<HTMLElement>('.landing-docs-preview-body') ?? null;
+}
+
 function resetDocxCanvas(container: HTMLElement) {
   container.style.setProperty('--landing-docx-scale', '1');
   container.style.removeProperty('--landing-docx-page-width');
@@ -1710,7 +2477,19 @@ function getDocsResourceIcon(kind: DocsResourceKind) {
   return <FileTextOutlined />;
 }
 
-function downloadDocsResource(resource: DocsResource) {
+function loadMarkdownPreviewSource(resource: DocsResource) {
+  if (resource.source !== undefined) {
+    return Promise.resolve(resource.source);
+  }
+
+  if (resource.loadSource) {
+    return resource.loadSource();
+  }
+
+  return Promise.reject(new Error('Markdown 资源未配置加载入口'));
+}
+
+async function downloadDocsResource(resource: DocsResource, previewCache?: DocsPreviewCache) {
   const link = document.createElement('a');
   const filename = resource.downloadName ?? resource.title;
 
@@ -1720,11 +2499,12 @@ function downloadDocsResource(resource: DocsResource) {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    return;
+    return undefined;
   }
 
-  if (resource.source) {
-    const blob = new Blob([resource.source], { type: 'text/markdown;charset=utf-8' });
+  if (resource.kind === 'markdown') {
+    const source = previewCache?.kind === 'markdown' ? previewCache.source : await loadMarkdownPreviewSource(resource);
+    const blob = new Blob([source], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     link.href = url;
     link.download = filename;
@@ -1732,7 +2512,53 @@ function downloadDocsResource(resource: DocsResource) {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+    return source;
   }
+
+  return undefined;
+}
+
+function splitMarkdownVirtualBlocks(source: string): MarkdownVirtualBlock[] {
+  const blocks: MarkdownVirtualBlock[] = [];
+  const lines = source.split(/\r?\n/);
+  let buffer: string[] = [];
+  let inFence = false;
+
+  const flush = () => {
+    if (buffer.length === 0) {
+      return;
+    }
+
+    const content = buffer.join('\n').trimEnd();
+    if (content.trim()) {
+      blocks.push({
+        id: `md-block-${blocks.length}`,
+        content,
+      });
+    }
+    buffer = [];
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    const isFence = /^```/.test(trimmed);
+    const isHeading = /^#{2,3}\s+/.test(trimmed);
+    const shouldStartNewBlock = !inFence && isHeading && buffer.length > 0;
+    const shouldSplitLargeBlock = !inFence && buffer.join('\n').length >= MARKDOWN_BLOCK_TARGET_CHARS && trimmed === '';
+
+    if (shouldStartNewBlock || shouldSplitLargeBlock) {
+      flush();
+    }
+
+    buffer.push(line);
+
+    if (isFence) {
+      inFence = !inFence;
+    }
+  });
+
+  flush();
+  return blocks.length > 0 ? blocks : [{ id: 'md-block-empty', content: source }];
 }
 
 export function AboutPlaceholder() {
