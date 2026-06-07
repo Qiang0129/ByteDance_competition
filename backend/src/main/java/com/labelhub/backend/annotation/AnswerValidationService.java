@@ -379,8 +379,7 @@ public class AnswerValidationService {
         "multi_choice",
         "tags",
         "file",
-        "json",
-        "llm").contains(semanticType);
+        "json").contains(semanticType);
   }
 
   private String semanticType(JsonNode field) {

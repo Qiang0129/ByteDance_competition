@@ -82,6 +82,7 @@ import {
   normalizeSchemaTabs,
   resolveFieldTabId,
   resolveSemanticType,
+  isSubmittableField,
   validateSchemaFields,
 } from '../../modules/schema';
 import type { DatasetItem, DatasetMeta } from '../../types/dataset';
@@ -128,7 +129,7 @@ const materials: MaterialMeta[] = [
   { kind: 'file-upload', label: '文件 / 图片', category: 'media', fieldPrefix: 'file', submittable: true },
   { kind: 'show-item', label: '展示项 ShowItem', category: 'media', fieldPrefix: 'show', submittable: false },
   { kind: 'json-editor', label: 'JSON 编辑器', category: 'advanced', fieldPrefix: 'json', submittable: true },
-  { kind: 'llm-trigger', label: 'LLM 触发组件', category: 'advanced', fieldPrefix: 'llm', submittable: true },
+  { kind: 'llm-trigger', label: 'LLM 触发组件', category: 'advanced', fieldPrefix: 'llm', submittable: false },
   { kind: 'group', label: '分组容器', category: 'layout', fieldPrefix: 'group', submittable: false },
   { kind: 'multi-tab', label: '多 Tab 布局', category: 'layout', fieldPrefix: 'tabs', submittable: false },
 ];
@@ -276,6 +277,13 @@ const defaultDemoFields: SchemaField[] = [
     fieldName: 'llm_suggestion',
     label: 'AI 建议清洗(LLM 触发组件)',
     placeholder: '调用模型生成参考标题,可一键填入 cleaned_title',
+    componentProps: {
+      promptTemplate: '请根据原始商品标题生成一个简洁、规范、适合电商展示的清洗后标题。',
+      contextPaths: ['origin_title', 'model_answer', 'reference'],
+      targetField: 'cleaned_title',
+      buttonText: '生成参考',
+      outputMode: 'structured',
+    },
   },
 ];
 
@@ -307,7 +315,17 @@ function createField(meta: MaterialMeta, existing: SchemaField[]): SchemaField {
     showText: meta.kind === 'show-item' ? '展示项内容,标注员只能查看' : undefined,
     sourcePath: meta.kind === 'show-item' ? 'prompt' : undefined,
     validators: meta.kind === 'json-editor' ? [{ type: 'jsonObject' }] : undefined,
-    helpText: meta.kind === 'llm-trigger' ? 'LLM 调用入口已预留,真实模型调用将在 AI Agent 阶段接入。' : undefined,
+    helpText: meta.kind === 'llm-trigger' ? 'Labeler 点击后生成建议,确认后手动应用到目标字段。' : undefined,
+    componentProps:
+      meta.kind === 'llm-trigger'
+        ? {
+            promptTemplate: '请根据当前题目和已填写答案,为目标字段生成一个候选值。',
+            contextPaths: [],
+            targetField: '',
+            buttonText: '生成建议',
+            outputMode: 'structured',
+          }
+        : undefined,
   };
 }
 
@@ -925,7 +943,7 @@ export default function OwnerTemplateDesigner() {
     });
   }
 
-  const submittableCount = schema.fields.filter((f) => f.kind !== 'show-item' && f.kind !== 'group' && f.kind !== 'multi-tab').length;
+  const submittableCount = schema.fields.filter(isSubmittableField).length;
 
   return (
     <DndContext
@@ -1444,8 +1462,7 @@ function FieldCard({
   onMoveDown: () => void;
   onRemove: () => void;
 }) {
-  const submittable =
-    field.kind !== 'show-item' && field.kind !== 'group' && field.kind !== 'multi-tab';
+  const submittable = isSubmittableField(field);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: field.id,
     data: { type: 'field', fieldId: field.id },
@@ -1480,7 +1497,11 @@ function FieldCard({
             {field.label}
             {field.required && <span className="field-required">*</span>}
           </span>
-          {!submittable && <Tag className="field-show-tag">ShowItem · 不参与提交</Tag>}
+          {!submittable && (
+            <Tag className="field-show-tag">
+              {field.kind === 'llm-trigger' ? '操作控件 · 不参与提交' : '不参与提交'}
+            </Tag>
+          )}
         </div>
         <div className="field-card-actions" onClick={(event) => event.stopPropagation()}>
           <Button
@@ -1579,14 +1600,24 @@ function renderFieldPreview(field: SchemaField) {
     case 'json-editor':
       return <pre className="field-show-text">{`{}`}</pre>;
     case 'llm-trigger':
-      return (
-        <Space>
-          <Button size="small" type="primary">
-            生成参考
-          </Button>
-          <Typography.Text type="secondary">{field.placeholder}</Typography.Text>
-        </Space>
-      );
+      {
+        const buttonText =
+          typeof field.componentProps?.buttonText === 'string' && field.componentProps.buttonText.trim()
+            ? field.componentProps.buttonText.trim()
+            : '生成建议';
+        const targetField =
+          typeof field.componentProps?.targetField === 'string' && field.componentProps.targetField.trim()
+            ? field.componentProps.targetField.trim()
+            : '未配置目标字段';
+        return (
+          <Space wrap>
+            <Button size="small" type="primary" icon={<ThunderboltOutlined />}>
+              {buttonText}
+            </Button>
+            <Typography.Text type="secondary">应用到 {targetField}</Typography.Text>
+          </Space>
+        );
+      }
     default:
       return <Typography.Text type="secondary">布局容器</Typography.Text>;
   }
@@ -1609,7 +1640,28 @@ function PropertyPanel({
   const fieldOptions = fields
     .filter((item) => item.fieldName)
     .map((item) => ({ label: `${item.label} (${item.fieldName})`, value: item.fieldName }));
+  const targetFieldOptions = fields
+    .filter((item) => item.id !== field.id && item.fieldName && isSubmittableField(item))
+    .map((item) => ({ label: `${item.label} (${item.fieldName})`, value: item.fieldName }));
   const tabOptions = tabs.map((tab) => ({ label: tab.label, value: tab.id }));
+  const componentProps = field.componentProps ?? {};
+  const llmTargetField =
+    typeof componentProps.targetField === 'string' ? componentProps.targetField : undefined;
+  const llmContextPaths = Array.isArray(componentProps.contextPaths)
+    ? componentProps.contextPaths.filter((item): item is string => typeof item === 'string')
+    : [];
+  const llmPromptTemplate =
+    typeof componentProps.promptTemplate === 'string' ? componentProps.promptTemplate : '';
+  const llmButtonText =
+    typeof componentProps.buttonText === 'string' ? componentProps.buttonText : '';
+  const updateComponentProps = (patch: Record<string, unknown>) => {
+    onChange({
+      componentProps: {
+        ...componentProps,
+        ...patch,
+      },
+    });
+  };
   const validators = field.validators ?? [];
   const regexRule = validators.find((rule) => rule.type === 'regex');
   const customRule = validators.find((rule) => rule.type !== 'regex');
@@ -1730,6 +1782,60 @@ function PropertyPanel({
                       />
                     </Field>
                   </>
+                )}
+                {field.kind === 'llm-trigger' && (
+                  <div className="llm-trigger-config">
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="LLM 触发组件是操作控件,不写入答案 JSON。"
+                    />
+                    <Field label="目标字段">
+                      <Select
+                        allowClear
+                        showSearch
+                        placeholder="选择 AI 建议要应用到的字段"
+                        options={targetFieldOptions}
+                        value={llmTargetField || undefined}
+                        onChange={(value) => updateComponentProps({ targetField: value ?? '' })}
+                      />
+                    </Field>
+                    <Field label="上下文 raw 字段">
+                      <Select
+                        allowClear
+                        showSearch
+                        mode="multiple"
+                        placeholder="不选择时使用整题 raw_payload"
+                        options={rawPathOptions}
+                        value={llmContextPaths}
+                        onChange={(value) => updateComponentProps({ contextPaths: value })}
+                      />
+                    </Field>
+                    <Field label="按钮文案">
+                      <Input
+                        value={llmButtonText}
+                        placeholder="生成建议"
+                        onChange={(event) =>
+                          updateComponentProps({ buttonText: event.target.value })
+                        }
+                      />
+                    </Field>
+                    <Field label="字段级 Prompt">
+                      <Input.TextArea
+                        rows={5}
+                        maxLength={3000}
+                        showCount
+                        placeholder="告诉模型如何根据上下文生成目标字段候选值"
+                        value={llmPromptTemplate}
+                        onChange={(event) =>
+                          updateComponentProps({
+                            promptTemplate: event.target.value,
+                            outputMode: 'structured',
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
                 )}
               </Space>
             ),

@@ -6,6 +6,7 @@ export {
   DEFAULT_SCHEMA_TABS,
   filterVisibleAnswer,
   getValueByPath,
+  isSubmittableField,
   normalizeSchemaFields,
   normalizeSchemaTabs,
   resolveFieldTabId,

@@ -48,8 +48,7 @@ public class SchemaDefinitionValidator {
       "tags",
       "rich-text",
       "file-upload",
-      "json-editor",
-      "llm-trigger");
+      "json-editor");
   private static final Set<String> ALLOWED_VALIDATORS =
       Set.of("regex", "noEmoji", "jsonObject", "lengthBetween");
   private static final Set<String> ALLOWED_REACTION_OPERATORS =

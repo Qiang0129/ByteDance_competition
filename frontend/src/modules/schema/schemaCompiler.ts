@@ -8,7 +8,6 @@ const SUBMITTABLE_SEMANTIC_TYPES = new Set<SchemaSemanticType>([
   'tags',
   'json',
   'file',
-  'llm',
 ]);
 
 export interface RuntimeRuleState {
@@ -21,6 +20,10 @@ export interface CompileOptions {
   values?: Record<string, unknown>;
   readonly?: boolean;
   fieldFilter?: (field: SchemaField) => boolean;
+  assignmentId?: string;
+  previewMode?: boolean;
+  allFields?: SchemaField[];
+  onApplyLlmResult?: (fieldName: string, value: unknown) => void;
 }
 
 export const DEFAULT_SCHEMA_TAB_ID = 'annotation';
@@ -179,6 +182,7 @@ function toFormilyFieldSchema(
   const required = ruleState.required[field.fieldName] ?? !!field.required;
   const baseProps = {
     ...(field.componentProps ?? {}),
+    fieldName: field.fieldName,
     placeholder: field.placeholder,
     maxLength: field.maxLength,
     options: field.options,
@@ -188,6 +192,11 @@ function toFormilyFieldSchema(
     showText: field.showText,
     semanticType: resolveSemanticType(field),
     rawPayload,
+    allFields: options.allFields ?? [],
+    assignmentId: options.assignmentId,
+    currentAnswerJson: options.values ?? {},
+    previewMode: options.previewMode ?? !options.assignmentId,
+    onApplyLlmResult: options.onApplyLlmResult,
   };
 
   return {

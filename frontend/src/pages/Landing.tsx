@@ -42,6 +42,7 @@ import readmeSource from '../../../README.md?raw';
 import courseRequirementDocxUrl from '../../../LabelHub 数据标注平台 · AI全栈课题实现要求.docx?url';
 import englishImplementationPlanDocxUrl from '../../../LabelHub_Project_Implementation_Plan_EN.docx?url';
 import implementationPlanDocxUrl from '../../../项目实施计划书.docx?url';
+import architectureDiagramUrl from '../../../submission/screenshots/系统架构图.png?url';
 import docsCenterPreviewUrl from '../../images/文档中心.png';
 import imageIconUrl from '../../images/图片.svg';
 import loginIconUrl from '../../images/登陆账号.svg';
@@ -58,6 +59,7 @@ const ENDPOINT_SWITCH_INTERVAL = 4000;
 const LANDING_ROUTE_ANIMATION_MS = 500;
 const PUBLIC_NAV_ANIMATION_MS = 360;
 const DOCS_FULLSCREEN_ANIMATION_MS = 320;
+const ABOUT_README_PREVIEWED_STORAGE_KEY = 'labelhub.about.readme.previewed';
 
 type PublicNavKey = 'home' | 'docs' | 'about';
 type LandingTransitionKind = 'login' | 'signup';
@@ -194,6 +196,33 @@ const MARKDOWN_PROGRESS_STAGE_STOPS: Array<{ stage: DocsPreviewStage; progress: 
   { stage: 'render', progress: 76 },
   { stage: 'layout', progress: 92 },
 ];
+const DOCS_IMAGE_ZOOM_DEFAULT = 1;
+const DOCS_IMAGE_ZOOM_MIN = 0.5;
+const DOCS_IMAGE_ZOOM_MAX = 4;
+const DOCS_IMAGE_ZOOM_STEP = 1.16;
+const DOCS_IMAGE_WHEEL_DELTA_UNIT = 100;
+const DOCS_IMAGE_PREVIEW_PADDING = 32;
+const DOCS_IMAGE_BASE_MAX_HEIGHT = 620;
+
+type DocsImageSize = {
+  width: number;
+  height: number;
+};
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getNextDocsImageZoom(currentZoom: number, deltaY: number) {
+  if (deltaY === 0) {
+    return currentZoom;
+  }
+
+  const stepCount = clampNumber(-deltaY / DOCS_IMAGE_WHEEL_DELTA_UNIT, -4, 4);
+  const nextZoom = currentZoom * Math.pow(DOCS_IMAGE_ZOOM_STEP, stepCount);
+
+  return Number(clampNumber(nextZoom, DOCS_IMAGE_ZOOM_MIN, DOCS_IMAGE_ZOOM_MAX).toFixed(3));
+}
 
 const docsMarkdownRemarkPlugins = [remarkGfm];
 const docsMarkdownComponents: Components = {
@@ -317,11 +346,13 @@ const docsResources: DocsResource[] = [
     id: 'architecture-diagram',
     category: 'technical',
     title: '系统架构图',
-    description: '架构图图片资源尚未放入仓库，保留图片预览入口。',
-    kind: 'missing',
-    status: 'missing',
-    badge: '待补充',
-    meta: '图片资源',
+    description: 'LabelHub 系统架构图图片预览。',
+    kind: 'image',
+    status: 'available',
+    badge: 'PNG',
+    fileUrl: architectureDiagramUrl,
+    downloadName: '系统架构图.png',
+    meta: 'submission/screenshots',
   },
   {
     id: 'state-machine',
@@ -771,7 +802,7 @@ export default function Landing() {
           </h1>
 
           <p className="landing-subtitle">
-            更好的体验，更高的效率，只需要访问下面网址
+            更好的体验，更高的效率，只需要访问以下网址
           </p>
 
           <div className="landing-url-pill" role="group" aria-label="登录访问地址">
@@ -1355,7 +1386,8 @@ export function DocsPlaceholder() {
 
   const selectFullscreenMarkdownHeading = (heading: MarkdownHeading, hasChildren = false) => {
     selectMarkdownHeading(heading, hasChildren);
-    if (window.innerWidth <= 900) {
+    // 带子项的父级点击只负责展开/收起分组，避免手机全屏目录被顺手关闭。
+    if (window.innerWidth <= 900 && !hasChildren) {
       setIsDocsFullscreenTocCollapsed(true);
     }
   };
@@ -1424,7 +1456,7 @@ export function DocsPlaceholder() {
             <h1 id="docs-title">
               沉淀项目文档，管理数据资产，
               <br />
-              连接 <span>标注.</span>
+              连接 · <span>标注。</span>
             </h1>
             <div className="landing-docs-hero-actions" aria-label="文档中心快捷入口">
               <button className="landing-docs-hero-action is-primary" type="button" onClick={handleQuickStart}>
@@ -1843,13 +1875,193 @@ function DocsPreview({
 
   if (resource.kind === 'image' && resource.fileUrl) {
     return (
-      <div className="landing-docs-image-preview">
-        <img src={resource.fileUrl} alt={resource.title} />
-      </div>
+      <ZoomableDocsImagePreview
+        resourceId={resource.id}
+        title={resource.title}
+        fileUrl={resource.fileUrl}
+      />
     );
   }
 
   return <MissingDocsPreview resource={resource} />;
+}
+
+function ZoomableDocsImagePreview({
+  resourceId,
+  title,
+  fileUrl,
+}: {
+  resourceId: string;
+  title: string;
+  fileUrl: string;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollRef = useRef<{ left: number; top: number } | null>(null);
+  const [zoom, setZoom] = useState(DOCS_IMAGE_ZOOM_DEFAULT);
+  const [naturalSize, setNaturalSize] = useState<DocsImageSize | null>(null);
+  const [viewportSize, setViewportSize] = useState<DocsImageSize>({ width: 0, height: 0 });
+
+  const createLayout = useCallback((targetZoom: number) => {
+    if (!naturalSize || viewportSize.width <= 0 || viewportSize.height <= 0) {
+      return null;
+    }
+
+    const availableWidth = Math.max(1, viewportSize.width - DOCS_IMAGE_PREVIEW_PADDING * 2);
+    const availableHeight = Math.max(
+      1,
+      Math.min(DOCS_IMAGE_BASE_MAX_HEIGHT, viewportSize.height - DOCS_IMAGE_PREVIEW_PADDING * 2),
+    );
+    const fitScale = Math.min(1, availableWidth / naturalSize.width, availableHeight / naturalSize.height);
+    const baseWidth = Math.max(1, naturalSize.width * fitScale);
+    const baseHeight = Math.max(1, naturalSize.height * fitScale);
+    const renderedWidth = baseWidth * targetZoom;
+    const renderedHeight = baseHeight * targetZoom;
+    const stageWidth = Math.max(viewportSize.width, renderedWidth + DOCS_IMAGE_PREVIEW_PADDING * 2);
+    const stageHeight = Math.max(viewportSize.height, renderedHeight + DOCS_IMAGE_PREVIEW_PADDING * 2);
+
+    return {
+      renderedWidth,
+      renderedHeight,
+      stageWidth,
+      stageHeight,
+      imageLeft: (stageWidth - renderedWidth) / 2,
+      imageTop: (stageHeight - renderedHeight) / 2,
+    };
+  }, [naturalSize, viewportSize.height, viewportSize.width]);
+
+  const imageLayout = useMemo(() => createLayout(zoom), [createLayout, zoom]);
+
+  useEffect(() => {
+    setZoom(DOCS_IMAGE_ZOOM_DEFAULT);
+    setNaturalSize(null);
+    pendingScrollRef.current = null;
+  }, [fileUrl, resourceId]);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    const measureContainer = () => {
+      setViewportSize({
+        width: container.clientWidth,
+        height: container.clientHeight,
+      });
+    };
+
+    measureContainer();
+
+    const observer = new ResizeObserver(measureContainer);
+    observer.observe(container);
+
+    return () => observer.disconnect();
+  }, [fileUrl, resourceId]);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const pendingScroll = pendingScrollRef.current;
+    if (!container || !pendingScroll) {
+      return;
+    }
+
+    container.scrollLeft = pendingScroll.left;
+    container.scrollTop = pendingScroll.top;
+    pendingScrollRef.current = null;
+  }, [imageLayout]);
+
+  const handleImageWheel = useCallback((event: globalThis.WheelEvent) => {
+    if (!event.ctrlKey) {
+      return;
+    }
+
+    event.preventDefault();
+    const container = containerRef.current;
+    const previousLayout = imageLayout;
+    const nextZoom = getNextDocsImageZoom(zoom, event.deltaY);
+    const nextLayout = createLayout(nextZoom);
+
+    if (!container || !previousLayout || !nextLayout || nextZoom === zoom) {
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const pointerX = event.clientX - containerRect.left;
+    const pointerY = event.clientY - containerRect.top;
+    const contentX = container.scrollLeft + pointerX;
+    const contentY = container.scrollTop + pointerY;
+    const imageRatioX = clampNumber(
+      (contentX - previousLayout.imageLeft) / previousLayout.renderedWidth,
+      0,
+      1,
+    );
+    const imageRatioY = clampNumber(
+      (contentY - previousLayout.imageTop) / previousLayout.renderedHeight,
+      0,
+      1,
+    );
+    const nextContentX = nextLayout.imageLeft + imageRatioX * nextLayout.renderedWidth;
+    const nextContentY = nextLayout.imageTop + imageRatioY * nextLayout.renderedHeight;
+
+    pendingScrollRef.current = {
+      left: clampNumber(nextContentX - pointerX, 0, Math.max(0, nextLayout.stageWidth - container.clientWidth)),
+      top: clampNumber(nextContentY - pointerY, 0, Math.max(0, nextLayout.stageHeight - container.clientHeight)),
+    };
+    setZoom(nextZoom);
+  }, [createLayout, imageLayout, zoom]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    container.addEventListener('wheel', handleImageWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', handleImageWheel);
+    };
+  }, [handleImageWheel]);
+
+  const stageStyle = imageLayout
+    ? ({
+        width: imageLayout.stageWidth,
+        height: imageLayout.stageHeight,
+      } satisfies CSSProperties)
+    : undefined;
+  const imageStyle = imageLayout
+    ? ({
+        left: imageLayout.imageLeft,
+        top: imageLayout.imageTop,
+        width: imageLayout.renderedWidth,
+        height: imageLayout.renderedHeight,
+        maxWidth: 'none',
+        maxHeight: 'none',
+      } satisfies CSSProperties)
+    : undefined;
+
+  return (
+    <div
+      ref={containerRef}
+      className={`landing-docs-image-preview${zoom > DOCS_IMAGE_ZOOM_DEFAULT ? ' is-zoomed' : ''}`}
+    >
+      <div className="landing-docs-image-stage" style={stageStyle}>
+        <img
+          src={fileUrl}
+          alt={title}
+          style={imageStyle}
+          draggable={false}
+          onLoad={(event) => {
+            const image = event.currentTarget;
+            setNaturalSize({
+              width: image.naturalWidth,
+              height: image.naturalHeight,
+            });
+          }}
+        />
+      </div>
+    </div>
+  );
 }
 
 const MarkdownDocsPreview = memo(function MarkdownDocsPreview({
@@ -2564,12 +2776,27 @@ function splitMarkdownVirtualBlocks(source: string): MarkdownVirtualBlock[] {
 export function AboutPlaceholder() {
   const readmeBodyRef = useRef<HTMLDivElement | null>(null);
   const tocRef = useRef<HTMLElement | null>(null);
+  const aboutReadmeFullscreenTimerRef = useRef<number | null>(null);
   const { message } = App.useApp();
   const [activeReadmeHeadingId, setActiveReadmeHeadingId] = useState(README_HEADINGS[0]?.id ?? '');
   const [isReadmeTocCollapsed, setIsReadmeTocCollapsed] = useState(false);
+  const [isAboutReadmePreviewed, setIsAboutReadmePreviewed] = useState(() => {
+    try {
+      return window.localStorage.getItem(ABOUT_README_PREVIEWED_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isAboutReadmeFullscreen, setIsAboutReadmeFullscreen] = useState(false);
+  const [isAboutReadmeFullscreenTocCollapsed, setIsAboutReadmeFullscreenTocCollapsed] = useState(false);
+  const [aboutReadmeFullscreenTransition, setAboutReadmeFullscreenTransition] =
+    useState<DocsFullscreenTransition>(null);
   const [expandedReadmeHeadingIds, setExpandedReadmeHeadingIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const isReadmeTocVisuallyCollapsed = isAboutReadmeFullscreen
+    ? isAboutReadmeFullscreenTocCollapsed
+    : isReadmeTocCollapsed;
   const intro = useMemo(() => {
     const lines = readmeSource.split(/\r?\n/);
     const firstParagraph = lines.find((line) => {
@@ -2692,17 +2919,91 @@ export function AboutPlaceholder() {
     }
   };
 
+  const clearAboutReadmeFullscreenTimer = () => {
+    if (aboutReadmeFullscreenTimerRef.current !== null) {
+      window.clearTimeout(aboutReadmeFullscreenTimerRef.current);
+      aboutReadmeFullscreenTimerRef.current = null;
+    }
+  };
+
+  const startAboutReadmeFullscreenEnter = () => {
+    clearAboutReadmeFullscreenTimer();
+    setIsAboutReadmeFullscreenTocCollapsed(window.innerWidth <= 900);
+    setIsAboutReadmeFullscreen(true);
+    setAboutReadmeFullscreenTransition('entering');
+    message.success('全屏模式');
+    aboutReadmeFullscreenTimerRef.current = window.setTimeout(() => {
+      setAboutReadmeFullscreenTransition(null);
+      aboutReadmeFullscreenTimerRef.current = null;
+    }, DOCS_FULLSCREEN_ANIMATION_MS);
+  };
+
+  const startAboutReadmeFullscreenExit = () => {
+    clearAboutReadmeFullscreenTimer();
+    setAboutReadmeFullscreenTransition('leaving');
+    message.success('退出全屏');
+    aboutReadmeFullscreenTimerRef.current = window.setTimeout(() => {
+      setIsAboutReadmeFullscreen(false);
+      setAboutReadmeFullscreenTransition(null);
+      aboutReadmeFullscreenTimerRef.current = null;
+    }, DOCS_FULLSCREEN_ANIMATION_MS);
+  };
+
+  const toggleAboutReadmeFullscreen = () => {
+    if (isAboutReadmeFullscreen) {
+      startAboutReadmeFullscreenExit();
+      return;
+    }
+
+    startAboutReadmeFullscreenEnter();
+  };
+
+  const toggleReadmeTocCollapsed = () => {
+    if (isAboutReadmeFullscreen) {
+      setIsAboutReadmeFullscreenTocCollapsed((collapsed) => !collapsed);
+      return;
+    }
+
+    setIsReadmeTocCollapsed((collapsed) => !collapsed);
+  };
+
+  const handleStartAboutReadmePreview = () => {
+    setIsAboutReadmePreviewed(true);
+    try {
+      window.localStorage.setItem(ABOUT_README_PREVIEWED_STORAGE_KEY, 'true');
+    } catch {
+      // localStorage 不可用时仍允许当前页面会话内预览。
+    }
+  };
+
+  const handleDownloadReadme = () => {
+    const blob = new Blob([readmeSource], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'README.md';
+    document.body.appendChild(link);
+    message.loading('正在下载', 1.2);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
   useEffect(() => {
+    if (!isAboutReadmePreviewed) {
+      return undefined;
+    }
+
     const hashText = decodeURIComponent(window.location.hash.replace(/^#/, ''));
     if (!hashText) {
-      return;
+      return undefined;
     }
 
     const targetHeading = README_HEADINGS.find(
       (heading) => heading.id === hashText || heading.text === hashText,
     );
     if (!targetHeading) {
-      return;
+      return undefined;
     }
 
     const frameId = window.requestAnimationFrame(() => {
@@ -2712,12 +3013,16 @@ export function AboutPlaceholder() {
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, []);
+  }, [isAboutReadmePreviewed]);
 
   useEffect(() => {
+    if (!isAboutReadmePreviewed) {
+      return undefined;
+    }
+
     const container = readmeBodyRef.current;
     if (!container) {
-      return;
+      return undefined;
     }
 
     let frameId: number | null = null;
@@ -2778,12 +3083,32 @@ export function AboutPlaceholder() {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, []);
+  }, [isAboutReadmePreviewed]);
+
+  useEffect(() => () => clearAboutReadmeFullscreenTimer(), []);
+
+  useEffect(() => {
+    if (!isAboutReadmeFullscreen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        startAboutReadmeFullscreenExit();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAboutReadmeFullscreen]);
 
   usePublicPageClass();
 
   return (
-    <main className="landing-page landing-about-page">
+    <main className={`landing-page landing-about-page${isAboutReadmeFullscreen ? ' is-about-readme-fullscreen' : ''}`}>
       <PublicHeader activeKey="about" />
 
       <section className="landing-about-hero" aria-labelledby="about-title">
@@ -2820,7 +3145,9 @@ export function AboutPlaceholder() {
       <section className="landing-about-docs" aria-labelledby="about-readme-title">
         <div
           className={`landing-about-docs-shell${
-            isReadmeTocCollapsed ? ' is-toc-collapsed' : ''
+            isReadmeTocVisuallyCollapsed ? ' is-toc-collapsed' : ''
+          }${isAboutReadmeFullscreen ? ' is-fullscreen' : ''}${
+            aboutReadmeFullscreenTransition ? ` is-fullscreen-${aboutReadmeFullscreenTransition}` : ''
           }`}
         >
           <aside className="landing-about-toc" aria-label="README 目录" ref={tocRef}>
@@ -2829,15 +3156,15 @@ export function AboutPlaceholder() {
               <button
                 type="button"
                 className="landing-about-toc-toggle"
-                aria-label={isReadmeTocCollapsed ? '展开 README 目录' : '收起 README 目录'}
-                aria-expanded={!isReadmeTocCollapsed}
-                title={isReadmeTocCollapsed ? '展开目录' : '收起目录'}
-                onClick={() => setIsReadmeTocCollapsed((collapsed) => !collapsed)}
+                aria-label={isReadmeTocVisuallyCollapsed ? '展开 README 目录' : '收起 README 目录'}
+                aria-expanded={!isReadmeTocVisuallyCollapsed}
+                title={isReadmeTocVisuallyCollapsed ? '展开目录' : '收起目录'}
+                onClick={toggleReadmeTocCollapsed}
               >
-                {isReadmeTocCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                {isReadmeTocVisuallyCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               </button>
             </div>
-            <nav className="landing-about-toc-nav" aria-hidden={isReadmeTocCollapsed}>
+            <nav className="landing-about-toc-nav" aria-hidden={isReadmeTocVisuallyCollapsed}>
               {README_TOC_GROUPS.map((group) => {
                 const isExpanded = expandedReadmeHeadingIds.has(group.heading.id);
                 const isActiveGroup =
@@ -2856,7 +3183,7 @@ export function AboutPlaceholder() {
                         group.children.length > 0 ? ' has-children' : ''
                       }`}
                       href={`#${group.heading.id}`}
-                      tabIndex={isReadmeTocCollapsed ? -1 : undefined}
+                      tabIndex={isReadmeTocVisuallyCollapsed ? -1 : undefined}
                       aria-expanded={group.children.length > 0 ? isExpanded : undefined}
                       onClick={(event) => handleReadmeTocClick(event, group.heading)}
                     >
@@ -2872,7 +3199,7 @@ export function AboutPlaceholder() {
                                 activeReadmeHeadingId === heading.id ? ' is-active' : ''
                               }`}
                               href={`#${heading.id}`}
-                              tabIndex={isReadmeTocCollapsed || !isExpanded ? -1 : undefined}
+                              tabIndex={isReadmeTocVisuallyCollapsed || !isExpanded ? -1 : undefined}
                               onClick={(event) => handleReadmeTocClick(event, heading)}
                             >
                               {heading.text}
@@ -2889,73 +3216,103 @@ export function AboutPlaceholder() {
 
           <article className="landing-about-readme" aria-labelledby="about-readme-title">
             <div className="landing-about-readme-header">
-              <span>Repository README</span>
-              <h2 id="about-readme-title">项目说明文档</h2>
-              <p>以下内容直接来自仓库根目录 README.md，便于公开页与项目文档保持同步。</p>
-            </div>
-            <div className="landing-about-readme-body" ref={readmeBodyRef} tabIndex={0}>
-              <div className="landing-about-markdown">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    h1: ({ children, node: _node, ...props }) => {
-                      const id = getMarkdownHeadingId(children);
-                      return (
-                        <h1 {...props} id={id} data-readme-heading-id={id}>
-                          {children}
-                        </h1>
-                      );
-                    },
-                    h2: ({ children, node: _node, ...props }) => {
-                      const id = getMarkdownHeadingId(children);
-                      return (
-                        <h2 {...props} id={id} data-readme-heading-id={id}>
-                          {children}
-                        </h2>
-                      );
-                    },
-                    h3: ({ children, node: _node, ...props }) => {
-                      const id = getMarkdownHeadingId(children);
-                      return (
-                        <h3 {...props} id={id} data-readme-heading-id={id}>
-                          {children}
-                        </h3>
-                      );
-                    },
-                    a: ({ children, href, node: _node, ...props }) => (
-                      <a
-                        href={href}
-                        target={href?.startsWith('http') ? '_blank' : undefined}
-                        rel={href?.startsWith('http') ? 'noreferrer' : undefined}
-                        {...props}
-                      >
-                        {children}
-                      </a>
-                    ),
-                    table: ({ children, node: _node, ...props }) => (
-                      <div className="landing-about-table-scroll">
-                        <table {...props}>{children}</table>
-                      </div>
-                    ),
-                    pre: ({ children, node: _node, ...props }) => (
-                      <div className="landing-about-code-block">
-                        <button
-                          type="button"
-                          className="landing-about-code-copy"
-                          onClick={handleCopyCodeBlock}
-                          aria-label="复制代码块"
-                          title="复制代码块"
-                        >
-                          <CopyOutlined />
-                        </button>
-                        <pre {...props}>{children}</pre>
-                      </div>
-                    ),
-                  }}
-                >
-                  {readmeSource}
-                </ReactMarkdown>
+              <div className="landing-about-readme-heading">
+                <span>Repository README</span>
+                <h2 id="about-readme-title">项目说明文档</h2>
+                <p>以下内容直接来自仓库根目录 README.md，便于公开页与项目文档保持同步。</p>
               </div>
+              <div className="landing-about-readme-actions">
+                <button
+                  type="button"
+                  className="landing-docs-action-link landing-about-readme-fullscreen-button"
+                  onClick={toggleAboutReadmeFullscreen}
+                  aria-label={isAboutReadmeFullscreen ? '退出全屏观看 README' : '全屏观看 README'}
+                  title={isAboutReadmeFullscreen ? '退出全屏' : '全屏观看'}
+                >
+                  {isAboutReadmeFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  {isAboutReadmeFullscreen ? '退出全屏' : '全屏'}
+                </button>
+                <button
+                  type="button"
+                  className="landing-docs-action-link"
+                  onClick={handleDownloadReadme}
+                >
+                  <DownloadOutlined />
+                  下载
+                </button>
+              </div>
+            </div>
+            <div
+              className={`landing-about-readme-body${!isAboutReadmePreviewed ? ' is-preview-gate' : ''}`}
+              ref={readmeBodyRef}
+              tabIndex={0}
+            >
+              {isAboutReadmePreviewed ? (
+                <div className="landing-about-markdown">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ children, node: _node, ...props }) => {
+                        const id = getMarkdownHeadingId(children);
+                        return (
+                          <h1 {...props} id={id} data-readme-heading-id={id}>
+                            {children}
+                          </h1>
+                        );
+                      },
+                      h2: ({ children, node: _node, ...props }) => {
+                        const id = getMarkdownHeadingId(children);
+                        return (
+                          <h2 {...props} id={id} data-readme-heading-id={id}>
+                            {children}
+                          </h2>
+                        );
+                      },
+                      h3: ({ children, node: _node, ...props }) => {
+                        const id = getMarkdownHeadingId(children);
+                        return (
+                          <h3 {...props} id={id} data-readme-heading-id={id}>
+                            {children}
+                          </h3>
+                        );
+                      },
+                      a: ({ children, href, node: _node, ...props }) => (
+                        <a
+                          href={href}
+                          target={href?.startsWith('http') ? '_blank' : undefined}
+                          rel={href?.startsWith('http') ? 'noreferrer' : undefined}
+                          {...props}
+                        >
+                          {children}
+                        </a>
+                      ),
+                      table: ({ children, node: _node, ...props }) => (
+                        <div className="landing-about-table-scroll">
+                          <table {...props}>{children}</table>
+                        </div>
+                      ),
+                      pre: ({ children, node: _node, ...props }) => (
+                        <div className="landing-about-code-block">
+                          <button
+                            type="button"
+                            className="landing-about-code-copy"
+                            onClick={handleCopyCodeBlock}
+                            aria-label="复制代码块"
+                            title="复制代码块"
+                          >
+                            <CopyOutlined />
+                          </button>
+                          <pre {...props}>{children}</pre>
+                        </div>
+                      ),
+                    }}
+                  >
+                    {readmeSource}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <AboutReadmePreviewCard onPreview={handleStartAboutReadmePreview} />
+              )}
             </div>
           </article>
         </div>
@@ -2963,5 +3320,23 @@ export function AboutPlaceholder() {
 
       <LandingFooter />
     </main>
+  );
+}
+
+function AboutReadmePreviewCard({ onPreview }: { onPreview: () => void }) {
+  return (
+    <div className="landing-docs-preview-state landing-docs-manual-preview landing-about-readme-preview-gate is-idle">
+      <span className="landing-docs-preview-state-icon" aria-hidden="true">
+        <FileTextOutlined />
+      </span>
+      <strong>README.md</strong>
+      <p>仓库根目录项目说明文档。</p>
+      <div className="landing-docs-preview-state-actions">
+        <button type="button" className="landing-docs-preview-primary-action" onClick={onPreview}>
+          <ReadOutlined />
+          预览
+        </button>
+      </div>
+    </div>
   );
 }

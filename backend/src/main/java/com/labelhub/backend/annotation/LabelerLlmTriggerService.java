@@ -1,0 +1,748 @@
+package com.labelhub.backend.annotation;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.labelhub.backend.ai.AiModelConfigCrypto;
+import com.labelhub.backend.ai.AiModelConfigRepository;
+import com.labelhub.backend.annotation.AnnotationRepository.AssignmentItemRecord;
+import com.labelhub.backend.auth.ApiException;
+import com.labelhub.backend.auth.AuthenticatedUser;
+import com.labelhub.backend.prompt.PromptTemplateLoader;
+import com.labelhub.backend.task.TaskDeadlineSettlementService;
+import com.labelhub.backend.workflow.AuditLogRepository;
+import com.labelhub.backend.workflow.WorkflowEntityType;
+import java.io.BufferedReader;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.StringReader;
+import java.io.Writer;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+@Service
+public class LabelerLlmTriggerService {
+
+  private static final int MAX_CONTEXT_TEXT_LENGTH = 6000;
+  private static final int MAX_PROMPT_LENGTH = 3000;
+  private static final int MAX_PREVIEW_LENGTH = 240;
+
+  private final AnnotationRepository annotationRepository;
+  private final AiModelConfigRepository modelConfigRepository;
+  private final AiModelConfigCrypto crypto;
+  private final AuditLogRepository auditLogRepository;
+  private final TaskDeadlineSettlementService deadlineSettlementService;
+  private final PromptTemplateLoader promptTemplateLoader;
+  private final ObjectMapper objectMapper;
+
+  public LabelerLlmTriggerService(
+      AnnotationRepository annotationRepository,
+      AiModelConfigRepository modelConfigRepository,
+      AiModelConfigCrypto crypto,
+      AuditLogRepository auditLogRepository,
+      TaskDeadlineSettlementService deadlineSettlementService,
+      PromptTemplateLoader promptTemplateLoader,
+      ObjectMapper objectMapper) {
+    this.annotationRepository = annotationRepository;
+    this.modelConfigRepository = modelConfigRepository;
+    this.crypto = crypto;
+    this.auditLogRepository = auditLogRepository;
+    this.deadlineSettlementService = deadlineSettlementService;
+    this.promptTemplateLoader = promptTemplateLoader;
+    this.objectMapper = objectMapper;
+  }
+
+  public StreamingResponseBody stream(
+      org.springframework.security.core.Authentication authentication,
+      long assignmentId,
+      LlmTriggerRequest request) {
+    AuthenticatedUser labeler = requireLabeler(authentication);
+    deadlineSettlementService.settleExpiredTasks();
+    AssignmentItemRecord assignment = annotationRepository.findAssignmentForLabeler(assignmentId, labeler.id())
+        .orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "ASSIGNMENT_NOT_FOUND",
+            "assignment not found"));
+    ensureAssignmentEditable(assignment);
+    LlmTriggerContext context = resolveContext(assignment, request);
+    AiModelConfigRepository.AiModelConfigRecord config;
+    String apiKey;
+    try {
+      config = modelConfigRepository.findActive()
+          .orElseThrow(() -> new ApiException(
+              HttpStatus.CONFLICT,
+              "LLM_TRIGGER_MODEL_CONFIG_REQUIRED",
+              "active model config is required"));
+      apiKey = crypto.decrypt(config.encryptedApiKey());
+    } catch (ApiException exception) {
+      auditTriggerCall(labeler, assignment, context, null, null, "failed", exception.getMessage());
+      throw exception;
+    }
+    ObjectNode payload = buildChatCompletionPayload(config, context);
+    return outputStream -> streamChatCompletion(outputStream, labeler, assignment, context, config, apiKey, payload);
+  }
+
+  private void ensureAssignmentEditable(AssignmentItemRecord assignment) {
+    if (assignment.taskDeletedAt() != null) {
+      throw new ApiException(HttpStatus.CONFLICT, "TASK_DELETED", "task has been deleted");
+    }
+    if ("voided".equals(normalize(assignment.assignmentStatus()))) {
+      throw new ApiException(HttpStatus.CONFLICT, "ASSIGNMENT_VOIDED", "assignment has been voided");
+    }
+    String status = normalize(assignment.assignmentStatus());
+    boolean editable = "returned".equals(status)
+        ? assignment.resubmitDeadline() != null && assignment.resubmitDeadline().isAfter(LocalDateTime.now())
+        : List.of("claimed", "submitted").contains(status)
+            && "published".equals(normalize(assignment.taskStatus()))
+            && !isDeadlineExpired(assignment.taskDeadline());
+    if (!editable) {
+      throw new ApiException(HttpStatus.CONFLICT, "ASSIGNMENT_NOT_EDITABLE", "assignment is not editable");
+    }
+  }
+
+  private LlmTriggerContext resolveContext(AssignmentItemRecord assignment, LlmTriggerRequest request) {
+    if (request == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_REQUEST", "llm trigger request is required");
+    }
+    String triggerFieldName = trimToNull(request.triggerFieldName());
+    String targetFieldName = trimToNull(request.targetFieldName());
+    if (triggerFieldName == null || targetFieldName == null) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_REQUEST", "triggerFieldName and targetFieldName are required");
+    }
+    JsonNode schema = readSchemaJson(assignment);
+    ArrayNode fields = fieldsNode(schema);
+    JsonNode triggerField = findField(fields, triggerFieldName);
+    JsonNode targetField = findField(fields, targetFieldName);
+    if (triggerField == null || !"llm-trigger".equals(text(triggerField, "kind", ""))) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_FIELD", "trigger field is not an llm trigger");
+    }
+    if (targetField == null || !isSubmittableTarget(targetField)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TARGET_FIELD", "target field is not submittable");
+    }
+    JsonNode componentProps = triggerField.path("componentProps");
+    String configuredTarget = text(componentProps, "targetField", "");
+    if (!configuredTarget.isBlank() && !configuredTarget.equals(targetFieldName)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TARGET_FIELD", "target field does not match trigger configuration");
+    }
+    String promptTemplate = truncate(blankToDefault(text(componentProps, "promptTemplate", ""), defaultUserPrompt()), MAX_PROMPT_LENGTH);
+    List<String> contextPaths = readContextPaths(componentProps);
+    JsonNode rawPayload = buildRawPayload(assignment);
+    JsonNode currentAnswer = request.currentAnswerJson() != null && request.currentAnswerJson().isObject()
+        ? request.currentAnswerJson()
+        : objectMapper.createObjectNode();
+    return new LlmTriggerContext(
+        triggerFieldName,
+        targetFieldName,
+        triggerField,
+        targetField,
+        semanticType(targetField),
+        promptTemplate,
+        contextPaths,
+        rawPayload,
+        currentAnswer,
+        fields);
+  }
+
+  private ObjectNode buildChatCompletionPayload(
+      AiModelConfigRepository.AiModelConfigRecord config,
+      LlmTriggerContext context) {
+    ObjectNode root = objectMapper.createObjectNode();
+    root.put("model", config.modelName());
+    ArrayNode messages = root.putArray("messages");
+    messages.add(message("system", buildSystemPrompt()));
+    messages.add(message("user", buildUserPrompt(context)));
+    root.put("temperature", 0.2);
+    root.put("stream", true);
+    return root;
+  }
+
+  private String buildSystemPrompt() {
+    return promptTemplateLoader.loadOrDefault("labeler-llm-trigger-system.md", """
+        你是 LabelHub 的字段级 LLM 生成组件。你必须只输出 JSON。
+        输出结构固定为 {"displayText":"给标注员看的建议","value":"目标字段的候选值"}。
+        single_choice 必须输出合法 options value; multi_choice/tags 必须输出合法 options value 数组; json 必须输出合法 JSON。
+        """);
+  }
+
+  private String buildUserPrompt(LlmTriggerContext context) {
+    ObjectNode payload = objectMapper.createObjectNode();
+    payload.put("ownerPrompt", context.promptTemplate());
+    payload.set("rawPayload", selectedRawPayload(context.rawPayload(), context.contextPaths()));
+    payload.set("currentAnswerJson", context.currentAnswerJson());
+    payload.set("triggerField", context.triggerField());
+    payload.set("targetField", context.targetField());
+    payload.put("targetSemanticType", context.targetSemanticType());
+    return truncateForContext(writeJson(payload));
+  }
+
+  private void streamChatCompletion(
+      OutputStream outputStream,
+      AuthenticatedUser labeler,
+      AssignmentItemRecord assignment,
+      LlmTriggerContext context,
+      AiModelConfigRepository.AiModelConfigRecord config,
+      String apiKey,
+      ObjectNode payload) {
+    Writer writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
+    StringBuilder answer = new StringBuilder();
+    try {
+      HttpRequest request = HttpRequest.newBuilder()
+          .uri(URI.create(resolveChatCompletionsUrl(config.apiBaseUrl(), config.useFullUrl())))
+          .timeout(Duration.ofSeconds(90))
+          .header(HttpHeaders.CONTENT_TYPE, "application/json")
+          .header(HttpHeaders.ACCEPT, "text/event-stream")
+          .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+          .POST(HttpRequest.BodyPublishers.ofString(writeJson(payload), StandardCharsets.UTF_8))
+          .build();
+      HttpResponse<java.io.InputStream> response = HttpClient.newBuilder()
+          .connectTimeout(Duration.ofSeconds(10))
+          .build()
+          .send(request, HttpResponse.BodyHandlers.ofInputStream());
+      if (response.statusCode() < 200 || response.statusCode() >= 300) {
+        String errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+        safeAuditTriggerCall(labeler, assignment, context, config.modelName(), null, "failed", errorBody);
+        sendEvent(writer, "error", "LLM_TRIGGER_REQUEST_FAILED");
+        return;
+      }
+      try (BufferedReader reader = new BufferedReader(
+          new java.io.InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+        String line;
+        while ((line = reader.readLine()) != null) {
+          if (!line.startsWith("data:")) {
+            continue;
+          }
+          String data = line.substring("data:".length()).trim();
+          if (data.isBlank()) {
+            continue;
+          }
+          if ("[DONE]".equals(data)) {
+            break;
+          }
+          String delta = extractStreamDelta(data);
+          if (delta != null && !delta.isEmpty()) {
+            answer.append(delta);
+            sendEvent(writer, "delta", delta);
+          }
+        }
+      }
+      if (answer.isEmpty()) {
+        safeAuditTriggerCall(labeler, assignment, context, config.modelName(), null, "failed", "empty stream answer");
+        sendEvent(writer, "error", "LLM_TRIGGER_EMPTY_RESULT");
+        return;
+      }
+      ObjectNode result = normalizeModelOutput(answer.toString(), context);
+      safeAuditTriggerCall(labeler, assignment, context, config.modelName(), result, "success", null);
+      sendEvent(writer, "result", writeJson(result));
+      sendEvent(writer, "done", "DONE");
+    } catch (IOException | InterruptedException | RuntimeException exception) {
+      if (exception instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      if (isClientDisconnect(exception)) {
+        safeAuditTriggerCall(labeler, assignment, context, config.modelName(), null, "cancelled", exception.getMessage());
+        return;
+      }
+      safeAuditTriggerCall(labeler, assignment, context, config.modelName(), null, "failed", exception.getMessage());
+      safeSendEvent(writer, "error", "LLM_TRIGGER_REQUEST_FAILED");
+    }
+  }
+
+  private ObjectNode normalizeModelOutput(String raw, LlmTriggerContext context) {
+    JsonNode root = parseJsonObject(extractJsonObject(raw));
+    String displayText = text(root, "displayText", "");
+    JsonNode rawValue = root.has("value") ? root.get("value") : root.path("normalizedValue");
+    JsonNode normalizedValue = normalizeValue(rawValue, context.targetField(), context.targetSemanticType());
+    ObjectNode result = objectMapper.createObjectNode();
+    result.put("displayText", blankToDefault(displayText, formatDisplayValue(normalizedValue)));
+    result.set("normalizedValue", normalizedValue);
+    result.put("targetFieldName", context.targetFieldName());
+    result.put("targetSemanticType", context.targetSemanticType());
+    return result;
+  }
+
+  private JsonNode normalizeValue(JsonNode value, JsonNode targetField, String semanticType) {
+    if (value == null || value.isMissingNode() || value.isNull()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_RESULT", "model result value is empty");
+    }
+    return switch (semanticType) {
+      case "single_choice" -> objectMapper.getNodeFactory().textNode(normalizeSingleChoice(value, targetField));
+      case "multi_choice", "tags" -> normalizeMultiChoice(value, targetField);
+      case "json" -> objectMapper.getNodeFactory().textNode(normalizeJsonValue(value));
+      default -> objectMapper.getNodeFactory().textNode(value.isTextual() ? value.asText() : value.toString());
+    };
+  }
+
+  private String normalizeSingleChoice(JsonNode value, JsonNode targetField) {
+    String raw = value.isTextual() ? value.asText() : value.toString();
+    return resolveOptionValue(raw, targetField)
+        .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_RESULT", "model result option is invalid"));
+  }
+
+  private ArrayNode normalizeMultiChoice(JsonNode value, JsonNode targetField) {
+    ArrayNode result = objectMapper.createArrayNode();
+    Set<String> seen = new HashSet<>();
+    List<String> rawValues = new ArrayList<>();
+    if (value.isArray()) {
+      value.forEach(item -> rawValues.add(item.isTextual() ? item.asText() : item.toString()));
+    } else if (value.isTextual()) {
+      String raw = value.asText();
+      for (String part : raw.split("[,，、\\n]")) {
+        if (!part.isBlank()) {
+          rawValues.add(part.trim());
+        }
+      }
+    } else {
+      rawValues.add(value.toString());
+    }
+    for (String raw : rawValues) {
+      String optionValue = resolveOptionValue(raw, targetField)
+          .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_RESULT", "model result option is invalid"));
+      if (seen.add(optionValue)) {
+        result.add(optionValue);
+      }
+    }
+    return result;
+  }
+
+  private java.util.Optional<String> resolveOptionValue(String raw, JsonNode targetField) {
+    JsonNode options = targetField.path("options");
+    if (!options.isArray()) {
+      return java.util.Optional.empty();
+    }
+    String normalized = raw == null ? "" : raw.trim();
+    for (JsonNode option : options) {
+      String value = text(option, "value", "");
+      String label = text(option, "label", "");
+      if (normalized.equals(value) || normalized.equals(label)) {
+        return java.util.Optional.of(value);
+      }
+    }
+    return java.util.Optional.empty();
+  }
+
+  private String normalizeJsonValue(JsonNode value) {
+    try {
+      JsonNode parsed = value.isTextual() ? objectMapper.readTree(value.asText()) : value;
+      return objectMapper.writeValueAsString(parsed);
+    } catch (JsonProcessingException exception) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_RESULT", "model result JSON is invalid");
+    }
+  }
+
+  private JsonNode selectedRawPayload(JsonNode rawPayload, List<String> contextPaths) {
+    if (contextPaths == null || contextPaths.isEmpty()) {
+      return rawPayload;
+    }
+    ObjectNode selected = objectMapper.createObjectNode();
+    for (String path : contextPaths) {
+      JsonNode value = getValueByPath(rawPayload, path);
+      if (value != null && !value.isMissingNode()) {
+        selected.set(path, value);
+      }
+    }
+    return selected;
+  }
+
+  private JsonNode getValueByPath(JsonNode source, String path) {
+    if (source == null || path == null || path.isBlank()) {
+      return null;
+    }
+    JsonNode current = source;
+    for (String rawSegment : path.replaceAll("\\[(\\d+)]", ".$1").split("\\.")) {
+      String segment = rawSegment.trim();
+      if (segment.isBlank()) {
+        continue;
+      }
+      if (current == null || current.isMissingNode() || current.isNull()) {
+        return null;
+      }
+      current = current.path(segment);
+    }
+    return current;
+  }
+
+  private JsonNode readSchemaJson(AssignmentItemRecord assignment) {
+    Long schemaId = readMetadataSchemaVersionId(assignment.rewardRuleJson());
+    if (schemaId != null) {
+      return annotationRepository.findSchema(schemaId)
+          .map(schema -> readJson(schema.schemaJson()))
+          .orElse(readJson(assignment.fallbackSchemaJson()));
+    }
+    return readJson(assignment.fallbackSchemaJson());
+  }
+
+  private JsonNode buildRawPayload(AssignmentItemRecord assignment) {
+    JsonNode raw = readJson(assignment.rawPayloadJson());
+    ObjectNode node = raw != null && raw.isObject() ? (ObjectNode) raw.deepCopy() : objectMapper.createObjectNode();
+    if (!node.has("media_type")) {
+      node.put("media_type", blankToDefault(assignment.mediaType(), "text"));
+    }
+    if (assignment.contentMarkdown() != null && !assignment.contentMarkdown().isBlank()) {
+      node.put("content_markdown", assignment.contentMarkdown());
+    }
+    if (assignment.mediaUrl() != null && !assignment.mediaUrl().isBlank()) {
+      node.put("media_url", "[masked media url]");
+    }
+    return node;
+  }
+
+  private ArrayNode fieldsNode(JsonNode schema) {
+    JsonNode fields = schema.path("fields");
+    if (fields.isArray()) {
+      return (ArrayNode) fields;
+    }
+    return objectMapper.createArrayNode();
+  }
+
+  private JsonNode findField(ArrayNode fields, String fieldName) {
+    for (JsonNode field : fields) {
+      if (fieldName.equals(text(field, "fieldName", ""))) {
+        return field;
+      }
+    }
+    return null;
+  }
+
+  private boolean isSubmittableTarget(JsonNode field) {
+    return List.of("text", "single_choice", "multi_choice", "tags", "file", "json")
+        .contains(semanticType(field));
+  }
+
+  private String semanticType(JsonNode field) {
+    String semanticType = text(field, "semanticType", "");
+    if (!semanticType.isBlank()) {
+      return semanticType;
+    }
+    return switch (text(field, "kind", "")) {
+      case "single-choice" -> "single_choice";
+      case "multi-choice" -> "multi_choice";
+      case "tags" -> "tags";
+      case "json-editor" -> "json";
+      case "file-upload" -> "file";
+      case "llm-trigger" -> "llm";
+      case "show-item" -> "display";
+      case "group", "multi-tab" -> "layout";
+      default -> "text";
+    };
+  }
+
+  private List<String> readContextPaths(JsonNode componentProps) {
+    JsonNode paths = componentProps.path("contextPaths");
+    if (!paths.isArray()) {
+      return List.of();
+    }
+    List<String> result = new ArrayList<>();
+    for (JsonNode path : paths) {
+      if (path.isTextual() && !path.asText().isBlank()) {
+        result.add(path.asText().trim());
+      }
+    }
+    return result;
+  }
+
+  private String extractStreamDelta(String data) {
+    JsonNode root = readJson(data);
+    JsonNode delta = root.path("choices").path(0).path("delta").path("content");
+    if (delta.isTextual()) {
+      return delta.asText();
+    }
+    JsonNode messageContent = root.path("choices").path(0).path("message").path("content");
+    return messageContent.isTextual() ? messageContent.asText() : null;
+  }
+
+  private String extractJsonObject(String raw) {
+    String text = raw == null ? "" : raw.trim();
+    if (text.startsWith("```")) {
+      text = text.replaceFirst("^```(?:json)?", "").replaceFirst("```$", "").trim();
+    }
+    int start = text.indexOf('{');
+    int end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return text.substring(start, end + 1);
+    }
+    return text;
+  }
+
+  private JsonNode parseJsonObject(String json) {
+    try {
+      JsonNode node = objectMapper.readTree(json);
+      if (node != null && node.isObject()) {
+        return node;
+      }
+    } catch (JsonProcessingException exception) {
+      // 统一转成业务错误，避免把模型原文泄露到错误页。
+    }
+    throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LLM_TRIGGER_RESULT", "model result is not valid JSON");
+  }
+
+  private String resolveChatCompletionsUrl(String apiBaseUrl, boolean useFullUrl) {
+    String base = trimTrailingSlash(apiBaseUrl);
+    if (useFullUrl) {
+      if (base.endsWith("/chat/completions")) {
+        return base;
+      }
+      if (base.endsWith("/responses")) {
+        return base.substring(0, base.length() - "/responses".length()) + "/chat/completions";
+      }
+      return base + "/chat/completions";
+    }
+    return base + "/chat/completions";
+  }
+
+  private ObjectNode message(String role, String content) {
+    ObjectNode message = objectMapper.createObjectNode();
+    message.put("role", role);
+    message.put("content", content);
+    return message;
+  }
+
+  private void sendEvent(Writer writer, String event, String data) throws IOException {
+    writer.write("event: ");
+    writer.write(event);
+    writer.write("\n");
+    try (BufferedReader reader = new BufferedReader(new StringReader(data == null ? "" : data))) {
+      String line;
+      boolean wroteLine = false;
+      while ((line = reader.readLine()) != null) {
+        writer.write("data: ");
+        writer.write(line);
+        writer.write("\n");
+        wroteLine = true;
+      }
+      if (!wroteLine) {
+        writer.write("data: \n");
+      }
+    }
+    writer.write("\n");
+    writer.flush();
+  }
+
+  private void safeSendEvent(Writer writer, String event, String data) {
+    try {
+      sendEvent(writer, event, data);
+    } catch (IOException exception) {
+      // 客户端断开时不能再向响应流写入错误页。
+    }
+  }
+
+  private void auditTriggerCall(
+      AuthenticatedUser labeler,
+      AssignmentItemRecord assignment,
+      LlmTriggerContext context,
+      String modelName,
+      JsonNode result,
+      String status,
+      String error) {
+    ObjectNode snapshot = objectMapper.createObjectNode();
+    snapshot.put("taskId", assignment.taskId());
+    snapshot.put("itemId", assignment.itemId());
+    snapshot.put("triggerFieldName", context.triggerFieldName());
+    snapshot.put("targetFieldName", context.targetFieldName());
+    snapshot.put("targetSemanticType", context.targetSemanticType());
+    snapshot.put("promptPreview", truncate(context.promptTemplate(), MAX_PREVIEW_LENGTH));
+    snapshot.put("modelName", blankToDefault(modelName, ""));
+    snapshot.put("status", status);
+    if (result != null) {
+      snapshot.put("resultPreview", truncate(writeJson(result), MAX_PREVIEW_LENGTH));
+    }
+    if (error != null && !error.isBlank()) {
+      snapshot.put("errorPreview", truncate(error, MAX_PREVIEW_LENGTH));
+    }
+    ObjectNode root = objectMapper.createObjectNode();
+    root.put("entityType", WorkflowEntityType.ASSIGNMENT.value());
+    root.put("entityId", assignment.assignmentId());
+    root.put("action", "labeler_llm_trigger.generate");
+    root.put("operatorRole", "labeler");
+    root.set("snapshot", snapshot);
+    auditLogRepository.insert(
+        WorkflowEntityType.ASSIGNMENT,
+        assignment.assignmentId(),
+        labeler.id(),
+        "labeler",
+        "labeler_llm_trigger.generate",
+        null,
+        null,
+        "llm trigger " + status,
+        null,
+        null,
+        writeJson(root));
+  }
+
+  private void safeAuditTriggerCall(
+      AuthenticatedUser labeler,
+      AssignmentItemRecord assignment,
+      LlmTriggerContext context,
+      String modelName,
+      JsonNode result,
+      String status,
+      String error) {
+    try {
+      auditTriggerCall(labeler, assignment, context, modelName, result, status, error);
+    } catch (RuntimeException exception) {
+      // 审计失败不能影响已经开始的 SSE 响应。
+    }
+  }
+
+  private boolean isClientDisconnect(Throwable exception) {
+    Throwable current = exception;
+    while (current != null) {
+      if (current instanceof EOFException) {
+        return true;
+      }
+      String message = current.getMessage();
+      if (message != null) {
+        String normalized = message.toLowerCase(Locale.ROOT);
+        if (normalized.contains("broken pipe")
+            || normalized.contains("connection reset")
+            || normalized.contains("clientabortexception")
+            || normalized.contains("abort")) {
+          return true;
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  private Long readMetadataSchemaVersionId(String rewardRuleJson) {
+    if (rewardRuleJson == null || rewardRuleJson.isBlank()) {
+      return null;
+    }
+    JsonNode root = readJson(rewardRuleJson);
+    JsonNode value = root.path("schemaVersionId");
+    if (value.isNumber()) {
+      return value.longValue();
+    }
+    if (value.isTextual() && !value.asText().isBlank()) {
+      try {
+        return Long.parseLong(value.asText());
+      } catch (NumberFormatException exception) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private AuthenticatedUser requireLabeler(org.springframework.security.core.Authentication authentication) {
+    if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedUser principal)) {
+      throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "missing or invalid token");
+    }
+    if (!principal.roles().contains("labeler")) {
+      throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "labeler role is required");
+    }
+    return principal;
+  }
+
+  private JsonNode readJson(String json) {
+    if (json == null || json.isBlank()) {
+      return objectMapper.createObjectNode();
+    }
+    try {
+      return objectMapper.readTree(json);
+    } catch (JsonProcessingException exception) {
+      return objectMapper.createObjectNode();
+    }
+  }
+
+  private String writeJson(JsonNode node) {
+    try {
+      return objectMapper.writeValueAsString(node);
+    } catch (JsonProcessingException exception) {
+      throw new IllegalStateException("failed to serialize llm trigger json", exception);
+    }
+  }
+
+  private String text(JsonNode node, String field, String fallback) {
+    if (node == null || field == null || !node.has(field) || node.get(field).isNull()) {
+      return fallback;
+    }
+    JsonNode value = node.get(field);
+    return value.isTextual() ? value.asText() : value.toString();
+  }
+
+  private String formatDisplayValue(JsonNode node) {
+    if (node == null || node.isNull()) {
+      return "";
+    }
+    if (node.isTextual()) {
+      return node.asText();
+    }
+    return node.toString();
+  }
+
+  private String defaultUserPrompt() {
+    return "请根据当前题目和已填写答案，为目标字段生成一个候选值。";
+  }
+
+  private String blankToDefault(String value, String fallback) {
+    return value == null || value.isBlank() ? fallback : value;
+  }
+
+  private String trimToNull(String value) {
+    if (value == null) {
+      return null;
+    }
+    String trimmed = value.trim();
+    return trimmed.isBlank() ? null : trimmed;
+  }
+
+  private String truncateForContext(String value) {
+    return truncate(value, MAX_CONTEXT_TEXT_LENGTH);
+  }
+
+  private String truncate(String value, int maxLength) {
+    if (value == null) {
+      return null;
+    }
+    return value.length() <= maxLength ? value : value.substring(0, maxLength) + "...";
+  }
+
+  private String normalize(String value) {
+    return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+  }
+
+  private boolean isDeadlineExpired(LocalDateTime deadline) {
+    return deadline != null && deadline.isBefore(LocalDateTime.now());
+  }
+
+  private String trimTrailingSlash(String value) {
+    if (value == null) {
+      return "";
+    }
+    String result = value.trim();
+    while (result.endsWith("/") && result.length() > "https://".length()) {
+      result = result.substring(0, result.length() - 1);
+    }
+    return result;
+  }
+
+  private record LlmTriggerContext(
+      String triggerFieldName,
+      String targetFieldName,
+      JsonNode triggerField,
+      JsonNode targetField,
+      String targetSemanticType,
+      String promptTemplate,
+      List<String> contextPaths,
+      JsonNode rawPayload,
+      JsonNode currentAnswerJson,
+      ArrayNode fields) {}
+}

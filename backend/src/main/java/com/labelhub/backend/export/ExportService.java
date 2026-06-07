@@ -745,7 +745,7 @@ public class ExportService {
 
   private boolean isSubmittable(JsonNode field) {
     return switch (semanticType(field)) {
-      case "text", "single_choice", "multi_choice", "tags", "file", "json", "llm" -> true;
+      case "text", "single_choice", "multi_choice", "tags", "file", "json" -> true;
       default -> false;
     };
   }

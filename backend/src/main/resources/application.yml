@@ -21,6 +21,8 @@ spring:
       timeout: ${LABELHUB_REDIS_TIMEOUT:3s}
 
 labelhub:
+  prompts:
+    dir: ${LABELHUB_PROMPTS_DIR:agent/prompts}
   auth:
     token-ttl-seconds: ${LABELHUB_AUTH_TOKEN_TTL_SECONDS:7200}
     demo-users:

@@ -838,6 +838,8 @@ export default function AnswerPage() {
                   rawPayload={item.rawPayload}
                   value={answer}
                   readonly={renderReadonly}
+                  assignmentId={item.assignmentId}
+                  previewMode={false}
                   onChange={(next) => {
                     const nextAnswer = filterVisibleAnswer(renderFields, next);
                     // diff 出本次变更的字段名,根据 semanticType 决定走"立即保存"还是"节流保存"。

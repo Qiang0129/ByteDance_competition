@@ -24,12 +24,15 @@ public class AnnotationController {
 
   private final AnnotationService annotationService;
   private final LabelerAssistantService labelerAssistantService;
+  private final LabelerLlmTriggerService labelerLlmTriggerService;
 
   public AnnotationController(
       AnnotationService annotationService,
-      LabelerAssistantService labelerAssistantService) {
+      LabelerAssistantService labelerAssistantService,
+      LabelerLlmTriggerService labelerLlmTriggerService) {
     this.annotationService = annotationService;
     this.labelerAssistantService = labelerAssistantService;
+    this.labelerLlmTriggerService = labelerLlmTriggerService;
   }
 
   @GetMapping("/assignments/{assignmentId}/item")
@@ -102,5 +105,15 @@ public class AnnotationController {
     return ResponseEntity.ok()
         .contentType(MediaType.TEXT_EVENT_STREAM)
         .body(labelerAssistantService.stream(authentication, assignmentId, request));
+  }
+
+  @PostMapping("/labeler/assignments/{assignmentId}/llm-trigger")
+  public ResponseEntity<StreamingResponseBody> runLlmTrigger(
+      Authentication authentication,
+      @PathVariable long assignmentId,
+      @RequestBody(required = false) LlmTriggerRequest request) {
+    return ResponseEntity.ok()
+        .contentType(MediaType.TEXT_EVENT_STREAM)
+        .body(labelerLlmTriggerService.stream(authentication, assignmentId, request));
   }
 }

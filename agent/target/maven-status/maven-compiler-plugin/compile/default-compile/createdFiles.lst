@@ -4,6 +4,7 @@ com\labelhub\agent\client\BackendClient.class
 com\labelhub\agent\config\AgentProperties.class
 com\labelhub\agent\parser\AiReviewOutputParser.class
 com\labelhub\agent\config\AgentProperties$Worker.class
+com\labelhub\agent\prompt\PromptTemplateLoader.class
 com\labelhub\agent\model\AiReviewJobClaimResponse.class
 com\labelhub\agent\AgentApplication.class
 com\labelhub\agent\llm\ResponsesLlmClient$RuntimeConfig.class

@@ -19,7 +19,6 @@ export const SUBMITTABLE_KINDS = new Set<MaterialKind>([
   'rich-text',
   'file-upload',
   'json-editor',
-  'llm-trigger',
 ]);
 
 const ALLOWED_KINDS = new Set<MaterialKind>([

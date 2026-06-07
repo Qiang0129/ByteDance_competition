@@ -35,6 +35,27 @@ export interface AssistantStreamHandlers {
   signal?: AbortSignal;
 }
 
+export interface LlmTriggerRequest {
+  triggerFieldName: string;
+  targetFieldName: string;
+  currentAnswerJson: Record<string, unknown>;
+}
+
+export interface LlmTriggerStreamResult {
+  displayText: string;
+  normalizedValue: unknown;
+  targetFieldName: string;
+  targetSemanticType: string;
+}
+
+export interface LlmTriggerStreamHandlers {
+  onDelta: (delta: string) => void;
+  onResult: (result: LlmTriggerStreamResult) => void;
+  onDone?: () => void;
+  onError?: (error: Error) => void;
+  signal?: AbortSignal;
+}
+
 function toQueryString(query?: MarketTasksQuery): string {
   if (!query) return '';
   const search = new URLSearchParams();
@@ -240,6 +261,82 @@ export const labelerApi = {
       if (parsed?.event === 'error') throw new Error(parsed.data || 'AI 助手请求失败');
     }
     reader.releaseLock();
+  },
+
+  /** 字段级 LLM 触发组件:流式生成建议,最终由 Labeler 手动应用到目标字段 */
+  async streamLlmTrigger(
+    assignmentId: string,
+    payload: LlmTriggerRequest,
+    handlers: LlmTriggerStreamHandlers,
+  ): Promise<void> {
+    const response = await fetch(buildApiUrl(`/labeler/assignments/${assignmentId}/llm-trigger`), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: handlers.signal,
+    });
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') ?? '';
+      const errorPayload = contentType.includes('application/json')
+        ? await response.json()
+        : await response.text();
+      throw new ApiError(response.status, response.statusText, errorPayload);
+    }
+    if (!response.body) {
+      throw new Error('浏览器不支持流式响应');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let doneEventReceived = false;
+
+    const flushEvents = (chunk: string) => {
+      buffer += chunk;
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? '';
+      for (const rawEvent of events) {
+        const parsed = parseSseEvent(rawEvent);
+        if (!parsed) continue;
+        if (parsed.event === 'delta') {
+          handlers.onDelta(parsed.data);
+        } else if (parsed.event === 'result') {
+          handlers.onResult(JSON.parse(parsed.data) as LlmTriggerStreamResult);
+        } else if (parsed.event === 'done') {
+          doneEventReceived = true;
+          handlers.onDone?.();
+        } else if (parsed.event === 'error') {
+          const error = new Error(parsed.data || 'LLM 生成失败');
+          handlers.onError?.(error);
+          throw error;
+        }
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        flushEvents(decoder.decode(value, { stream: true }));
+        if (doneEventReceived) break;
+      }
+      const tail = decoder.decode();
+      if (!doneEventReceived && tail) flushEvents(tail);
+      if (!doneEventReceived && buffer.trim()) {
+        const parsed = parseSseEvent(buffer);
+        if (parsed?.event === 'delta') handlers.onDelta(parsed.data);
+        if (parsed?.event === 'result') {
+          handlers.onResult(JSON.parse(parsed.data) as LlmTriggerStreamResult);
+        }
+        if (parsed?.event === 'done') handlers.onDone?.();
+        if (parsed?.event === 'error') throw new Error(parsed.data || 'LLM 生成失败');
+      }
+    } finally {
+      reader.releaseLock();
+    }
   },
 };
 

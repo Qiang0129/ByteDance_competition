@@ -10,6 +10,7 @@ import com.labelhub.backend.ai.AiModelConfigRepository;
 import com.labelhub.backend.annotation.AnnotationRepository.AssignmentItemRecord;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
+import com.labelhub.backend.prompt.PromptTemplateLoader;
 import com.labelhub.backend.task.TaskDeadlineSettlementService;
 import com.labelhub.backend.workflow.AuditLogRepository;
 import com.labelhub.backend.workflow.WorkflowEntityType;
@@ -51,6 +52,7 @@ public class LabelerAssistantService {
   private final AuditLogRepository auditLogRepository;
   private final TaskDeadlineSettlementService deadlineSettlementService;
   private final ObjectMapper objectMapper;
+  private final PromptTemplateLoader promptTemplateLoader;
 
   public LabelerAssistantService(
       AnnotationRepository annotationRepository,
@@ -58,13 +60,15 @@ public class LabelerAssistantService {
       AiModelConfigCrypto crypto,
       AuditLogRepository auditLogRepository,
       TaskDeadlineSettlementService deadlineSettlementService,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      PromptTemplateLoader promptTemplateLoader) {
     this.annotationRepository = annotationRepository;
     this.modelConfigRepository = modelConfigRepository;
     this.crypto = crypto;
     this.auditLogRepository = auditLogRepository;
     this.deadlineSettlementService = deadlineSettlementService;
     this.objectMapper = objectMapper;
+    this.promptTemplateLoader = promptTemplateLoader;
   }
 
   public StreamingResponseBody stream(
@@ -183,29 +187,34 @@ public class LabelerAssistantService {
   }
 
   private String buildSystemPrompt(AssignmentItemRecord assignment) {
+    String template = promptTemplateLoader.loadOrDefault("labeler-assistant-system.md", defaultSystemPrompt());
+    return template
+        .replace("{{taskId}}", String.valueOf(assignment.taskId()))
+        .replace("{{taskTitle}}", blankToDefault(assignment.taskTitle(), "标注任务"))
+        .replace("{{itemId}}", String.valueOf(assignment.itemId()))
+        .replace("{{mediaType}}", blankToDefault(assignment.mediaType(), "text"))
+        .replace("{{rawPayloadSummary}}", truncateForContext(buildRawPayloadSummary(assignment)))
+        .replace("{{fieldsSummary}}", truncateForContext(buildFieldsSummary(assignment)));
+  }
+
+  private String defaultSystemPrompt() {
     return """
         你是 LabelHub 的标注员标注助手。你只能帮助标注员理解题目、Schema 字段和判断思路。
         禁止直接替标注员生成可提交的最终答案,禁止要求系统自动写入答案字段。
         回答必须简洁、可操作,并明确这是参考建议。
 
         当前任务:
-        - taskId: %s
-        - taskTitle: %s
-        - itemId: %s
-        - mediaType: %s
+        - taskId: {{taskId}}
+        - taskTitle: {{taskTitle}}
+        - itemId: {{itemId}}
+        - mediaType: {{mediaType}}
 
         原题数据与多模态文本:
-        %s
+        {{rawPayloadSummary}}
 
         表单字段:
-        %s
-        """.formatted(
-            assignment.taskId(),
-            blankToDefault(assignment.taskTitle(), "标注任务"),
-            assignment.itemId(),
-            blankToDefault(assignment.mediaType(), "text"),
-            truncateForContext(buildRawPayloadSummary(assignment)),
-            truncateForContext(buildFieldsSummary(assignment)));
+        {{fieldsSummary}}
+        """;
   }
 
   private String buildRawPayloadSummary(AssignmentItemRecord assignment) {

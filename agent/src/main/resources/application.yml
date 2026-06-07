@@ -8,6 +8,8 @@ spring:
     banner-mode: off
 
 labelhub:
+  prompts:
+    dir: ${LABELHUB_PROMPTS_DIR:agent/prompts}
   backend:
     base-url: ${LABELHUB_BACKEND_BASE_URL:http://localhost:8080}
     username: ${LABELHUB_AGENT_USERNAME:system_agent}

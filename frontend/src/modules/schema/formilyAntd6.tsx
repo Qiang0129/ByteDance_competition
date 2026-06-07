@@ -1,5 +1,7 @@
-import { ThunderboltOutlined } from '@ant-design/icons';
+import { CheckOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { useMemo, useState } from 'react';
 import {
+  Alert,
   App as AntdApp,
   Button,
   Checkbox,
@@ -11,7 +13,9 @@ import {
 } from 'antd';
 import { useField } from '@formily/react';
 
-import { formatDisplayValue, getValueByPath } from './schemaCompiler';
+import { labelerApi, type LlmTriggerStreamResult } from '../../api/labeler';
+import type { SchemaField } from '../../types/schema';
+import { formatDisplayValue, getValueByPath, isSubmittableField } from './schemaCompiler';
 
 type ChoiceOption = { value: string; label: string };
 
@@ -23,6 +27,19 @@ interface BaseControlProps {
   placeholder?: string;
   maxLength?: number;
   options?: ChoiceOption[];
+}
+
+interface LlmTriggerControlProps extends BaseControlProps {
+  fieldName?: string;
+  assignmentId?: string;
+  targetField?: string;
+  promptTemplate?: string;
+  contextPaths?: string[];
+  buttonText?: string;
+  allFields?: SchemaField[];
+  currentAnswerJson?: Record<string, unknown>;
+  previewMode?: boolean;
+  onApplyLlmResult?: (fieldName: string, value: unknown) => void;
 }
 
 export const formilyAntd6Components = {
@@ -215,27 +232,152 @@ function FileUpload(props: BaseControlProps) {
   );
 }
 
-function LlmTrigger(props: BaseControlProps) {
-  const { message } = AntdApp.useApp();
-  return (
-    <Space.Compact style={{ width: '100%' }}>
-      <Input
-        value={(props.value as string) ?? ''}
-        placeholder={props.placeholder ?? 'AI 生成结果会写入此字段'}
-        disabled={props.disabled || props.readOnly}
-        onChange={(event) => props.onChange?.(event.target.value)}
-      />
-      <Button
-        icon={<ThunderboltOutlined />}
-        disabled={props.disabled || props.readOnly}
-        onClick={() => {
-          message.info('LLM 触发组件已预留,真实模型调用将在 AI Agent 阶段接入。');
-        }}
-      >
-        生成
-      </Button>
-    </Space.Compact>
+function LlmTrigger(props: LlmTriggerControlProps) {
+  const { message, modal } = AntdApp.useApp();
+  const disabled = props.disabled || props.readOnly;
+  const targetFieldName = typeof props.targetField === 'string' ? props.targetField.trim() : '';
+  const targetField = useMemo(
+    () =>
+      (props.allFields ?? []).find(
+        (field) => field.fieldName === targetFieldName && isSubmittableField(field),
+      ),
+    [props.allFields, targetFieldName],
   );
+  const [generating, setGenerating] = useState(false);
+  const [streamText, setStreamText] = useState('');
+  const [result, setResult] = useState<LlmTriggerStreamResult | null>(null);
+  const [error, setError] = useState('');
+  const buttonText = typeof props.buttonText === 'string' && props.buttonText.trim()
+    ? props.buttonText.trim()
+    : '生成建议';
+
+  const handleGenerate = async () => {
+    if (disabled) return;
+    if (props.previewMode || !props.assignmentId) {
+      message.info('预览环境不调用模型');
+      return;
+    }
+    if (!props.fieldName || !targetFieldName || !targetField) {
+      message.warning('请先配置 LLM 触发组件的目标字段');
+      return;
+    }
+    setGenerating(true);
+    setStreamText('');
+    setResult(null);
+    setError('');
+    try {
+      await labelerApi.streamLlmTrigger(
+        props.assignmentId,
+        {
+          triggerFieldName: props.fieldName,
+          targetFieldName,
+          currentAnswerJson: props.currentAnswerJson ?? {},
+        },
+        {
+          onDelta: (delta) => setStreamText((prev) => prev + delta),
+          onResult: (nextResult) => {
+            setResult(nextResult);
+            setStreamText((prev) => nextResult.displayText || prev);
+          },
+          onError: (nextError) => setError(nextError.message || 'LLM 生成失败'),
+        },
+      );
+    } catch (nextError) {
+      const messageText = nextError instanceof Error ? nextError.message : 'LLM 生成失败';
+      setError(messageText);
+      message.error(messageText);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const applyResult = () => {
+    if (!result) return;
+    const apply = () => {
+      props.onApplyLlmResult?.(result.targetFieldName, result.normalizedValue);
+      message.success('已应用到目标字段');
+    };
+    if (hasAnswerValue(props.currentAnswerJson?.[result.targetFieldName])) {
+      modal.confirm({
+        title: '覆盖当前字段值?',
+        content: `目标字段「${targetField?.label ?? result.targetFieldName}」已有内容,应用后会覆盖当前值。`,
+        okText: '覆盖并应用',
+        cancelText: '取消',
+        onOk: apply,
+      });
+      return;
+    }
+    apply();
+  };
+
+  return (
+    <div className="lh-llm-trigger">
+      <Space wrap className="lh-llm-trigger-actions">
+        <Button
+          type="primary"
+          icon={<ThunderboltOutlined />}
+          loading={generating}
+          disabled={disabled}
+          onClick={() => void handleGenerate()}
+        >
+          {buttonText}
+        </Button>
+        {result && (
+          <Button icon={<CheckOutlined />} disabled={disabled} onClick={applyResult}>
+            应用到字段
+          </Button>
+        )}
+        {(streamText || result || error) && (
+          <Button
+            icon={<ReloadOutlined />}
+            disabled={disabled || generating}
+            onClick={() => void handleGenerate()}
+          >
+            重新生成
+          </Button>
+        )}
+      </Space>
+      <div className="lh-llm-trigger-meta">
+        目标字段:{' '}
+        {targetField ? `${targetField.label} (${targetField.fieldName})` : targetFieldName || '未配置'}
+      </div>
+      {props.previewMode && (
+        <Alert
+          className="lh-llm-trigger-alert"
+          type="info"
+          showIcon
+          message="预览环境不调用模型"
+        />
+      )}
+      {streamText && (
+        <div className="lh-llm-trigger-output">
+          <Typography.Text>{streamText}</Typography.Text>
+        </div>
+      )}
+      {result && (
+        <div className="lh-llm-trigger-normalized">
+          <Typography.Text type="secondary">
+            规范化值: {formatDisplayValue(result.normalizedValue)}
+          </Typography.Text>
+        </div>
+      )}
+      {error && (
+        <Alert
+          className="lh-llm-trigger-alert"
+          type="error"
+          showIcon
+          message={error}
+        />
+      )}
+    </div>
+  );
+}
+
+function hasAnswerValue(value: unknown) {
+  if (value == null) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
 }
 
 function GroupContainer() {

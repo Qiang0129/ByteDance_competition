@@ -1022,8 +1022,7 @@ public class AnnotationService {
         "multi_choice",
         "tags",
         "file",
-        "json",
-        "llm").contains(semanticType);
+        "json").contains(semanticType);
   }
 
   private void validateChoiceValue(String semanticType, JsonNode field, JsonNode value, String label) {

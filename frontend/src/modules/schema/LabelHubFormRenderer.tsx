@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Button, Space, Tabs } from 'antd';
 import { createForm, onFormValuesChange } from '@formily/core';
 import { createSchemaField, FormProvider } from '@formily/react';
 
 import type { SchemaField } from '../../types/schema';
 import type { SchemaTab } from '../../types/schema';
-import { compileToFormilySchema, normalizeSchemaTabs, resolveFieldTabId, resolveRuntimeRules } from './schemaCompiler';
+import {
+  compileToFormilySchema,
+  getValueByPath,
+  normalizeSchemaTabs,
+  resolveFieldTabId,
+  resolveRuntimeRules,
+} from './schemaCompiler';
 import { formilyAntd6Components } from './formilyAntd6';
 
 const SchemaFieldRenderer = createSchemaField({
@@ -19,6 +25,8 @@ export interface LabelHubFormRendererProps {
   value?: Record<string, unknown>;
   readonly?: boolean;
   submitText?: string;
+  assignmentId?: string;
+  previewMode?: boolean;
   onChange?: (value: Record<string, unknown>) => void;
   onSubmit?: (value: Record<string, unknown>) => void | Promise<void>;
 }
@@ -29,6 +37,8 @@ export function LabelHubFormRenderer({
   rawPayload,
   value,
   readonly,
+  assignmentId,
+  previewMode,
   submitText = '提交',
   onChange,
   onSubmit,
@@ -61,16 +71,40 @@ export function LabelHubFormRenderer({
     });
   }, [form, value]);
 
+  const applyLlmResult = useCallback(
+    (fieldName: string, nextValue: unknown) => {
+      suppressChangeRef.current = true;
+      form.setValues({ [fieldName]: nextValue }, 'merge');
+      const nextValues = {
+        ...(form.values as Record<string, unknown>),
+        [fieldName]: nextValue,
+      };
+      onChangeRef.current?.(nextValues);
+      queueMicrotask(() => {
+        suppressChangeRef.current = false;
+      });
+    },
+    [form],
+  );
+
   const formilySchema = useMemo(
     () =>
       compileToFormilySchema(schema, {
         rawPayload,
         values: value ?? {},
         readonly,
+        assignmentId,
+        previewMode,
+        allFields: schema,
+        onApplyLlmResult: applyLlmResult,
       }),
-    [schema, rawPayload, value, readonly],
+    [schema, rawPayload, value, readonly, assignmentId, previewMode, applyLlmResult],
   );
   const schemaTabs = useMemo(() => normalizeSchemaTabs(tabs), [tabs]);
+  const schemaRenderKey = useMemo(
+    () => buildSchemaRenderKey(schema, schemaTabs, rawPayload),
+    [schema, schemaTabs, rawPayload],
+  );
   const useTabbedRenderer = schemaTabs.length > 1;
   const tabbedSchemas = useMemo(
     () =>
@@ -81,11 +115,15 @@ export function LabelHubFormRenderer({
             rawPayload,
             values: value ?? {},
             readonly,
+            assignmentId,
+            previewMode,
+            allFields: schema,
+            onApplyLlmResult: applyLlmResult,
             fieldFilter: (field) => resolveFieldTabId(field, schemaTabs) === tab.id,
           }),
         ]),
       ) as Record<string, unknown>,
-    [schema, schemaTabs, rawPayload, value, readonly],
+    [schema, schemaTabs, rawPayload, value, readonly, assignmentId, previewMode, applyLlmResult],
   );
   const runtimeRuleKey = useMemo(
     () => JSON.stringify(resolveRuntimeRules(schema, value ?? {})),
@@ -103,14 +141,17 @@ export function LabelHubFormRenderer({
               label: tab.label,
               children: (
                 <SchemaFieldRenderer
-                  key={`${runtimeRuleKey}-${tab.id}`}
+                  key={`${schemaRenderKey}-${runtimeRuleKey}-${tab.id}`}
                   schema={tabbedSchemas[tab.id] as never}
                 />
               ),
             }))}
           />
         ) : (
-          <SchemaFieldRenderer key={runtimeRuleKey} schema={formilySchema as never} />
+          <SchemaFieldRenderer
+            key={`${schemaRenderKey}-${runtimeRuleKey}`}
+            schema={formilySchema as never}
+          />
         )}
         {onSubmit && (
           <Space className="lh-formily-actions">
@@ -126,4 +167,40 @@ export function LabelHubFormRenderer({
       </div>
     </FormProvider>
   );
+}
+
+function buildSchemaRenderKey(
+  fields: SchemaField[],
+  tabs: SchemaTab[],
+  rawPayload?: Record<string, unknown>,
+) {
+  return JSON.stringify({
+    tabs: tabs.map((tab) => ({
+      id: tab.id,
+      label: tab.label,
+    })),
+    fields: fields.map((field) => ({
+      id: field.id,
+      fieldName: field.fieldName,
+      kind: field.kind,
+      semanticType: field.semanticType,
+      label: field.label,
+      required: field.required,
+      placeholder: field.placeholder,
+      maxLength: field.maxLength,
+      options: (field.options ?? []).map((option) => ({
+        value: option.value,
+        label: option.label,
+      })),
+      sourcePath: field.sourcePath,
+      sourceValue: field.sourcePath ? getValueByPath(rawPayload, field.sourcePath) : undefined,
+      showText: field.showText,
+      helpText: field.helpText,
+      defaultValue: field.defaultValue,
+      componentProps: field.componentProps,
+      validators: field.validators,
+      reactions: field.reactions,
+      layout: field.layout,
+    })),
+  });
 }
