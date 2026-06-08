@@ -38,6 +38,126 @@ public class LabelerReturnedItemsRepository {
     return queryRecords(labelerId, source, limit, offset);
   }
 
+  public List<ReturnedItemTimelineRecord> listReviewTimeline(long assignmentId) {
+    return jdbcTemplate.query(
+        """
+        SELECT
+          timeline.annotation_id,
+          timeline.revision_no,
+          timeline.event_type,
+          timeline.submitted_at,
+          timeline.ai_finished_at,
+          timeline.ai_decision,
+          timeline.ai_total_score,
+          timeline.ai_comment,
+          timeline.human_decision,
+          timeline.human_reason,
+          timeline.human_reviewed_at,
+          timeline.human_reviewer_name
+        FROM (
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'submit' AS event_type,
+            COALESCE(an.submitted_at, an.created_at) AS submitted_at,
+            NULL AS ai_finished_at,
+            NULL AS ai_decision,
+            NULL AS ai_total_score,
+            NULL AS ai_comment,
+            NULL AS human_decision,
+            NULL AS human_reason,
+            NULL AS human_reviewed_at,
+            NULL AS human_reviewer_name,
+            0 AS event_order,
+            NULL AS human_round_no,
+            NULL AS human_review_id
+          FROM annotations an
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+
+          UNION ALL
+
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'ai_review' AS event_type,
+            NULL AS submitted_at,
+            COALESCE(aj.result_created_at, aj.finished_at) AS ai_finished_at,
+            aj.decision AS ai_decision,
+            aj.total_score AS ai_total_score,
+            aj.comment AS ai_comment,
+            NULL AS human_decision,
+            NULL AS human_reason,
+            NULL AS human_reviewed_at,
+            NULL AS human_reviewer_name,
+            1 AS event_order,
+            NULL AS human_round_no,
+            NULL AS human_review_id
+          FROM annotations an
+          JOIN ai_review_jobs aj ON aj.id = (
+            SELECT latest_job.id
+            FROM ai_review_jobs latest_job
+            WHERE latest_job.annotation_id = an.id
+              AND latest_job.decision IS NOT NULL
+            ORDER BY COALESCE(latest_job.result_created_at, latest_job.finished_at, latest_job.started_at, latest_job.created_at) DESC,
+              latest_job.id DESC
+            LIMIT 1
+          )
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+
+          UNION ALL
+
+          SELECT
+            an.id AS annotation_id,
+            an.revision_no,
+            'human_review' AS event_type,
+            NULL AS submitted_at,
+            NULL AS ai_finished_at,
+            NULL AS ai_decision,
+            NULL AS ai_total_score,
+            NULL AS ai_comment,
+            hr.decision AS human_decision,
+            hr.reason AS human_reason,
+            hr.created_at AS human_reviewed_at,
+            reviewer.name AS human_reviewer_name,
+            2 AS event_order,
+            hr.round_no AS human_round_no,
+            hr.id AS human_review_id
+          FROM annotations an
+          JOIN human_reviews hr ON hr.annotation_id = an.id
+          LEFT JOIN users reviewer ON reviewer.id = hr.reviewer_id
+          WHERE an.assignment_id = ?
+            AND an.status <> 'voided'
+        ) timeline
+        ORDER BY
+          timeline.revision_no ASC,
+          timeline.annotation_id ASC,
+          timeline.event_order ASC,
+          timeline.submitted_at ASC,
+          timeline.ai_finished_at ASC,
+          timeline.human_reviewed_at ASC,
+          timeline.human_round_no ASC,
+          timeline.human_review_id ASC
+        """,
+        (rs, rowNum) -> new ReturnedItemTimelineRecord(
+            rs.getLong("annotation_id"),
+            rs.getInt("revision_no"),
+            rs.getString("event_type"),
+            toLocalDateTime(rs.getTimestamp("submitted_at")),
+            toLocalDateTime(rs.getTimestamp("ai_finished_at")),
+            rs.getString("ai_decision"),
+            toDouble(rs.getObject("ai_total_score")),
+            rs.getString("ai_comment"),
+            rs.getString("human_decision"),
+            rs.getString("human_reason"),
+            toLocalDateTime(rs.getTimestamp("human_reviewed_at")),
+            rs.getString("human_reviewer_name")),
+        assignmentId,
+        assignmentId,
+        assignmentId);
+  }
+
   private List<ReturnedItemRecord> queryRecords(
       long labelerId,
       String source,
@@ -158,11 +278,11 @@ public class LabelerReturnedItemsRepository {
             COALESCE(review_reviewer.name, return_reviewer.name) AS reviewer_name,
             COALESCE(review_hr.round_no, return_hr.round_no) AS review_round_no,
             return_hr.reason AS human_reason,
-            air.decision AS ai_decision,
-            air.comment AS ai_comment,
-            air.total_score AS ai_total_score,
-            CAST(air.risk_flags_json AS CHAR) AS ai_risk_flags_json,
-            CAST(air.evidence_json AS CHAR) AS ai_evidence_json,
+            aj.decision AS ai_decision,
+            aj.comment AS ai_comment,
+            aj.total_score AS ai_total_score,
+            CAST(aj.risk_flags_json AS CHAR) AS ai_risk_flags_json,
+            CAST(aj.evidence_json AS CHAR) AS ai_evidence_json,
             (
               SELECT COUNT(*)
               FROM assignments ranked
@@ -189,7 +309,30 @@ public class LabelerReturnedItemsRepository {
               ELSE review_hr.created_at
             END AS reviewed_at,
             rework_an.submitted_at AS rework_submitted_at,
-            return_counts.return_count
+            return_counts.return_count,
+            CASE
+              WHEN rework_an.id IS NULL THEN EXISTS (
+                SELECT 1
+                FROM human_reviews escalate_hr
+                WHERE escalate_hr.annotation_id = returned_an.id
+                  AND LOWER(escalate_hr.decision) = 'escalate'
+                  AND (
+                    escalate_hr.created_at < return_hr.created_at
+                    OR (escalate_hr.created_at = return_hr.created_at AND escalate_hr.id < return_hr.id)
+                  )
+              )
+              WHEN review_hr.id IS NULL THEN FALSE
+              ELSE EXISTS (
+                SELECT 1
+                FROM human_reviews escalate_hr
+                WHERE escalate_hr.annotation_id = rework_an.id
+                  AND LOWER(escalate_hr.decision) = 'escalate'
+                  AND (
+                    escalate_hr.created_at < review_hr.created_at
+                    OR (escalate_hr.created_at = review_hr.created_at AND escalate_hr.id < review_hr.id)
+                  )
+              )
+            END AS review_after_escalate
           FROM assignments a
           JOIN tasks t ON t.id = a.task_id
           JOIN annotations returned_an ON returned_an.id = (
@@ -236,12 +379,12 @@ public class LabelerReturnedItemsRepository {
               AND LOWER(counted_hr.decision) IN ('return', 'returned', 'reject', 'rejected')
             GROUP BY counted_an.assignment_id
           ) return_counts ON return_counts.assignment_id = a.id
-          LEFT JOIN ai_review_results air ON air.id = (
-            SELECT latest_air.id
-            FROM ai_review_results latest_air
-            JOIN ai_review_jobs latest_aj ON latest_aj.id = latest_air.job_id
+          LEFT JOIN ai_review_jobs aj ON aj.id = (
+            SELECT latest_aj.id
+            FROM ai_review_jobs latest_aj
             WHERE latest_aj.annotation_id = COALESCE(rework_an.id, returned_an.id)
-            ORDER BY latest_air.created_at DESC, latest_air.id DESC
+              AND latest_aj.decision IS NOT NULL
+            ORDER BY latest_aj.result_created_at DESC, latest_aj.id DESC
             LIMIT 1
           )
           WHERE a.labeler_id = ?
@@ -263,15 +406,15 @@ public class LabelerReturnedItemsRepository {
             JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
             an.schema_version_id,
             an.revision_no,
-            COALESCE(air.created_at, an.updated_at, a.updated_at) AS updated_at,
+            COALESCE(aj.result_created_at, an.updated_at, a.updated_at) AS updated_at,
             NULL AS reviewer_name,
             NULL AS review_round_no,
             NULL AS human_reason,
-            air.decision AS ai_decision,
-            air.comment AS ai_comment,
-            air.total_score AS ai_total_score,
-            CAST(air.risk_flags_json AS CHAR) AS ai_risk_flags_json,
-            CAST(air.evidence_json AS CHAR) AS ai_evidence_json,
+            aj.decision AS ai_decision,
+            aj.comment AS ai_comment,
+            aj.total_score AS ai_total_score,
+            CAST(aj.risk_flags_json AS CHAR) AS ai_risk_flags_json,
+            CAST(aj.evidence_json AS CHAR) AS ai_evidence_json,
             (
               SELECT COUNT(*)
               FROM assignments ranked
@@ -285,7 +428,8 @@ public class LabelerReturnedItemsRepository {
             NULL AS review_result_reason,
             NULL AS reviewed_at,
             NULL AS rework_submitted_at,
-            0 AS return_count
+            0 AS return_count,
+            FALSE AS review_after_escalate
           FROM assignments a
           JOIN tasks t ON t.id = a.task_id
           JOIN annotations an ON an.id = (
@@ -296,18 +440,18 @@ public class LabelerReturnedItemsRepository {
             ORDER BY latest_an.revision_no DESC, latest_an.id DESC
             LIMIT 1
           )
-          JOIN ai_review_results air ON air.id = (
-            SELECT latest_air.id
-            FROM ai_review_results latest_air
-            JOIN ai_review_jobs latest_aj ON latest_aj.id = latest_air.job_id
+          JOIN ai_review_jobs aj ON aj.id = (
+            SELECT latest_aj.id
+            FROM ai_review_jobs latest_aj
             WHERE latest_aj.annotation_id = an.id
-            ORDER BY latest_air.created_at DESC, latest_air.id DESC
+              AND latest_aj.decision IS NOT NULL
+            ORDER BY latest_aj.result_created_at DESC, latest_aj.id DESC
             LIMIT 1
           )
           WHERE a.labeler_id = ?
             AND a.status NOT IN ('returned', 'accepted', 'voided')
             AND an.status = 'reviewing'
-            AND air.decision = 'REJECT'
+            AND aj.decision = 'REJECT'
             AND t.deleted_at IS NULL
             AND NOT EXISTS (
               SELECT 1
@@ -351,7 +495,8 @@ public class LabelerReturnedItemsRepository {
         rs.getString("review_result_reason"),
         toLocalDateTime(rs.getTimestamp("reviewed_at")),
         toLocalDateTime(rs.getTimestamp("rework_submitted_at")),
-        rs.getInt("return_count"));
+        rs.getInt("return_count"),
+        rs.getBoolean("review_after_escalate"));
   }
 
   private LocalDateTime toLocalDateTime(Timestamp timestamp) {
@@ -398,5 +543,20 @@ public class LabelerReturnedItemsRepository {
       String reviewResultReason,
       LocalDateTime reviewedAt,
       LocalDateTime reworkSubmittedAt,
-      int returnCount) {}
+      int returnCount,
+      boolean reviewAfterEscalate) {}
+
+  public record ReturnedItemTimelineRecord(
+      long annotationId,
+      int revisionNo,
+      String eventType,
+      LocalDateTime submittedAt,
+      LocalDateTime aiFinishedAt,
+      String aiDecision,
+      Double aiTotalScore,
+      String aiComment,
+      String humanDecision,
+      String humanReason,
+      LocalDateTime humanReviewedAt,
+      String humanReviewerName) {}
 }

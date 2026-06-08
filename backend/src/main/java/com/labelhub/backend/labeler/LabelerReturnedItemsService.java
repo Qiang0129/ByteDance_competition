@@ -6,12 +6,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.labeler.LabelerReturnedItemsRepository.ReturnedItemRecord;
+import com.labelhub.backend.labeler.LabelerReturnedItemsRepository.ReturnedItemTimelineRecord;
 import com.labelhub.backend.task.PageResponse;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -66,6 +69,9 @@ public class LabelerReturnedItemsService {
     String taskTitle = blankToDefault(record.taskTitle(), "标注任务");
     String taskType = blankToDefault(record.taskType(), "Annotation Task");
     int itemIndex = Math.max(record.itemIndex(), 1);
+    boolean finalReview = record.reviewAfterEscalate() && isFinalReviewDecision(record.reviewDecision());
+    int reviewStageNo = finalReview ? 3 : record.revisionNo();
+    String reviewStageLabel = finalReview ? "终审" : resolveReviewStageLabel(record.revisionNo());
     return new LabelerReturnedItemResponse(
         record.source(),
         humanReturn ? "人工审核打回" : "AI预打回（待人工审核）",
@@ -82,8 +88,8 @@ public class LabelerReturnedItemsService {
         formatDateTime(record.updatedAt()),
         nullToEmpty(record.reviewerName()),
         record.reviewRoundNo(),
-        record.revisionNo(),
-        resolveReviewStageLabel(record.revisionNo()),
+        reviewStageNo,
+        reviewStageLabel,
         nullToEmpty(record.humanReason()),
         nullToEmpty(record.aiDecision()),
         nullToEmpty(record.aiComment()),
@@ -98,10 +104,11 @@ public class LabelerReturnedItemsService {
         reworkStatus,
         resolveReworkStatusLabel(reworkStatus, record.returnCount()),
         nullToEmpty(record.reviewDecision()),
-        resolveReviewResultLabel(record.reviewDecision(), reworkStatus, record.returnCount()),
+        resolveReviewResultLabel(record.reviewDecision(), reworkStatus, record.returnCount(), finalReview),
         nullToEmpty(record.reviewResultReason()),
         formatDateTime(record.reviewedAt()),
-        formatDateTime(record.reworkSubmittedAt()));
+        formatDateTime(record.reworkSubmittedAt()),
+        buildReviewTimeline(record, reworkStatus));
   }
 
   private boolean resolveActionable(boolean humanReturn, String reworkStatus, boolean reworkOpen) {
@@ -137,8 +144,18 @@ public class LabelerReturnedItemsService {
     };
   }
 
-  private String resolveReviewResultLabel(String decision, String reworkStatus, int returnCount) {
+  private String resolveReviewResultLabel(
+      String decision,
+      String reworkStatus,
+      int returnCount,
+      boolean finalReview) {
     String normalized = decision == null ? "" : decision.trim().toLowerCase(Locale.ROOT);
+    if (finalReview && List.of("approve", "approved").contains(normalized)) {
+      return "终审通过";
+    }
+    if (finalReview && List.of("return", "returned", "reject", "rejected").contains(normalized)) {
+      return "终审驳回";
+    }
     if (REWORK_STATUS_RETURNED.equals(reworkStatus) && List.of("return", "returned", "reject", "rejected")
         .contains(normalized)) {
       return returnCount > 1 ? "再次打回" : "打回";
@@ -160,6 +177,120 @@ public class LabelerReturnedItemsService {
       return "复审";
     }
     return "终审";
+  }
+
+  private List<LabelerReturnedItemTimelineResponse> buildReviewTimeline(
+      ReturnedItemRecord item,
+      String reworkStatus) {
+    List<LabelerReturnedItemTimelineResponse> timeline = new ArrayList<>();
+    Map<Long, Boolean> escalatedAnnotations = new HashMap<>();
+    for (ReturnedItemTimelineRecord record : repository.listReviewTimeline(item.assignmentId())) {
+      String type = record.eventType();
+      if ("submit".equals(type)) {
+        timeline.add(new LabelerReturnedItemTimelineResponse(
+            "submit-" + record.annotationId(),
+            "submit",
+            record.revisionNo() <= 1 ? "提交" : "重新提交",
+            "我",
+            "SUBMIT",
+            null,
+            null,
+            null,
+            formatDateTime(record.submittedAt()),
+            "completed"));
+        continue;
+      }
+      if ("ai_review".equals(type)) {
+        String decision = normalizeDecision(record.aiDecision());
+        timeline.add(new LabelerReturnedItemTimelineResponse(
+            "ai-" + record.annotationId(),
+            "ai_review",
+            "AI预审（Revision " + record.revisionNo() + "）",
+            "AI Agent",
+            decision,
+            null,
+            record.aiComment(),
+            record.aiTotalScore(),
+            formatDateTime(record.aiFinishedAt()),
+            decision == null ? "pending" : "completed"));
+        continue;
+      }
+      if ("human_review".equals(type)) {
+        String decision = normalizeDecision(record.humanDecision());
+        boolean finalReview = Boolean.TRUE.equals(escalatedAnnotations.get(record.annotationId()))
+            && isFinalReviewDecision(decision);
+        timeline.add(new LabelerReturnedItemTimelineResponse(
+            "human-" + record.annotationId() + "-" + timeline.size(),
+            "human_review",
+            resolveHumanTimelineTitle(record.revisionNo(), decision, finalReview),
+            blankToDefault(record.humanReviewerName(), "Reviewer"),
+            decision,
+            record.humanReason(),
+            null,
+            null,
+            formatDateTime(record.humanReviewedAt()),
+            "completed"));
+        if ("ESCALATE".equals(decision)) {
+          escalatedAnnotations.put(record.annotationId(), true);
+        }
+      }
+    }
+    if (SOURCE_HUMAN_RETURN.equals(item.source()) && REWORK_STATUS_RETURNED.equals(reworkStatus)) {
+      String deadline = formatDateTime(item.resubmitDeadline());
+      timeline.add(new LabelerReturnedItemTimelineResponse(
+          "rework-" + item.assignmentId(),
+          "rework",
+          "修改中",
+          "我",
+          "REWORKING",
+          null,
+          deadline.isBlank() ? "当前可修改" : "返修截止:" + deadline,
+          null,
+          "",
+          "current"));
+    } else if ("AI_PRE_REJECT".equals(item.source())) {
+      timeline.add(new LabelerReturnedItemTimelineResponse(
+          "pending-human-" + item.annotationId(),
+          "human_review",
+          "等待人工审核",
+          "Reviewer",
+          "PENDING_HUMAN_REVIEW",
+          null,
+          "AI 预打回仍需等待人工审核裁决",
+          null,
+          "",
+          "current"));
+    }
+    return timeline;
+  }
+
+  private String resolveHumanTimelineTitle(int revisionNo, String decision, boolean finalReview) {
+    if (finalReview && ("APPROVE".equals(decision) || "APPROVED".equals(decision))) {
+      return "终审通过";
+    }
+    if (finalReview
+        && ("RETURN".equals(decision)
+            || "RETURNED".equals(decision)
+            || "REJECT".equals(decision)
+            || "REJECTED".equals(decision))) {
+      return "终审驳回";
+    }
+    if ("ESCALATE".equals(decision)) {
+      return revisionNo <= 1 ? "初审升级" : "复审升级";
+    }
+    return resolveReviewStageLabel(revisionNo);
+  }
+
+  private boolean isFinalReviewDecision(String decision) {
+    if (decision == null || decision.isBlank()) {
+      return false;
+    }
+    String normalized = decision.trim().toUpperCase(Locale.ROOT);
+    return List.of("APPROVE", "APPROVED", "RETURN", "RETURNED", "REJECT", "REJECTED").contains(normalized);
+  }
+
+  private String normalizeDecision(String decision) {
+    return decision == null || decision.isBlank() ? null : decision.trim().toUpperCase(Locale.ROOT);
   }
 
   private String normalizeSource(String source) {

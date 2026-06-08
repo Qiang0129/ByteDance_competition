@@ -290,12 +290,11 @@ public class LabelerOverviewRepository {
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         JOIN ai_review_jobs aj ON aj.annotation_id = an.id
-        JOIN ai_review_results air ON air.job_id = aj.id
         WHERE a.labeler_id = ?
           AND a.status <> 'voided'
           AND an.status <> 'voided'
           AND t.deleted_at IS NULL
-          AND air.decision = 'PASS'
+          AND aj.decision = 'PASS'
           AND COALESCE(an.submitted_at, an.created_at) >= CURRENT_DATE()
           AND COALESCE(an.submitted_at, an.created_at) < DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
         """,
@@ -325,11 +324,10 @@ public class LabelerOverviewRepository {
     AiDecisionCounts aiCounts = jdbcTemplate.queryForObject(
         """
         SELECT
-          SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END) AS ai_pass,
-          SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END) AS ai_need_human,
-          SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END) AS ai_reject
-        FROM ai_review_results air
-        JOIN ai_review_jobs aj ON aj.id = air.job_id
+          SUM(CASE WHEN aj.decision = 'PASS' THEN 1 ELSE 0 END) AS ai_pass,
+          SUM(CASE WHEN aj.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END) AS ai_need_human,
+          SUM(CASE WHEN aj.decision = 'REJECT' THEN 1 ELSE 0 END) AS ai_reject
+        FROM ai_review_jobs aj
         JOIN annotations an ON an.id = aj.annotation_id
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
@@ -337,7 +335,7 @@ public class LabelerOverviewRepository {
           AND a.status <> 'voided'
           AND an.status <> 'voided'
           AND t.deleted_at IS NULL
-          AND air.created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 7 DAY)
+          AND aj.result_created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 7 DAY)
         """,
         (rs, rowNum) -> new AiDecisionCounts(
             rs.getLong("ai_pass"),

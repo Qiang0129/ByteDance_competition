@@ -364,30 +364,37 @@ public class TaskRepository {
   }
 
   public void replaceLabelerAllocations(long taskId, List<UserAllocationRecord> allocations) {
-    replaceUserAllocations(taskId, allocations, "task_labeler_allocations", "labeler_id");
+    replaceUserAllocations(taskId, allocations, "labeler");
   }
 
   public void replaceReviewerAllocations(long taskId, List<UserAllocationRecord> allocations) {
-    replaceUserAllocations(taskId, allocations, "task_reviewer_allocations", "reviewer_id");
+    replaceUserAllocations(taskId, allocations, "reviewer");
   }
 
   public void replaceTaskReviewItems(long taskId, List<ItemReviewerRecord> records) {
-    jdbcTemplate.update("DELETE FROM task_review_items WHERE task_id = ?", taskId);
+    jdbcTemplate.update(
+        """
+        UPDATE task_items
+        SET reviewer_id = NULL
+        WHERE task_id = ?
+        """,
+        taskId);
     if (records == null || records.isEmpty()) {
       return;
     }
     jdbcTemplate.batchUpdate(
         """
-        INSERT INTO task_review_items (task_id, item_id, reviewer_id)
-        VALUES (?, ?, ?)
+        UPDATE task_items
+        SET reviewer_id = ?
+        WHERE task_id = ? AND item_id = ?
         """,
         new BatchPreparedStatementSetter() {
           @Override
           public void setValues(java.sql.PreparedStatement ps, int i) throws java.sql.SQLException {
             ItemReviewerRecord record = records.get(i);
-            ps.setLong(1, taskId);
-            ps.setLong(2, record.itemId());
-            ps.setLong(3, record.reviewerId());
+            ps.setLong(1, record.reviewerId());
+            ps.setLong(2, taskId);
+            ps.setLong(3, record.itemId());
           }
 
           @Override
@@ -398,11 +405,11 @@ public class TaskRepository {
   }
 
   public List<UserAllocationRecord> listLabelerAllocations(long taskId) {
-    return listUserAllocations(taskId, "task_labeler_allocations", "labeler_id");
+    return listUserAllocations(taskId, "labeler");
   }
 
   public List<UserAllocationRecord> listReviewerAllocations(long taskId) {
-    return listUserAllocations(taskId, "task_reviewer_allocations", "reviewer_id");
+    return listUserAllocations(taskId, "reviewer");
   }
 
   public long countClaimableItems(long taskId) {
@@ -680,21 +687,30 @@ public class TaskRepository {
   private void replaceUserAllocations(
       long taskId,
       List<UserAllocationRecord> allocations,
-      String table,
-      String userColumn) {
-    jdbcTemplate.update("DELETE FROM " + table + " WHERE task_id = ?", taskId);
+      String allocationRole) {
+    jdbcTemplate.update(
+        """
+        DELETE FROM task_user_allocations
+        WHERE task_id = ? AND allocation_role = ?
+        """,
+        taskId,
+        allocationRole);
     if (allocations == null || allocations.isEmpty()) {
       return;
     }
     jdbcTemplate.batchUpdate(
-        "INSERT INTO " + table + " (task_id, " + userColumn + ", item_count) VALUES (?, ?, ?)",
+        """
+        INSERT INTO task_user_allocations (task_id, allocation_role, user_id, item_count)
+        VALUES (?, ?, ?, ?)
+        """,
         new BatchPreparedStatementSetter() {
           @Override
           public void setValues(java.sql.PreparedStatement ps, int i) throws java.sql.SQLException {
             UserAllocationRecord allocation = allocations.get(i);
             ps.setLong(1, taskId);
-            ps.setLong(2, allocation.userId());
-            ps.setInt(3, allocation.itemCount());
+            ps.setString(2, allocationRole);
+            ps.setLong(3, allocation.userId());
+            ps.setInt(4, allocation.itemCount());
           }
 
           @Override
@@ -704,21 +720,23 @@ public class TaskRepository {
         });
   }
 
-  private List<UserAllocationRecord> listUserAllocations(long taskId, String table, String userColumn) {
+  private List<UserAllocationRecord> listUserAllocations(long taskId, String allocationRole) {
     return jdbcTemplate.query(
         """
-        SELECT a.%s AS user_id, u.username, u.name AS display_name, a.item_count
-        FROM %s a
-        JOIN users u ON u.id = a.%s
+        SELECT a.user_id, u.username, u.name AS display_name, a.item_count
+        FROM task_user_allocations a
+        JOIN users u ON u.id = a.user_id
         WHERE a.task_id = ?
+          AND a.allocation_role = ?
         ORDER BY u.name ASC, u.username ASC
-        """.formatted(userColumn, table, userColumn),
+        """,
         (rs, rowNum) -> new UserAllocationRecord(
             rs.getLong("user_id"),
             rs.getString("username"),
             rs.getString("display_name"),
             rs.getInt("item_count")),
-        taskId);
+        taskId,
+        allocationRole);
   }
 
   private void createSchemaVersion(

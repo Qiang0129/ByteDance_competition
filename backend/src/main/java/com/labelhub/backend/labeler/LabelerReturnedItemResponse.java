@@ -37,4 +37,5 @@ public record LabelerReturnedItemResponse(
     String reviewResultLabel,
     String reviewResultReason,
     String reviewedAt,
-    String reworkSubmittedAt) {}
+    String reworkSubmittedAt,
+    List<LabelerReturnedItemTimelineResponse> reviewTimeline) {}

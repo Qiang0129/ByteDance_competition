@@ -295,8 +295,8 @@ public class ExportRepository {
           latest_hr.decision AS human_decision,
           latest_hr.reason AS human_reason,
           latest_hr.created_at AS human_reviewed_at,
-          air.decision AS ai_decision,
-          air.total_score AS ai_total_score,
+          aj.decision AS ai_decision,
+          aj.total_score AS ai_total_score,
           an.submitted_at,
           an.updated_at AS annotation_updated_at,
           CAST(item.raw_payload AS CHAR) AS raw_payload_json,
@@ -325,7 +325,6 @@ public class ExportRepository {
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         WHERE t.id = ?
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'

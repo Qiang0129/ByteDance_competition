@@ -359,23 +359,21 @@ public class AiReviewRepository {
       Integer latencyMs) {
     jdbcTemplate.update(
         """
-        INSERT INTO ai_review_results
-          (job_id, scores_json, total_score, decision, comment, risk_flags_json,
-           evidence_json, prompt_snapshot, response_json, model_name, latency_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          scores_json = VALUES(scores_json),
-          total_score = VALUES(total_score),
-          decision = VALUES(decision),
-          comment = VALUES(comment),
-          risk_flags_json = VALUES(risk_flags_json),
-          evidence_json = VALUES(evidence_json),
-          prompt_snapshot = VALUES(prompt_snapshot),
-          response_json = VALUES(response_json),
-          model_name = VALUES(model_name),
-          latency_ms = VALUES(latency_ms)
+        UPDATE ai_review_jobs
+        SET scores_json = ?,
+            total_score = ?,
+            decision = ?,
+            comment = ?,
+            risk_flags_json = ?,
+            evidence_json = ?,
+            prompt_snapshot = ?,
+            response_json = ?,
+            model_name = ?,
+            latency_ms = ?,
+            result_created_at = COALESCE(result_created_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
         """,
-        jobId,
         scoresJson,
         totalScore,
         decision,
@@ -385,7 +383,8 @@ public class AiReviewRepository {
         promptSnapshot,
         responseJson,
         modelName,
-        latencyMs);
+        latencyMs,
+        jobId);
   }
 
   public int updateAnnotationStatus(long annotationId, String status) {
@@ -399,22 +398,22 @@ public class AiReviewRepository {
     return jdbcTemplate.query(
         """
         SELECT
-          air.id,
+          aj.id,
           aj.annotation_id,
-          CAST(air.scores_json AS CHAR) AS scores_json,
-          air.total_score,
-          air.decision,
-          air.comment,
-          CAST(air.risk_flags_json AS CHAR) AS risk_flags_json,
-          CAST(air.evidence_json AS CHAR) AS evidence_json,
-          air.prompt_snapshot,
-          CAST(air.response_json AS CHAR) AS response_json,
-          air.model_name,
-          air.latency_ms
-        FROM ai_review_results air
-        JOIN ai_review_jobs aj ON aj.id = air.job_id
+          CAST(aj.scores_json AS CHAR) AS scores_json,
+          aj.total_score,
+          aj.decision,
+          aj.comment,
+          CAST(aj.risk_flags_json AS CHAR) AS risk_flags_json,
+          CAST(aj.evidence_json AS CHAR) AS evidence_json,
+          aj.prompt_snapshot,
+          CAST(aj.response_json AS CHAR) AS response_json,
+          aj.model_name,
+          aj.latency_ms
+        FROM ai_review_jobs aj
         WHERE aj.annotation_id = ?
-        ORDER BY air.id DESC
+          AND aj.decision IS NOT NULL
+        ORDER BY aj.id DESC
         LIMIT 1
         """,
         this::mapResult,
@@ -438,14 +437,13 @@ public class AiReviewRepository {
           aj.available_at,
           aj.started_at,
           aj.finished_at,
-          air.decision,
-          air.total_score,
-          air.comment
+          aj.decision,
+          aj.total_score,
+          aj.comment
         FROM ai_review_jobs current_job
         JOIN annotations current_annotation ON current_annotation.id = current_job.annotation_id
         JOIN annotations an ON an.assignment_id = current_annotation.assignment_id
         JOIN ai_review_jobs aj ON aj.annotation_id = an.id
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         WHERE current_job.id = ?
           AND an.status <> 'voided'
         ORDER BY an.revision_no ASC, an.id ASC, aj.created_at ASC, aj.id ASC
@@ -530,8 +528,8 @@ public class AiReviewRepository {
           COALESCE(SUM(CASE WHEN aj.status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_jobs,
           COALESCE(SUM(CASE WHEN aj.status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_jobs,
           COALESCE(SUM(CASE WHEN aj.status = 'running' THEN 1 ELSE 0 END), 0) AS running_jobs,
-          COALESCE(SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_jobs,
-          COALESCE(SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_jobs,
+          COALESCE(SUM(CASE WHEN aj.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_jobs,
+          COALESCE(SUM(CASE WHEN aj.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_jobs,
           AVG(CASE
             WHEN aj.started_at IS NOT NULL AND aj.finished_at IS NOT NULL
             THEN TIMESTAMPDIFF(SECOND, aj.started_at, aj.finished_at)
@@ -541,7 +539,6 @@ public class AiReviewRepository {
         JOIN annotations an ON an.id = aj.annotation_id
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         WHERE t.deleted_at IS NULL
         """,
         (rs, rowNum) -> new DashboardKpiRecord(
@@ -559,16 +556,15 @@ public class AiReviewRepository {
     return jdbcTemplate.query(
         """
         SELECT
-          air.decision,
+          aj.decision,
           COUNT(*) AS decision_count
-        FROM ai_review_results air
-        JOIN ai_review_jobs aj ON aj.id = air.job_id
+        FROM ai_review_jobs aj
         JOIN annotations an ON an.id = aj.annotation_id
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         WHERE t.deleted_at IS NULL
-          AND air.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
-        GROUP BY air.decision
+          AND aj.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
+        GROUP BY aj.decision
         """,
         (rs, rowNum) -> new DashboardDecisionCountRecord(
             rs.getString("decision"),
@@ -579,21 +575,20 @@ public class AiReviewRepository {
     return jdbcTemplate.query(
         """
         SELECT
-          DATE(COALESCE(aj.finished_at, air.created_at)) AS review_date,
+          DATE(COALESCE(aj.finished_at, aj.result_created_at)) AS review_date,
           COUNT(*) AS total_count,
-          COALESCE(SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_count,
-          COALESCE(SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_count,
-          COALESCE(SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END), 0) AS reject_count
-        FROM ai_review_results air
-        JOIN ai_review_jobs aj ON aj.id = air.job_id
+          COALESCE(SUM(CASE WHEN aj.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_count,
+          COALESCE(SUM(CASE WHEN aj.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_count,
+          COALESCE(SUM(CASE WHEN aj.decision = 'REJECT' THEN 1 ELSE 0 END), 0) AS reject_count
+        FROM ai_review_jobs aj
         JOIN annotations an ON an.id = aj.annotation_id
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         WHERE t.deleted_at IS NULL
-          AND air.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
-          AND COALESCE(aj.finished_at, air.created_at) >= ?
-          AND COALESCE(aj.finished_at, air.created_at) < ?
-        GROUP BY DATE(COALESCE(aj.finished_at, air.created_at))
+          AND aj.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
+          AND COALESCE(aj.finished_at, aj.result_created_at) >= ?
+          AND COALESCE(aj.finished_at, aj.result_created_at) < ?
+        GROUP BY DATE(COALESCE(aj.finished_at, aj.result_created_at))
         ORDER BY review_date ASC
         """,
         (rs, rowNum) -> new DashboardDailyTrendRecord(
@@ -613,17 +608,16 @@ public class AiReviewRepository {
           t.id AS task_id,
           t.title AS task_title,
           COUNT(*) AS total_count,
-          COALESCE(SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_count,
-          COALESCE(SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_count,
-          COALESCE(SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END), 0) AS reject_count
-        FROM ai_review_results air
-        JOIN ai_review_jobs aj ON aj.id = air.job_id
+          COALESCE(SUM(CASE WHEN aj.decision = 'PASS' THEN 1 ELSE 0 END), 0) AS pass_count,
+          COALESCE(SUM(CASE WHEN aj.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END), 0) AS need_human_count,
+          COALESCE(SUM(CASE WHEN aj.decision = 'REJECT' THEN 1 ELSE 0 END), 0) AS reject_count
+        FROM ai_review_jobs aj
         JOIN annotations an ON an.id = aj.annotation_id
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         WHERE t.deleted_at IS NULL
           AND aj.status = 'succeeded'
-          AND air.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
+          AND aj.decision IN ('PASS', 'NEED_HUMAN_REVIEW', 'REJECT')
         GROUP BY t.id, t.title
         ORDER BY total_count DESC, t.id DESC
         LIMIT 10
@@ -696,14 +690,13 @@ public class AiReviewRepository {
           aj.finished_at,
           aj.created_at,
           aj.updated_at,
-          air.decision,
-          air.total_score
+          aj.decision,
+          aj.total_score
         FROM ai_review_jobs aj
         JOIN annotations an ON an.id = aj.annotation_id
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         LEFT JOIN ai_review_rules r ON r.id = aj.rule_id
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         """ + whereClause + " " + suffix;
     return jdbcTemplate.query(sql, this::mapJob, args.toArray());
   }

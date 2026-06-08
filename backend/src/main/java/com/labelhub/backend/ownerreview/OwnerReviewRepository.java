@@ -221,10 +221,10 @@ public class OwnerReviewRepository {
         """
         SELECT
           SUM(CASE
-            WHEN air.decision = 'PASS'
+            WHEN aj.decision = 'PASS'
              AND LOWER(latest_hr.decision) IN ('approve', 'approved', 'revise', 'revised')
             THEN 1
-            WHEN air.decision = 'REJECT'
+            WHEN aj.decision = 'REJECT'
              AND LOWER(latest_hr.decision) IN ('return', 'returned', 'reject', 'rejected')
             THEN 1
             ELSE 0
@@ -235,12 +235,11 @@ public class OwnerReviewRepository {
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         JOIN ai_review_jobs aj ON aj.annotation_id = an.id
-        JOIN ai_review_results air ON air.job_id = aj.id
         WHERE t.owner_id = ?
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
-          AND air.decision IN ('PASS', 'REJECT')
+          AND aj.decision IN ('PASS', 'REJECT')
         """ + allocatedReviewerFilter("latest_hr", "a") + """
           AND latest_hr.id = (
             SELECT hr2.id
@@ -277,15 +276,15 @@ public class OwnerReviewRepository {
             END
           )), 0) AS avg_duration_sec,
           SUM(CASE
-            WHEN air.decision = 'PASS'
+            WHEN aj.decision = 'PASS'
              AND LOWER(hr.decision) IN ('approve', 'approved', 'revise', 'revised')
             THEN 1
-            WHEN air.decision = 'REJECT'
+            WHEN aj.decision = 'REJECT'
              AND LOWER(hr.decision) IN ('return', 'returned', 'reject', 'rejected')
             THEN 1
             ELSE 0
           END) AS consistency_matched,
-          SUM(CASE WHEN air.decision IN ('PASS', 'REJECT') THEN 1 ELSE 0 END) AS consistency_total
+          SUM(CASE WHEN aj.decision IN ('PASS', 'REJECT') THEN 1 ELSE 0 END) AS consistency_total
         FROM human_reviews hr
         JOIN users reviewer ON reviewer.id = hr.reviewer_id
         JOIN annotations an ON an.id = hr.annotation_id
@@ -298,7 +297,6 @@ public class OwnerReviewRepository {
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         WHERE t.owner_id = ?
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
@@ -441,9 +439,7 @@ public class OwnerReviewRepository {
         """
         SELECT u.id AS reviewer_id, u.name AS reviewer_name
         FROM users u
-        JOIN user_roles ur ON ur.user_id = u.id
-        JOIN roles r ON r.id = ur.role_id
-        WHERE r.role_code = 'reviewer'
+        WHERE JSON_CONTAINS(COALESCE(u.roles_json, JSON_ARRAY()), JSON_QUOTE('reviewer'))
           AND u.status = 'active'
           AND u.deleted_at IS NULL
         GROUP BY u.id, u.name
@@ -529,7 +525,7 @@ public class OwnerReviewRepository {
             reviewer.name AS reviewer_name,
             COALESCE(hr_counts.review_count, 0) AS review_count,
             COALESCE(hr_counts.dispute_count, 0) AS dispute_count,
-            air.decision AS ai_decision
+            aj.decision AS ai_decision
           FROM annotations an
           JOIN assignments a ON a.id = an.assignment_id
           JOIN tasks t ON t.id = a.task_id
@@ -564,7 +560,6 @@ public class OwnerReviewRepository {
             ORDER BY latest_job.finished_at DESC, latest_job.id DESC
             LIMIT 1
           )
-          LEFT JOIN ai_review_results air ON air.job_id = aj.id
           WHERE t.owner_id = ?
             AND t.id = ?
             AND t.deleted_at IS NULL
@@ -783,22 +778,24 @@ public class OwnerReviewRepository {
     return """
           AND EXISTS (
             SELECT 1
-            FROM task_reviewer_allocations tra
-            WHERE tra.task_id = %s.task_id
-              AND tra.reviewer_id = %s.reviewer_id
+            FROM task_user_allocations tua
+            WHERE tua.task_id = %s.task_id
+              AND tua.allocation_role = 'reviewer'
+              AND tua.user_id = %s.reviewer_id
           )
           AND (
             NOT EXISTS (
               SELECT 1
-              FROM task_review_items tri_any
-              WHERE tri_any.task_id = %s.task_id
+              FROM task_items ti_any
+              WHERE ti_any.task_id = %s.task_id
+                AND ti_any.reviewer_id IS NOT NULL
             )
             OR EXISTS (
               SELECT 1
-              FROM task_review_items tri
-              WHERE tri.task_id = %s.task_id
-                AND tri.item_id = %s.item_id
-                AND tri.reviewer_id = %s.reviewer_id
+              FROM task_items ti
+              WHERE ti.task_id = %s.task_id
+                AND ti.item_id = %s.item_id
+                AND ti.reviewer_id = %s.reviewer_id
             )
           )
         """.formatted(

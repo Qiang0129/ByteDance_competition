@@ -158,15 +158,16 @@ public class AssignmentAttachmentRepository {
           AND (
             NOT EXISTS (
               SELECT 1
-              FROM task_review_items tri_any
-              WHERE tri_any.task_id = a.task_id
+              FROM task_items ti_any
+              WHERE ti_any.task_id = a.task_id
+                AND ti_any.reviewer_id IS NOT NULL
             )
             OR EXISTS (
               SELECT 1
-              FROM task_review_items tri
-              WHERE tri.task_id = a.task_id
-                AND tri.item_id = a.item_id
-                AND tri.reviewer_id = ?
+              FROM task_items ti
+              WHERE ti.task_id = a.task_id
+                AND ti.item_id = a.item_id
+                AND ti.reviewer_id = ?
             )
           )
         """,

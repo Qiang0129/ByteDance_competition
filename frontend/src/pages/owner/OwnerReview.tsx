@@ -75,6 +75,8 @@ const annotationStatusMeta: Record<
   disputed: { label: '争议中', color: 'magenta' },
 };
 
+const MOBILE_REVIEW_DETAIL_PAGE_SIZE = 10;
+
 /** 把 0-1 的小数格式化为百分比文本 */
 function pct(value: number, fractionDigits = 1) {
   if (Number.isNaN(value) || !Number.isFinite(value)) return '0%';
@@ -131,6 +133,22 @@ export default function OwnerReview() {
   const reviewerWorkloadMeasureRef = useRef<HTMLDivElement | null>(null);
   const auditLogMeasureRef = useRef<HTMLDivElement | null>(null);
   const [auditLogCardHeight, setAuditLogCardHeight] = useState<number | null>(null);
+  const [isMobileAuditInteraction, setIsMobileAuditInteraction] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mql = window.matchMedia('(max-width: 768px)');
+    const syncMobileAuditInteraction = () => {
+      setIsMobileAuditInteraction(mql.matches);
+    };
+    syncMobileAuditInteraction();
+    mql.addEventListener('change', syncMobileAuditInteraction);
+    return () => {
+      mql.removeEventListener('change', syncMobileAuditInteraction);
+    };
+  }, []);
 
   useEffect(() => {
     const taskTableEl = taskTableCardMeasureRef.current;
@@ -270,9 +288,14 @@ export default function OwnerReview() {
     void loadAuditDrawer(page);
   };
 
-  const loadAuditItemTimeline = useCallback(
+  const ensureAuditItemTimeline = useCallback(
     async (entry: ReviewAuditLogEntry, force = false) => {
-      if (!force && (auditItemTimelineCache[entry.logId] || auditItemTimelineLoading[entry.logId])) return;
+      if (!force && auditItemTimelineCache[entry.logId]) {
+        return auditItemTimelineCache[entry.logId];
+      }
+      if (!force && auditItemTimelineLoading[entry.logId]) {
+        return null;
+      }
       setAuditItemTimelineLoading((prev) => ({ ...prev, [entry.logId]: true }));
       setAuditItemTimelineErrors((prev) => {
         const next = { ...prev };
@@ -282,11 +305,13 @@ export default function OwnerReview() {
       try {
         const res = await ownerReviewApi.getAuditLogItemTimeline(entry.logId);
         setAuditItemTimelineCache((prev) => ({ ...prev, [entry.logId]: res }));
+        return res;
       } catch (error) {
         setAuditItemTimelineErrors((prev) => ({
           ...prev,
           [entry.logId]: getApiErrorMessage(error, '加载同题日志失败'),
         }));
+        throw error;
       } finally {
         setAuditItemTimelineLoading((prev) => ({
           ...prev,
@@ -296,6 +321,37 @@ export default function OwnerReview() {
     },
     [auditItemTimelineCache, auditItemTimelineLoading],
   );
+
+  const previewAuditItemTimeline = useCallback(
+    (entry: ReviewAuditLogEntry) => {
+      void ensureAuditItemTimeline(entry).catch(() => undefined);
+    },
+    [ensureAuditItemTimeline],
+  );
+
+  const retryAuditItemTimeline = useCallback(
+    (entry: ReviewAuditLogEntry) => {
+      void ensureAuditItemTimeline(entry, true).catch(() => undefined);
+    },
+    [ensureAuditItemTimeline],
+  );
+
+  const openAuditItemDrawerFromEntry = useCallback(
+    async (entry: ReviewAuditLogEntry) => {
+      try {
+        const timeline = await ensureAuditItemTimeline(entry);
+        if (timeline) {
+          setActiveAuditItemTimeline(timeline);
+          setAuditItemDrawerOpen(true);
+        }
+      } catch (error) {
+        message.error(getApiErrorMessage(error, '加载同题日志失败'));
+      }
+    },
+    [ensureAuditItemTimeline, message],
+  );
+
+  const auditEntryInteractionMode = isMobileAuditInteraction ? 'drawer' : 'popover';
 
   const openAuditItemDrawer = (timeline: ReviewAuditItemTimeline) => {
     setActiveAuditItemTimeline(timeline);
@@ -450,7 +506,7 @@ export default function OwnerReview() {
   ];
 
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack owner-review-page">
       {/* 标题 + 阶段标识 */}
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
@@ -572,8 +628,10 @@ export default function OwnerReview() {
                 timelineCache={auditItemTimelineCache}
                 timelineLoading={auditItemTimelineLoading}
                 timelineErrors={auditItemTimelineErrors}
-                onPreviewTimeline={loadAuditItemTimeline}
-                onRetryTimeline={(entry) => void loadAuditItemTimeline(entry, true)}
+                interactionMode={auditEntryInteractionMode}
+                onPreviewTimeline={previewAuditItemTimeline}
+                onRetryTimeline={retryAuditItemTimeline}
+                onOpenEntry={openAuditItemDrawerFromEntry}
                 onOpenTimeline={openAuditItemDrawer}
               />
             </div>
@@ -605,8 +663,10 @@ export default function OwnerReview() {
         timelineCache={auditItemTimelineCache}
         timelineLoading={auditItemTimelineLoading}
         timelineErrors={auditItemTimelineErrors}
-        onPreviewTimeline={loadAuditItemTimeline}
-        onRetryTimeline={(entry) => void loadAuditItemTimeline(entry, true)}
+        interactionMode={auditEntryInteractionMode}
+        onPreviewTimeline={previewAuditItemTimeline}
+        onRetryTimeline={retryAuditItemTimeline}
+        onOpenEntry={openAuditItemDrawerFromEntry}
         onOpenTimeline={openAuditItemDrawer}
       />
 
@@ -716,7 +776,12 @@ function ReviewerWorkloadCard({
 }) {
   const list = overview?.reviewerWorkloads ?? [];
   return (
-    <Card title="审核员当日负载" loading={loading} bordered={false}>
+    <Card
+      title="审核员当日负载"
+      className="owner-review-workload-card"
+      loading={loading}
+      bordered={false}
+    >
       {list.length === 0 ? (
         <Empty description="暂无审核员数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       ) : (
@@ -736,6 +801,7 @@ function ReviewerWorkloadCard({
                 title={`平均处理 ${Math.round(w.avgDurationSec)} 秒 / 条`}
               >
                 <Progress
+                  className="owner-review-workload-progress"
                   type="circle"
                   size={48}
                   percent={Math.round(w.consistencyRate * 100)}
@@ -754,12 +820,16 @@ function ReviewerWorkloadCard({
 
 /* =============== 审计日志侧栏 =============== */
 
+type AuditEntryInteractionMode = 'popover' | 'drawer';
+
 type AuditTimelineControls = {
   timelineCache: Record<string, ReviewAuditItemTimeline>;
   timelineLoading: Record<string, boolean>;
   timelineErrors: Record<string, string>;
+  interactionMode: AuditEntryInteractionMode;
   onPreviewTimeline: (entry: ReviewAuditLogEntry) => void | Promise<void>;
   onRetryTimeline: (entry: ReviewAuditLogEntry) => void;
+  onOpenEntry: (entry: ReviewAuditLogEntry) => void | Promise<void>;
   onOpenTimeline: (timeline: ReviewAuditItemTimeline) => void;
 };
 
@@ -773,8 +843,10 @@ function AuditLogCard({
   timelineCache,
   timelineLoading,
   timelineErrors,
+  interactionMode,
   onPreviewTimeline,
   onRetryTimeline,
+  onOpenEntry,
   onOpenTimeline,
 }: {
   entries: ReviewAuditLogEntry[];
@@ -789,8 +861,9 @@ function AuditLogCard({
       className="owner-review-audit-card"
       title="审计日志"
       extra={
-        <Space size={6}>
+        <Space size={6} className="owner-review-audit-card-extra">
           <Select
+            className="owner-review-audit-reviewer-select"
             size="small"
             value={reviewerId}
             onChange={onReviewerChange}
@@ -805,6 +878,7 @@ function AuditLogCard({
           />
           <Tooltip title="查看全部日志">
             <Button
+              className="owner-review-audit-open-all"
               size="small"
               icon={<FileSearchOutlined />}
               aria-label="查看全部日志"
@@ -832,8 +906,10 @@ function AuditLogCard({
                 timeline={timelineCache[entry.logId]}
                 loading={!!timelineLoading[entry.logId]}
                 error={timelineErrors[entry.logId]}
+                interactionMode={interactionMode}
                 onPreview={() => void onPreviewTimeline(entry)}
                 onRetry={() => onRetryTimeline(entry)}
+                onOpenEntry={() => void onOpenEntry(entry)}
                 onOpenTimeline={onOpenTimeline}
               />
             ),
@@ -858,8 +934,10 @@ function AuditLogDrawer({
   timelineCache,
   timelineLoading,
   timelineErrors,
+  interactionMode,
   onPreviewTimeline,
   onRetryTimeline,
+  onOpenEntry,
   onOpenTimeline,
 }: {
   open: boolean;
@@ -923,9 +1001,11 @@ function AuditLogDrawer({
                     timeline={timelineCache[entry.logId]}
                     loading={!!timelineLoading[entry.logId]}
                     error={timelineErrors[entry.logId]}
+                    interactionMode={interactionMode}
                     rowClassName="owner-review-audit-row--drawer"
                     onPreview={() => void onPreviewTimeline(entry)}
                     onRetry={() => onRetryTimeline(entry)}
+                    onOpenEntry={() => void onOpenEntry(entry)}
                     onOpenTimeline={onOpenTimeline}
                   />
                 ),
@@ -1069,21 +1149,79 @@ function AuditEntryLineWithTimeline({
   timeline,
   loading,
   error,
+  interactionMode,
   rowClassName,
   onPreview,
   onRetry,
+  onOpenEntry,
   onOpenTimeline,
 }: {
   entry: ReviewAuditLogEntry;
   timeline?: ReviewAuditItemTimeline;
   loading: boolean;
   error?: string;
+  interactionMode: AuditEntryInteractionMode;
   rowClassName?: string;
   onPreview: () => void;
   onRetry: () => void;
+  onOpenEntry: () => void;
   onOpenTimeline: (timeline: ReviewAuditItemTimeline) => void;
 }) {
   const title = entry.itemTitle || fallbackAuditItemTitle(entry);
+  const rowClassNames = [
+    'owner-review-audit-row',
+    interactionMode === 'drawer' ? 'owner-review-audit-row--clickable' : '',
+    rowClassName ?? '',
+  ].filter(Boolean).join(' ');
+  const row = (
+    <div
+      className={rowClassNames}
+      tabIndex={0}
+      role={interactionMode === 'drawer' ? 'button' : undefined}
+      aria-label={interactionMode === 'drawer' ? `查看${prettifyAction(entry.action)}同题日志` : undefined}
+      onClick={interactionMode === 'drawer' ? onOpenEntry : undefined}
+      onKeyDown={
+        interactionMode === 'drawer'
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onOpenEntry();
+              }
+            }
+          : undefined
+      }
+    >
+      <span className="owner-review-audit-action">
+        {prettifyAction(entry.action)}
+      </span>
+      <Text type="secondary" className="owner-review-audit-meta">
+        {entry.operatorName}
+        <Text type="secondary" style={{ margin: '0 4px' }}>
+          ·
+        </Text>
+        {title}
+      </Text>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        {entry.fromState && entry.toState && (
+          <>
+            {entry.fromState} → {entry.toState}
+            <Text type="secondary" style={{ margin: '0 4px' }}>
+              ·
+            </Text>
+          </>
+        )}
+        {entry.occurredAt}
+      </Text>
+      {entry.reason && (
+        <div className="owner-review-audit-reason">原因:{entry.reason}</div>
+      )}
+    </div>
+  );
+
+  if (interactionMode === 'drawer') {
+    return row;
+  }
+
   return (
     <Popover
       trigger="hover"
@@ -1103,35 +1241,7 @@ function AuditEntryLineWithTimeline({
         />
       }
     >
-      <div
-        className={`owner-review-audit-row${rowClassName ? ` ${rowClassName}` : ''}`}
-        tabIndex={0}
-      >
-        <span className="owner-review-audit-action">
-          {prettifyAction(entry.action)}
-        </span>
-        <Text type="secondary" className="owner-review-audit-meta">
-          {entry.operatorName}
-          <Text type="secondary" style={{ margin: '0 4px' }}>
-            ·
-          </Text>
-          {title}
-        </Text>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {entry.fromState && entry.toState && (
-            <>
-              {entry.fromState} → {entry.toState}
-              <Text type="secondary" style={{ margin: '0 4px' }}>
-                ·
-              </Text>
-            </>
-          )}
-          {entry.occurredAt}
-        </Text>
-        {entry.reason && (
-          <div className="owner-review-audit-reason">原因:{entry.reason}</div>
-        )}
-      </div>
+      {row}
     </Popover>
   );
 }
@@ -1233,6 +1343,7 @@ function AuditItemTimelineDrawer({
       open={open}
       onClose={onClose}
       width={Math.min(720, window.innerWidth * 0.9)}
+      rootClassName="owner-review-audit-item-drawer"
       title={
         <Space direction="vertical" size={2}>
           <Text strong>{timeline?.itemTitle ?? '同题日志详情'}</Text>
@@ -1377,6 +1488,21 @@ function TaskDetailDrawer({
   onRetry?: () => void;
   onClose: () => void;
 }) {
+  const [mobileVisibleAnnotationCount, setMobileVisibleAnnotationCount] = useState(
+    MOBILE_REVIEW_DETAIL_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setMobileVisibleAnnotationCount(MOBILE_REVIEW_DETAIL_PAGE_SIZE);
+  }, [task?.taskId]);
+
+  const sortedAnnotations = useMemo(
+    () => [...annotations].sort((a, b) => (a.itemIndex || 0) - (b.itemIndex || 0)),
+    [annotations],
+  );
+  const mobileAnnotations = sortedAnnotations.slice(0, mobileVisibleAnnotationCount);
+  const hasMoreMobileAnnotations = mobileVisibleAnnotationCount < sortedAnnotations.length;
+
   // 只读条目表
   const columns: ColumnsType<OwnerReviewAnnotation> = [
     {
@@ -1471,9 +1597,10 @@ function TaskDetailDrawer({
       open={!!task}
       onClose={onClose}
       width={Math.min(960, window.innerWidth * 0.9)}
+      rootClassName="owner-review-task-detail-drawer"
       title={
         task ? (
-          <Space direction="vertical" size={2}>
+          <Space direction="vertical" size={2} className="owner-review-task-detail-title">
             <Text strong>{task.taskTitle}</Text>
             <Text type="secondary" style={{ fontSize: 12 }}>
               {task.taskId}
@@ -1522,6 +1649,7 @@ function TaskDetailDrawer({
 
           {/* 条目明细表 */}
           <Card
+            className="owner-review-annotation-card"
             size="small"
             title="条目明细"
             extra={
@@ -1532,6 +1660,7 @@ function TaskDetailDrawer({
             bordered={false}
           >
             <Table<OwnerReviewAnnotation>
+              className="owner-review-annotation-table"
               rowKey="annotationId"
               columns={columns}
               dataSource={annotations}
@@ -1544,6 +1673,101 @@ function TaskDetailDrawer({
                 pageSizeOptions: ['10', '20', '50'],
               }}
             />
+            <div className="owner-review-annotation-mobile-list">
+              {loading ? (
+                <div className="owner-review-annotation-mobile-state">
+                  <Spin size="small" />
+                  <Text type="secondary">条目加载中...</Text>
+                </div>
+              ) : sortedAnnotations.length === 0 ? (
+                <Empty description="暂无条目" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ) : (
+                <>
+                  {mobileAnnotations.map((annotation) => {
+                    const itemIndex = Number(annotation.itemIndex);
+                    const itemLabel = Number.isFinite(itemIndex) && itemIndex > 0
+                      ? `第 ${itemIndex} 题`
+                      : '题号缺失';
+                    const statusMeta = annotationStatusMeta[annotation.status];
+                    return (
+                      <article
+                        key={annotation.annotationId}
+                        className="owner-review-annotation-mobile-card"
+                      >
+                        <div className="owner-review-annotation-mobile-head">
+                          <Text strong>{itemLabel}</Text>
+                          <Space size={4} wrap>
+                            <Tag color={statusMeta.color} className="owner-review-annotation-mobile-tag">
+                              {statusMeta.label}
+                            </Tag>
+                            {annotation.sampling && (
+                              <Tag className="owner-review-meta-tag is-sampling">抽检</Tag>
+                            )}
+                          </Space>
+                        </div>
+                        <div className="owner-review-annotation-mobile-grid">
+                          <div className="owner-review-annotation-mobile-field">
+                            <span>标注员</span>
+                            <strong>{annotation.labelerName || '-'}</strong>
+                          </div>
+                          <div className="owner-review-annotation-mobile-field">
+                            <span>AI 预审</span>
+                            {annotation.aiDecision ? (
+                              <Tag
+                                color={
+                                  annotation.aiDecision === 'PASS'
+                                    ? 'success'
+                                    : annotation.aiDecision === 'REJECT'
+                                      ? 'error'
+                                      : 'warning'
+                                }
+                                className="owner-review-annotation-mobile-tag"
+                              >
+                                {annotation.aiDecision}
+                              </Tag>
+                            ) : (
+                              <Text type="secondary">-</Text>
+                            )}
+                          </div>
+                          <div className="owner-review-annotation-mobile-field">
+                            <span>最近裁决</span>
+                            <strong>{annotation.lastDecision ?? '-'}</strong>
+                          </div>
+                          <div className="owner-review-annotation-mobile-field">
+                            <span>最近审核员</span>
+                            <strong>{annotation.lastReviewer ?? '-'}</strong>
+                          </div>
+                          <div className="owner-review-annotation-mobile-field is-wide">
+                            <span>更新时间</span>
+                            <strong>{annotation.updatedAt || '-'}</strong>
+                          </div>
+                        </div>
+                        <div className="owner-review-annotation-mobile-ids">
+                          <Text type="secondary">Annotation {annotation.annotationId}</Text>
+                          <Text type="secondary">Item {annotation.itemId}</Text>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  <div className="owner-review-annotation-mobile-more">
+                    {hasMoreMobileAnnotations ? (
+                      <Button
+                        block
+                        onClick={() =>
+                          setMobileVisibleAnnotationCount((count) =>
+                            Math.min(count + MOBILE_REVIEW_DETAIL_PAGE_SIZE, sortedAnnotations.length),
+                          )
+                        }
+                      >
+                        加载更多（已显示 {mobileAnnotations.length} / {sortedAnnotations.length}）
+                      </Button>
+                    ) : (
+                      <Text type="secondary">已显示全部</Text>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </Card>
         </>
       )}

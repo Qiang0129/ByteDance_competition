@@ -21,7 +21,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
-import type { LabelerReturnedItem, ReturnedItemSource } from '../../types/labeler';
+import type { LabelerItemHistory, LabelerReturnedItem, ReturnedItemSource } from '../../types/labeler';
 
 const PAGE_SIZE = 20;
 
@@ -136,6 +136,7 @@ export default function ReturnedItems() {
             <Skeleton active paragraph={{ rows: 6 }} />
           ) : (
             <List<LabelerReturnedItem>
+              className="returned-item-list"
               dataSource={items}
               pagination={total > PAGE_SIZE ? {
                 current: page,
@@ -148,22 +149,8 @@ export default function ReturnedItems() {
                 emptyText: <Empty description={resolveEmptyDescription(source)} />,
               }}
               renderItem={(item) => (
-                <List.Item
-                  actions={[
-                    <Button
-                      key="action"
-                      type={item.actionable ? 'link' : 'default'}
-                      disabled={!item.actionable}
-                      onClick={() => openReturnedItem(item)}
-                    >
-                      {item.actionText}
-                    </Button>,
-                  ]}
-                >
-                  <List.Item.Meta
-                    title={<ReturnedItemTitle item={item} />}
-                    description={<ReturnedItemDescription item={item} />}
-                  />
+                <List.Item className="returned-list-item">
+                  <ReturnedItemCard item={item} onOpen={() => openReturnedItem(item)} />
                 </List.Item>
               )}
             />
@@ -174,129 +161,196 @@ export default function ReturnedItems() {
   );
 }
 
-function ReturnedItemTitle({ item }: { item: LabelerReturnedItem }) {
+function ReturnedItemCard({ item, onOpen }: { item: LabelerReturnedItem; onOpen: () => void }) {
   const isHumanReturn = item.source === 'HUMAN_REVIEW_RETURN';
+  const stageLabel = resolveReviewStageLabel(item);
+  const primaryStatus = resolvePrimaryStatus(item);
   return (
-    <Space size={[8, 4]} wrap>
-      <Typography.Text strong>{item.title}</Typography.Text>
-      <Tag color={isHumanReturn ? 'red' : 'orange'} icon={isHumanReturn ? <UserOutlined /> : <RobotOutlined />}>
-        {item.sourceLabel}
-      </Tag>
-      <Tag color={resolveReworkStatusColor(item.reworkStatus)}>
-        {item.reworkStatusLabel || item.sourceLabel}
-      </Tag>
-      <Tag color="blue">{item.taskType || 'Annotation Task'}</Tag>
-      <Tag color="default">Revision {item.revisionNo}</Tag>
-    </Space>
+    <article className="returned-item-card">
+      <div className="returned-item-main">
+        <div className="returned-item-header">
+          <div className="returned-item-heading">
+            <Typography.Text strong className="returned-item-title">{item.title}</Typography.Text>
+            <div className="returned-item-tags">
+              <Tag color={isHumanReturn ? 'red' : 'orange'} icon={isHumanReturn ? <UserOutlined /> : <RobotOutlined />}>
+                {item.sourceLabel}
+              </Tag>
+              <Tag color={primaryStatus.color}>{primaryStatus.label}</Tag>
+              <Tag color="blue">{item.taskType || 'Annotation Task'}</Tag>
+              <Tag color="default">Revision {item.revisionNo}</Tag>
+            </div>
+          </div>
+        </div>
+
+        <div className="returned-summary-grid">
+          <ReturnedSummaryItem label="任务" value={item.taskId} />
+          <ReturnedSummaryItem label="题目" value={item.itemId} />
+          <ReturnedSummaryItem label="更新时间" value={item.updatedAt || '未知'} />
+          <ReturnedSummaryItem label="Reviewer" value={item.reviewerName || (isHumanReturn ? '未记录' : '待分配')} />
+          <ReturnedSummaryItem label="阶段" value={stageLabel || (isHumanReturn ? '人工审核' : 'AI预审')} strong />
+          <ReturnedSummaryItem label={resolveTimeLabel(item)} value={resolveTimeValue(item)} />
+        </div>
+
+        {isHumanReturn ? (
+          <HumanReturnDetail item={item} stageLabel={stageLabel} />
+        ) : (
+          <AiPreRejectDetail item={item} />
+        )}
+
+        <ReturnedTimeline entries={item.reviewTimeline ?? []} />
+      </div>
+
+      <div className="returned-item-action">
+        <Button
+          className="returned-item-action-btn"
+          type={item.actionable ? 'primary' : 'default'}
+          disabled={!item.actionable}
+          onClick={onOpen}
+        >
+          {item.actionText}
+        </Button>
+      </div>
+    </article>
   );
 }
 
-function ReturnedItemDescription({ item }: { item: LabelerReturnedItem }) {
+function ReturnedSummaryItem({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
   return (
-    <Space direction="vertical" size={6}>
-      <Space size={[8, 4]} wrap>
-        <Typography.Text type="secondary">任务 {item.taskId}</Typography.Text>
-        <Typography.Text type="secondary">题目 {item.itemId}</Typography.Text>
-        <Typography.Text type="secondary">{item.updatedAt || '更新时间未知'}</Typography.Text>
-      </Space>
-      {item.source === 'HUMAN_REVIEW_RETURN'
-        ? <HumanReturnDetail item={item} />
-        : <AiPreRejectDetail item={item} />}
-    </Space>
+    <div className="returned-summary-item">
+      <span className="returned-summary-label">{label}</span>
+      <span className={strong ? 'returned-summary-value is-strong' : 'returned-summary-value'}>
+        {value || '无'}
+      </span>
+    </div>
   );
 }
 
-function HumanReturnDetail({ item }: { item: LabelerReturnedItem }) {
+function HumanReturnDetail({ item, stageLabel }: { item: LabelerReturnedItem; stageLabel: string }) {
   const returned = item.reworkStatus === 'RETURNED';
   const reworked = item.reworkStatus === 'REWORK_SUBMITTED';
   const reviewed = isReviewedStatus(item.reworkStatus);
-  const showAgainReturned = returned && item.reviewResultLabel === '再次打回';
-  const stageLabel = resolveReviewStageLabel(item);
+  const reasonTitle = returned ? '打回原因' : '原打回原因';
+  const reason = returned ? item.humanReason : item.reviewResultReason || item.humanReason;
   return (
-    <Space direction="vertical" size={4}>
-      <Space size={[8, 4]} wrap>
-        <Typography.Text>
-          Reviewer:{item.reviewerName || '未记录'}
-        </Typography.Text>
-        {stageLabel ? (
-          <Tag color="red">{stageLabel}</Tag>
-        ) : null}
-        {reviewed && item.reviewResultLabel ? (
+    <div className="returned-detail-block">
+      <div className="returned-detail-tags">
+        {stageLabel ? <Tag color="red">{stageLabel}</Tag> : null}
+        {item.reviewResultLabel ? (
           <Tag color={resolveReviewResultColor(item.reviewDecision)}>
             {item.reviewResultLabel}
           </Tag>
         ) : null}
-        {showAgainReturned ? (
-          <Tag color="red">{stageLabel || '人工审核'}结果:{item.reviewResultLabel}</Tag>
-        ) : null}
-      </Space>
-      <Typography.Text type="secondary">
-        {returned ? '打回原因' : '原打回原因'}:{item.humanReason || '未填写原因'}
-      </Typography.Text>
+        {item.aiDecision ? <Tag color="orange">AI {item.aiDecision}</Tag> : null}
+      </div>
+      <ReturnedReasonBox title={reasonTitle} content={reason || '未填写原因'} />
       {reworked ? (
-        <Typography.Text type="secondary">
+        <Typography.Text type="secondary" className="returned-help-text">
           已修改并重新提交，等待 Reviewer 人工审核。
           {item.reworkSubmittedAt ? ` 重提时间:${item.reworkSubmittedAt}` : ''}
         </Typography.Text>
       ) : null}
       {reviewed ? (
-        <>
-          <Typography.Text type="secondary">
-            {stageLabel || '人工审核'}结果:{item.reviewResultLabel || '已审核'}
-            {item.reviewedAt ? `，${stageLabel || '人工审核'}时间:${item.reviewedAt}` : ''}
-          </Typography.Text>
-          <Typography.Text type="secondary">
-            {stageLabel || '人工审核'}意见:{item.reviewResultReason || '未填写意见'}
-          </Typography.Text>
-        </>
+        <ReturnedReasonBox
+          title={`${stageLabel || '人工审核'}意见`}
+          content={item.reviewResultReason || '未填写意见'}
+          tone={resolveReviewResultTone(item.reviewDecision)}
+        />
       ) : null}
       {returned && item.resubmitDeadline ? (
-        <Typography.Text type={item.editable ? 'secondary' : 'danger'}>
+        <Typography.Text type={item.editable ? 'secondary' : 'danger'} className="returned-help-text">
           返修截止:{item.resubmitDeadline}
           {!item.editable && item.expiredReason === 'RETURN_REWORK_EXPIRED' ? '，已过期' : ''}
         </Typography.Text>
       ) : null}
       {returned && item.reworkSubmittedAt ? (
-        <Typography.Text type="secondary">
+        <Typography.Text type="secondary" className="returned-help-text">
           上次重提时间:{item.reworkSubmittedAt}
         </Typography.Text>
       ) : null}
-      {item.aiDecision ? (
-        <Typography.Text type="secondary">
-          AI 预审结论:{item.aiDecision}
-        </Typography.Text>
-      ) : null}
-    </Space>
+    </div>
   );
 }
 
 function AiPreRejectDetail({ item }: { item: LabelerReturnedItem }) {
   return (
-    <Space direction="vertical" size={4}>
-      <Space size={[8, 4]} wrap>
+    <div className="returned-detail-block">
+      <div className="returned-detail-tags">
         <Tag color="orange">AI {item.aiDecision || 'REJECT'}</Tag>
         {typeof item.aiTotalScore === 'number' ? (
           <Tag color="gold">评分 {formatScore(item.aiTotalScore)}</Tag>
         ) : null}
         <Tag color="default">待人工审核</Tag>
-      </Space>
-      <Typography.Text type="secondary">
-        AI 评语:{item.aiComment || '暂无评语'}
-      </Typography.Text>
+      </div>
+      <ReturnedReasonBox title="AI 评语" content={item.aiComment || '暂无评语'} tone="warning" />
       {item.aiRiskFlags.length > 0 ? (
-        <Space size={[6, 4]} wrap>
-          <Typography.Text type="secondary">风险标记:</Typography.Text>
+        <div className="returned-evidence-row">
+          <span>风险标记</span>
           {item.aiRiskFlags.map((flag, index) => (
             <Tag key={`${flag}-${index}`} color="orange">{flag}</Tag>
           ))}
-        </Space>
+        </div>
       ) : null}
       {item.aiEvidence.length > 0 ? (
-        <Typography.Text type="secondary">
-          证据:{item.aiEvidence.join('；')}
-        </Typography.Text>
+        <ReturnedReasonBox title="证据" content={item.aiEvidence.join('；')} />
       ) : null}
-    </Space>
+    </div>
+  );
+}
+
+function ReturnedReasonBox({
+  title,
+  content,
+  tone = 'default',
+}: {
+  title: string;
+  content: string;
+  tone?: 'default' | 'success' | 'danger' | 'warning';
+}) {
+  return (
+    <div className={`returned-reason-box is-${tone}`}>
+      <span className="returned-reason-title">{title}</span>
+      <p>{content}</p>
+    </div>
+  );
+}
+
+function ReturnedTimeline({ entries }: { entries: LabelerItemHistory[] }) {
+  if (entries.length === 0) {
+    return null;
+  }
+  return (
+    <div className="returned-timeline-wrap">
+      <div className="returned-section-title">审核链路</div>
+      <ol className="returned-timeline">
+        {entries.map((entry) => (
+          <li key={entry.id} className={`returned-timeline-item is-${resolveTimelineTone(entry)}`}>
+            <span className="returned-timeline-dot" />
+            <div className="returned-timeline-content">
+              <div className="returned-timeline-meta">
+                <span className="returned-timeline-title">{entry.title}</span>
+                <span className="returned-timeline-time">{entry.occurredAt || (entry.status === 'current' ? '当前' : '')}</span>
+              </div>
+              <div className="returned-timeline-main">
+                <span>{entry.actor}</span>
+                {entry.decision ? <Tag>{historyDecisionLabel(entry.decision)}</Tag> : null}
+                {typeof entry.score === 'number' ? <Tag color="gold">AI {formatScore(entry.score)}</Tag> : null}
+              </div>
+              {entry.reason || entry.comment ? (
+                <div className="returned-timeline-note">{entry.reason || entry.comment}</div>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
@@ -315,6 +369,50 @@ function isReviewedStatus(status?: string) {
   return status === 'REVIEW_APPROVED' || status === 'REVIEW_REVISED' || status === 'REVIEW_ESCALATED';
 }
 
+function resolvePrimaryStatus(item: LabelerReturnedItem): { label: string; color: string } {
+  if (item.source === 'AI_PRE_REJECT') {
+    return { label: '等待人工审核', color: 'orange' };
+  }
+  if (item.reworkStatus === 'RETURNED') {
+    return item.editable
+      ? { label: item.reworkStatusLabel || '待修改', color: 'red' }
+      : { label: '返修过期', color: 'default' };
+  }
+  if (item.reworkStatus === 'REWORK_SUBMITTED') {
+    return { label: '已修改待复审', color: 'blue' };
+  }
+  if (item.reviewResultLabel) {
+    return { label: item.reviewResultLabel, color: resolveReviewResultColor(item.reviewDecision) };
+  }
+  return { label: item.reworkStatusLabel || item.sourceLabel, color: resolveReworkStatusColor(item.reworkStatus) };
+}
+
+function resolveTimeLabel(item: LabelerReturnedItem) {
+  if (item.reworkStatus === 'RETURNED') {
+    return '返修截止';
+  }
+  if (item.reworkStatus === 'REWORK_SUBMITTED') {
+    return '重提时间';
+  }
+  if (isReviewedStatus(item.reworkStatus)) {
+    return '审核时间';
+  }
+  return '状态';
+}
+
+function resolveTimeValue(item: LabelerReturnedItem) {
+  if (item.reworkStatus === 'RETURNED') {
+    return item.resubmitDeadline || '未设置';
+  }
+  if (item.reworkStatus === 'REWORK_SUBMITTED') {
+    return item.reworkSubmittedAt || '未记录';
+  }
+  if (isReviewedStatus(item.reworkStatus)) {
+    return item.reviewedAt || '未记录';
+  }
+  return item.source === 'AI_PRE_REJECT' ? '等待人工审核' : '未记录';
+}
+
 function resolveReviewStageLabel(item: LabelerReturnedItem) {
   if (item.reviewStageLabel) {
     return item.reviewStageLabel;
@@ -330,6 +428,20 @@ function resolveReviewStageLabel(item: LabelerReturnedItem) {
     return '复审';
   }
   return '终审';
+}
+
+function resolveReviewResultTone(decision?: string): 'default' | 'success' | 'danger' | 'warning' {
+  const normalized = decision?.trim().toLowerCase();
+  if (normalized === 'approve' || normalized === 'approved' || normalized === 'revise' || normalized === 'revised') {
+    return 'success';
+  }
+  if (normalized === 'return' || normalized === 'returned' || normalized === 'reject' || normalized === 'rejected') {
+    return 'danger';
+  }
+  if (normalized === 'escalate') {
+    return 'warning';
+  }
+  return 'default';
 }
 
 function resolveReworkStatusColor(status?: string) {
@@ -362,4 +474,41 @@ function resolveReviewResultColor(decision?: string) {
     return 'red';
   }
   return 'default';
+}
+
+function resolveTimelineTone(entry: LabelerItemHistory): 'blue' | 'green' | 'red' | 'orange' | 'gray' {
+  const decision = entry.decision?.toUpperCase();
+  if (entry.status === 'current') return 'blue';
+  if (decision === 'APPROVE' || decision === 'APPROVED' || decision === 'REVISE' || decision === 'REVISED' || decision === 'PASS') {
+    return 'green';
+  }
+  if (decision === 'RETURN' || decision === 'RETURNED' || decision === 'REJECT' || decision === 'REJECTED') {
+    return 'red';
+  }
+  if (decision === 'ESCALATE' || decision === 'NEED_HUMAN_REVIEW' || decision === 'PENDING_HUMAN_REVIEW') {
+    return 'orange';
+  }
+  if (entry.type === 'submit') return 'blue';
+  return 'gray';
+}
+
+function historyDecisionLabel(decision: string): string {
+  const normalized = decision.toUpperCase();
+  const labels: Record<string, string> = {
+    SUBMIT: '提交',
+    PASS: '通过',
+    APPROVE: '通过',
+    APPROVED: '通过',
+    REVISE: '修订通过',
+    REVISED: '修订通过',
+    RETURN: '打回',
+    RETURNED: '打回',
+    REJECT: '打回',
+    REJECTED: '打回',
+    ESCALATE: '升级争议',
+    NEED_HUMAN_REVIEW: '需人工',
+    PENDING_HUMAN_REVIEW: '待人工',
+    REWORKING: '修改中',
+  };
+  return labels[normalized] ?? decision;
 }

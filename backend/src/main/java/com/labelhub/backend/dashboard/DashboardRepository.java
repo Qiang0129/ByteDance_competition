@@ -4,6 +4,7 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -50,9 +51,7 @@ public class DashboardRepository {
         """
         SELECT COUNT(DISTINCT u.id)
         FROM users u
-        JOIN user_roles ur ON ur.user_id = u.id
-        JOIN roles r ON r.id = ur.role_id
-        WHERE r.role_code = ?
+        WHERE JSON_CONTAINS(COALESCE(u.roles_json, JSON_ARRAY()), JSON_QUOTE(?))
           AND u.status = 'active'
           AND u.deleted_at IS NULL
         """,
@@ -67,16 +66,11 @@ public class DashboardRepository {
           u.username,
           u.name,
           u.status,
-          GROUP_CONCAT(DISTINCT all_roles.role_code ORDER BY all_roles.role_code SEPARATOR ',') AS roles
+          CAST(COALESCE(u.roles_json, JSON_ARRAY()) AS CHAR) AS roles
         FROM users u
-        JOIN user_roles target_user_roles ON target_user_roles.user_id = u.id
-        JOIN roles target_role ON target_role.id = target_user_roles.role_id
-        JOIN user_roles all_user_roles ON all_user_roles.user_id = u.id
-        JOIN roles all_roles ON all_roles.id = all_user_roles.role_id
-        WHERE target_role.role_code = ?
+        WHERE JSON_CONTAINS(COALESCE(u.roles_json, JSON_ARRAY()), JSON_QUOTE(?))
           AND u.status = 'active'
           AND u.deleted_at IS NULL
-        GROUP BY u.id, u.username, u.name, u.status
         ORDER BY u.id
         """,
         (rs, rowNum) -> new RoleUserRecord(
@@ -134,12 +128,11 @@ public class DashboardRepository {
     return jdbcTemplate.queryForObject(
         """
         SELECT
-          SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END) AS ai_pass,
-          SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END) AS ai_need_human,
-          SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END) AS ai_reject,
+          SUM(CASE WHEN aj.decision = 'PASS' THEN 1 ELSE 0 END) AS ai_pass,
+          SUM(CASE WHEN aj.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END) AS ai_need_human,
+          SUM(CASE WHEN aj.decision = 'REJECT' THEN 1 ELSE 0 END) AS ai_reject,
           COUNT(*) AS total
-        FROM ai_review_results air
-        JOIN ai_review_jobs aj ON aj.id = air.job_id
+        FROM ai_review_jobs aj
         JOIN annotations an ON an.id = aj.annotation_id
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
@@ -147,8 +140,8 @@ public class DashboardRepository {
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
-          AND air.created_at >= ?
-          AND air.created_at < ?
+          AND aj.result_created_at >= ?
+          AND aj.result_created_at < ?
         """,
         (rs, rowNum) -> new AiDecisionCounts(
             rs.getLong("ai_pass"),
@@ -618,10 +611,10 @@ public class DashboardRepository {
         """
         SELECT
           SUM(CASE
-            WHEN air.decision = 'PASS'
+            WHEN aj.decision = 'PASS'
              AND LOWER(hr.decision) IN ('approve', 'approved', 'revise', 'revised')
             THEN 1
-            WHEN air.decision = 'REJECT'
+            WHEN aj.decision = 'REJECT'
              AND LOWER(hr.decision) IN ('return', 'returned', 'reject', 'rejected')
             THEN 1
             ELSE 0
@@ -632,12 +625,11 @@ public class DashboardRepository {
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         JOIN ai_review_jobs aj ON aj.annotation_id = an.id
-        JOIN ai_review_results air ON air.job_id = aj.id
         WHERE t.owner_id = ?
           AND t.deleted_at IS NULL
           AND a.status <> 'voided'
           AND an.status <> 'voided'
-          AND air.decision IN ('PASS', 'REJECT')
+          AND aj.decision IN ('PASS', 'REJECT')
         """ + allocatedReviewerFilter("hr", "a") + """
           AND hr.id = (
             SELECT latest_hr.id
@@ -665,7 +657,8 @@ public class DashboardRepository {
     if (roles == null || roles.isBlank()) {
       return List.of();
     }
-    return Arrays.stream(roles.split(","))
+    String normalized = roles.replace("[", "").replace("]", "").replace("\"", "");
+    return Arrays.stream(normalized.split(Pattern.quote(",")))
         .map(String::trim)
         .filter(role -> !role.isEmpty())
         .toList();
@@ -679,22 +672,24 @@ public class DashboardRepository {
     return """
           AND EXISTS (
             SELECT 1
-            FROM task_reviewer_allocations tra
-            WHERE tra.task_id = %s.task_id
-              AND tra.reviewer_id = %s.reviewer_id
+            FROM task_user_allocations tua
+            WHERE tua.task_id = %s.task_id
+              AND tua.allocation_role = 'reviewer'
+              AND tua.user_id = %s.reviewer_id
           )
           AND (
             NOT EXISTS (
               SELECT 1
-              FROM task_review_items tri_any
-              WHERE tri_any.task_id = %s.task_id
+              FROM task_items ti_any
+              WHERE ti_any.task_id = %s.task_id
+                AND ti_any.reviewer_id IS NOT NULL
             )
             OR EXISTS (
               SELECT 1
-              FROM task_review_items tri
-              WHERE tri.task_id = %s.task_id
-                AND tri.item_id = %s.item_id
-                AND tri.reviewer_id = %s.reviewer_id
+              FROM task_items ti
+              WHERE ti.task_id = %s.task_id
+                AND ti.item_id = %s.item_id
+                AND ti.reviewer_id = %s.reviewer_id
             )
           )
         """.formatted(

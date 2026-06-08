@@ -393,9 +393,9 @@ public class AnnotationRepository {
             'ai_review' AS event_type,
             NULL AS submitted_at,
             aj.finished_at AS ai_finished_at,
-            air.decision AS ai_decision,
-            air.total_score AS ai_total_score,
-            air.comment AS ai_comment,
+            aj.decision AS ai_decision,
+            aj.total_score AS ai_total_score,
+            aj.comment AS ai_comment,
             NULL AS human_decision,
             NULL AS human_reason,
             NULL AS human_reviewed_at,
@@ -412,7 +412,6 @@ public class AnnotationRepository {
               latest_job.id DESC
             LIMIT 1
           )
-          LEFT JOIN ai_review_results air ON air.job_id = aj.id
           WHERE an.assignment_id = ?
             AND an.status <> 'voided'
             AND aj.id IS NOT NULL

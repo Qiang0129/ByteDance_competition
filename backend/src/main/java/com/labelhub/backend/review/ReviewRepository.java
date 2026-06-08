@@ -118,8 +118,8 @@ public class ReviewRepository {
         SELECT
           COUNT(*) AS total_count,
           SUM(CASE
-            WHEN air.decision = 'PASS' AND LOWER(hr.decision) IN ('approve', 'revise') THEN 1
-            WHEN air.decision = 'REJECT' AND LOWER(hr.decision) IN ('return', 'escalate') THEN 1
+            WHEN aj.decision = 'PASS' AND LOWER(hr.decision) IN ('approve', 'revise') THEN 1
+            WHEN aj.decision = 'REJECT' AND LOWER(hr.decision) IN ('return', 'escalate') THEN 1
             ELSE 0
           END) AS consistent_count
         FROM human_reviews hr
@@ -133,10 +133,9 @@ public class ReviewRepository {
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        JOIN ai_review_results air ON air.job_id = aj.id
         WHERE hr.reviewer_id = ?
           AND hr.created_at >= ?
-          AND air.decision IN ('PASS', 'REJECT')
+          AND aj.decision IN ('PASS', 'REJECT')
           AND an.status <> 'voided'
           AND a.status <> 'voided'
           AND t.deleted_at IS NULL
@@ -170,8 +169,7 @@ public class ReviewRepository {
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        JOIN ai_review_results air ON air.job_id = aj.id
-        WHERE air.decision = 'PASS'
+        WHERE aj.decision = 'PASS'
           AND an.status <> 'voided'
           AND a.status <> 'voided'
           AND t.deleted_at IS NULL
@@ -212,8 +210,8 @@ public class ReviewRepository {
           an.revision_no,
           hr.decision,
           hr.reason,
-          air.decision AS ai_decision,
-          air.total_score AS ai_total_score,
+          aj.decision AS ai_decision,
+          aj.total_score AS ai_total_score,
           labeler.name AS labeler_name,
           reviewer.name AS reviewer_name
         FROM human_reviews hr
@@ -229,7 +227,6 @@ public class ReviewRepository {
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         WHERE hr.reviewer_id = ?
           AND hr.created_at >= ?
           AND an.status <> 'voided'
@@ -276,14 +273,13 @@ public class ReviewRepository {
           JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
           SUM(CASE WHEN an.status IN ('ai_reviewing', 'reviewing') THEN 1 ELSE 0 END) AS pending,
           SUM(CASE WHEN an.status IN ('accepted', 'returned', 'exported') THEN 1 ELSE 0 END) AS reviewed,
-          SUM(CASE WHEN air.decision IN ('REJECT', 'NEED_HUMAN_REVIEW') THEN 1 ELSE 0 END) AS need_human_review,
+          SUM(CASE WHEN aj.decision IN ('REJECT', 'NEED_HUMAN_REVIEW') THEN 1 ELSE 0 END) AS need_human_review,
           t.deadline,
           MAX(an.updated_at) AS updated_at
         FROM tasks t
         JOIN assignments a ON a.task_id = t.id
         JOIN annotations an ON an.assignment_id = a.id
         LEFT JOIN ai_review_jobs aj ON aj.annotation_id = an.id
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         WHERE t.deleted_at IS NULL
           AND an.status <> 'voided'
           AND a.status <> 'voided'
@@ -360,14 +356,14 @@ public class ReviewRepository {
           COALESCE(dispute_counts.disputes, 0) AS dispute_count,
           aj.id AS ai_job_id,
           aj.finished_at AS ai_finished_at,
-          air.decision AS ai_decision,
-          CAST(air.scores_json AS CHAR) AS ai_scores_json,
-          air.total_score AS ai_total_score,
-          air.comment AS ai_comment,
-          CAST(air.risk_flags_json AS CHAR) AS ai_risk_flags_json,
-          CAST(air.evidence_json AS CHAR) AS ai_evidence_json,
-          CAST(air.response_json AS CHAR) AS ai_response_json,
-          air.model_name AS ai_model_name,
+          aj.decision AS ai_decision,
+          CAST(aj.scores_json AS CHAR) AS ai_scores_json,
+          aj.total_score AS ai_total_score,
+          aj.comment AS ai_comment,
+          CAST(aj.risk_flags_json AS CHAR) AS ai_risk_flags_json,
+          CAST(aj.evidence_json AS CHAR) AS ai_evidence_json,
+          CAST(aj.response_json AS CHAR) AS ai_response_json,
+          aj.model_name AS ai_model_name,
           COALESCE(r.name, JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.name'))) AS ai_rule_name,
           JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.version')) AS ai_rule_version,
           hr.reason AS human_reason,
@@ -385,7 +381,6 @@ public class ReviewRepository {
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         LEFT JOIN ai_review_rules r ON r.id = aj.rule_id
         LEFT JOIN human_reviews hr ON hr.id = (
           SELECT latest_hr.id
@@ -455,24 +450,23 @@ public class ReviewRepository {
           t.title AS task_title,
           JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
           COUNT(*) AS total,
-          SUM(CASE WHEN air.decision = 'PASS' THEN 1 ELSE 0 END) AS pass_count,
-          SUM(CASE WHEN air.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END) AS need_human_count,
-          SUM(CASE WHEN air.decision = 'REJECT' THEN 1 ELSE 0 END) AS reject_count,
+          SUM(CASE WHEN aj.decision = 'PASS' THEN 1 ELSE 0 END) AS pass_count,
+          SUM(CASE WHEN aj.decision = 'NEED_HUMAN_REVIEW' THEN 1 ELSE 0 END) AS need_human_count,
+          SUM(CASE WHEN aj.decision = 'REJECT' THEN 1 ELSE 0 END) AS reject_count,
         """ + selectMetricsClause + """
-          MAX(COALESCE(air.created_at, an.updated_at)) AS updated_at
+          MAX(COALESCE(aj.result_created_at, aj.finished_at, an.updated_at)) AS updated_at
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
         JOIN ai_review_jobs aj ON aj.id = (
           SELECT latest_job.id
           FROM ai_review_jobs latest_job
-          JOIN ai_review_results latest_result ON latest_result.job_id = latest_job.id
           WHERE latest_job.annotation_id = an.id
             AND latest_job.status = 'succeeded'
+            AND latest_job.decision IS NOT NULL
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        JOIN ai_review_results air ON air.job_id = aj.id
         WHERE
         """ + filters + """
         GROUP BY t.id, t.title, task_type
@@ -500,13 +494,12 @@ public class ReviewRepository {
           JOIN ai_review_jobs aj ON aj.id = (
             SELECT latest_job.id
             FROM ai_review_jobs latest_job
-            JOIN ai_review_results latest_result ON latest_result.job_id = latest_job.id
             WHERE latest_job.annotation_id = an.id
               AND latest_job.status = 'succeeded'
+              AND latest_job.decision IS NOT NULL
             ORDER BY latest_job.finished_at DESC, latest_job.id DESC
             LIMIT 1
           )
-          JOIN ai_review_results air ON air.job_id = aj.id
           WHERE
         """ + filters + """
           GROUP BY t.id
@@ -593,14 +586,14 @@ public class ReviewRepository {
           0 AS dispute_count,
           aj.id AS ai_job_id,
           aj.finished_at AS ai_finished_at,
-          air.decision AS ai_decision,
-          CAST(air.scores_json AS CHAR) AS ai_scores_json,
-          air.total_score AS ai_total_score,
-          air.comment AS ai_comment,
-          CAST(air.risk_flags_json AS CHAR) AS ai_risk_flags_json,
-          CAST(air.evidence_json AS CHAR) AS ai_evidence_json,
-          CAST(air.response_json AS CHAR) AS ai_response_json,
-          air.model_name AS ai_model_name,
+          aj.decision AS ai_decision,
+          CAST(aj.scores_json AS CHAR) AS ai_scores_json,
+          aj.total_score AS ai_total_score,
+          aj.comment AS ai_comment,
+          CAST(aj.risk_flags_json AS CHAR) AS ai_risk_flags_json,
+          CAST(aj.evidence_json AS CHAR) AS ai_evidence_json,
+          CAST(aj.response_json AS CHAR) AS ai_response_json,
+          aj.model_name AS ai_model_name,
           COALESCE(r.name, JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.name'))) AS ai_rule_name,
           JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.version')) AS ai_rule_version
         FROM annotations an
@@ -611,13 +604,12 @@ public class ReviewRepository {
         JOIN ai_review_jobs aj ON aj.id = (
           SELECT latest_job.id
           FROM ai_review_jobs latest_job
-          JOIN ai_review_results latest_result ON latest_result.job_id = latest_job.id
           WHERE latest_job.annotation_id = an.id
             AND latest_job.status = 'succeeded'
+            AND latest_job.decision IS NOT NULL
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        JOIN ai_review_results air ON air.job_id = aj.id
         LEFT JOIN ai_review_rules r ON r.id = aj.rule_id
         """ + reviewerJoin + """
         WHERE a.task_id = ?
@@ -649,13 +641,12 @@ public class ReviewRepository {
         JOIN ai_review_jobs aj ON aj.id = (
           SELECT latest_job.id
           FROM ai_review_jobs latest_job
-          JOIN ai_review_results latest_result ON latest_result.job_id = latest_job.id
           WHERE latest_job.annotation_id = an.id
             AND latest_job.status = 'succeeded'
+            AND latest_job.decision IS NOT NULL
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        JOIN ai_review_results air ON air.job_id = aj.id
         WHERE a.task_id = ?
           AND
         """ + filters,
@@ -703,14 +694,14 @@ public class ReviewRepository {
           COALESCE(dispute_counts.disputes, 0) AS dispute_count,
           aj.id AS ai_job_id,
           aj.finished_at AS ai_finished_at,
-          air.decision AS ai_decision,
-          CAST(air.scores_json AS CHAR) AS ai_scores_json,
-          air.total_score AS ai_total_score,
-          air.comment AS ai_comment,
-          CAST(air.risk_flags_json AS CHAR) AS ai_risk_flags_json,
-          CAST(air.evidence_json AS CHAR) AS ai_evidence_json,
-          CAST(air.response_json AS CHAR) AS ai_response_json,
-          air.model_name AS ai_model_name,
+          aj.decision AS ai_decision,
+          CAST(aj.scores_json AS CHAR) AS ai_scores_json,
+          aj.total_score AS ai_total_score,
+          aj.comment AS ai_comment,
+          CAST(aj.risk_flags_json AS CHAR) AS ai_risk_flags_json,
+          CAST(aj.evidence_json AS CHAR) AS ai_evidence_json,
+          CAST(aj.response_json AS CHAR) AS ai_response_json,
+          aj.model_name AS ai_model_name,
           COALESCE(r.name, JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.name'))) AS ai_rule_name,
           JSON_UNQUOTE(JSON_EXTRACT(aj.rule_snapshot_json, '$.version')) AS ai_rule_version,
           hr.reason AS human_reason,
@@ -728,7 +719,6 @@ public class ReviewRepository {
           ORDER BY latest_job.finished_at DESC, latest_job.id DESC
           LIMIT 1
         )
-        LEFT JOIN ai_review_results air ON air.job_id = aj.id
         LEFT JOIN ai_review_rules r ON r.id = aj.rule_id
         LEFT JOIN human_reviews hr ON hr.id = (
           SELECT latest_hr.id
@@ -821,9 +811,9 @@ public class ReviewRepository {
             an.revision_no,
             'ai_review' AS event_stage,
             aj.finished_at AS ai_finished_at,
-            air.decision AS ai_decision,
-            air.total_score AS ai_total_score,
-            air.comment AS ai_comment,
+            aj.decision AS ai_decision,
+            aj.total_score AS ai_total_score,
+            aj.comment AS ai_comment,
             NULL AS human_decision,
             NULL AS human_reason,
             NULL AS human_reviewed_at,
@@ -840,7 +830,6 @@ public class ReviewRepository {
             ORDER BY latest_job.finished_at DESC, latest_job.id DESC
             LIMIT 1
           )
-          LEFT JOIN ai_review_results air ON air.job_id = aj.id
           WHERE an.assignment_id = ?
             AND an.status <> 'voided'
 
@@ -1288,7 +1277,7 @@ public class ReviewRepository {
           """);
     }
     if (decision != null && !decision.isBlank()) {
-      filters.append("  AND air.decision = ?\n");
+      filters.append("  AND aj.decision = ?\n");
       args.add(decision);
     }
     if (keyword != null && !keyword.isBlank()) {
@@ -1315,15 +1304,16 @@ public class ReviewRepository {
         (
           NOT EXISTS (
             SELECT 1
-            FROM task_review_items tri_any
-            WHERE tri_any.task_id = a.task_id
+            FROM task_items ti_any
+            WHERE ti_any.task_id = a.task_id
+              AND ti_any.reviewer_id IS NOT NULL
           )
           OR EXISTS (
             SELECT 1
-            FROM task_review_items tri
-            WHERE tri.task_id = a.task_id
-              AND tri.item_id = a.item_id
-              AND tri.reviewer_id = """ + reviewerId + """
+            FROM task_items ti
+            WHERE ti.task_id = a.task_id
+              AND ti.item_id = a.item_id
+              AND ti.reviewer_id = """ + reviewerId + """
           )
         )
         """;

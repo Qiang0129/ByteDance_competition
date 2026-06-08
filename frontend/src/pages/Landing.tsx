@@ -126,12 +126,16 @@ type MarkdownRawModule = {
 type MarkdownVirtualBlock = {
   id: string;
   content: string;
+  startLineIndex: number;
+  endLineIndex: number;
+  headings: MarkdownHeading[];
 };
 
 type MarkdownVirtualBlockOffset = {
   id: string;
   top: number;
   height: number;
+  headingIds: string[];
 };
 
 type DocsPreviewProgressTimer = {
@@ -160,6 +164,12 @@ type MarkdownOutline = {
   parentHeadingIdById: Map<string, string>;
 };
 
+type DocsMarkdownScrollTarget = {
+  resourceId: string;
+  headingId: string;
+  sequence: number;
+};
+
 const DOCX_PREVIEW_OPTIONS = {
   className: 'landing-docx-rendered',
   inWrapper: false,
@@ -186,9 +196,13 @@ const MARKDOWN_VIRTUAL_THRESHOLD = 80 * 1024;
 const MARKDOWN_BLOCK_TARGET_CHARS = 6000;
 const MARKDOWN_VIRTUAL_OVERSCAN = 4;
 const MARKDOWN_HEIGHT_MEASURE_TOLERANCE = 4;
-const MIN_LARGE_MARKDOWN_PROGRESS_MS = 1500;
+const MARKDOWN_ACTIVE_HEADING_OFFSET = 96;
+const MARKDOWN_SCROLL_TARGET_OFFSET = 20;
+const MIN_LARGE_MARKDOWN_PROGRESS_MS = 2200;
 const MARKDOWN_MAX_LOADING_PROGRESS = 96;
 const MARKDOWN_PROGRESS_INTERVAL_MS = 120;
+const MARKDOWN_INITIAL_LAYOUT_STABLE_FRAMES = 3;
+const MARKDOWN_INITIAL_LAYOUT_MAX_WAIT_MS = 6000;
 const MARKDOWN_PROGRESS_STAGE_STOPS: Array<{ stage: DocsPreviewStage; progress: number }> = [
   { stage: 'prepare', progress: 8 },
   { stage: 'fetch', progress: 28 },
@@ -196,6 +210,9 @@ const MARKDOWN_PROGRESS_STAGE_STOPS: Array<{ stage: DocsPreviewStage; progress: 
   { stage: 'render', progress: 76 },
   { stage: 'layout', progress: 92 },
 ];
+const DOCX_LAYOUT_STABLE_FRAMES = 4;
+const DOCX_LAYOUT_MAX_WAIT_MS = 4200;
+const DOCX_ASSET_MAX_WAIT_MS = 1800;
 const DOCS_IMAGE_ZOOM_DEFAULT = 1;
 const DOCS_IMAGE_ZOOM_MIN = 0.5;
 const DOCS_IMAGE_ZOOM_MAX = 4;
@@ -242,6 +259,77 @@ const docsMarkdownComponents: Components = {
     </div>
   ),
 };
+
+type MarkdownComponentNode = {
+  position?: {
+    start?: {
+      line?: number;
+    };
+  };
+};
+
+function getMarkdownNodeLineIndex(node: unknown, lineOffset: number) {
+  const line = (node as MarkdownComponentNode | undefined)?.position?.start?.line;
+  return typeof line === 'number' ? lineOffset + line - 1 : undefined;
+}
+
+function findRenderedMarkdownHeading(
+  headings: MarkdownHeading[],
+  level: number,
+  text: string,
+  node: unknown,
+  lineOffset: number,
+) {
+  const lineIndex = getMarkdownNodeLineIndex(node, lineOffset);
+  if (lineIndex !== undefined) {
+    const exactHeading = headings.find((heading) => heading.level === level && heading.lineIndex === lineIndex);
+    if (exactHeading) {
+      return exactHeading;
+    }
+  }
+
+  return headings.find((heading) => heading.level === level && heading.text === text);
+}
+
+function createDocsMarkdownHeadingComponent(
+  tag: 'h2' | 'h3',
+  level: 2 | 3,
+  headings: MarkdownHeading[],
+  lineOffset: number,
+): NonNullable<Components['h2']> {
+  return ({ children, node, ...props }) => {
+    const heading = findRenderedMarkdownHeading(
+      headings,
+      level,
+      normalizeHeadingText(getNodeText(children)),
+      node,
+      lineOffset,
+    );
+    const headingId = heading?.id ?? props.id;
+
+    if (tag === 'h2') {
+      return (
+        <h2 {...props} id={headingId} data-docs-heading-id={heading?.id}>
+          {children}
+        </h2>
+      );
+    }
+
+    return (
+      <h3 {...props} id={headingId} data-docs-heading-id={heading?.id}>
+        {children}
+      </h3>
+    );
+  };
+}
+
+function createDocsMarkdownComponents(headings: MarkdownHeading[], lineOffset = 0): Components {
+  return {
+    ...docsMarkdownComponents,
+    h2: createDocsMarkdownHeadingComponent('h2', 2, headings, lineOffset),
+    h3: createDocsMarkdownHeadingComponent('h3', 3, headings, lineOffset),
+  };
+}
 
 const loadPhasePlanSource = () => import('../../../阶段计划.md?raw').then((module: MarkdownRawModule) => module.default);
 const loadPhaseImplementationSource = () =>
@@ -539,6 +627,91 @@ function createMarkdownParentHeadingIdMap(groups: MarkdownTocGroup[]) {
   });
 
   return parentByHeadingId;
+}
+
+function createDocsHeadingAttributeSelector(headingId: string) {
+  return `[data-docs-heading-id="${headingId.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+}
+
+function createDocsTocHeadingAttributeSelector(headingId: string) {
+  return `[data-docs-toc-heading-id="${headingId.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+}
+
+function getElementTopWithinScrollContainer(container: HTMLElement, element: HTMLElement) {
+  const containerRect = container.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  return container.scrollTop + elementRect.top - containerRect.top;
+}
+
+function findActiveHeadingFromElements(container: HTMLElement, headingElements: HTMLElement[]) {
+  if (headingElements.length === 0) {
+    return undefined;
+  }
+
+  const containerTop = container.getBoundingClientRect().top;
+  let activeHeadingId = headingElements[0].dataset.docsHeadingId;
+
+  for (const headingElement of headingElements) {
+    const offset = headingElement.getBoundingClientRect().top - containerTop;
+    if (offset > MARKDOWN_ACTIVE_HEADING_OFFSET) {
+      break;
+    }
+
+    activeHeadingId = headingElement.dataset.docsHeadingId ?? activeHeadingId;
+  }
+
+  return activeHeadingId;
+}
+
+function findPassedHeadingFromElements(container: HTMLElement, headingElements: HTMLElement[]) {
+  const containerTop = container.getBoundingClientRect().top;
+  let activeHeadingId: string | undefined;
+
+  for (const headingElement of headingElements) {
+    const offset = headingElement.getBoundingClientRect().top - containerTop;
+    if (offset > MARKDOWN_ACTIVE_HEADING_OFFSET) {
+      break;
+    }
+
+    activeHeadingId = headingElement.dataset.docsHeadingId ?? activeHeadingId;
+  }
+
+  return activeHeadingId;
+}
+
+function findActiveVirtualMarkdownHeading(
+  blocks: MarkdownVirtualBlock[],
+  blockOffsets: MarkdownVirtualBlockOffset[],
+  readingTop: number,
+) {
+  let activeHeadingId: string | undefined;
+
+  for (let index = 0; index < blockOffsets.length; index += 1) {
+    const offset = blockOffsets[index];
+    if (offset.top > readingTop) {
+      break;
+    }
+
+    const blockHeading = blocks[index]?.headings[0];
+    if (blockHeading) {
+      activeHeadingId = blockHeading.id;
+    }
+  }
+
+  return activeHeadingId;
+}
+
+function findVirtualMarkdownHeadingTop(
+  blocks: MarkdownVirtualBlock[],
+  blockOffsets: MarkdownVirtualBlockOffset[],
+  headingId: string,
+) {
+  const blockIndex = blocks.findIndex((block) => block.headings.some((heading) => heading.id === headingId));
+  if (blockIndex === -1) {
+    return undefined;
+  }
+
+  return blockOffsets[blockIndex]?.top;
 }
 
 function createReadmeHeadings(source: string): ReadmeHeading[] {
@@ -937,12 +1110,14 @@ export function DocsPlaceholder() {
   const docsPreviewProgressTimersRef = useRef<Record<string, DocsPreviewProgressTimer>>({});
   const docsMarkdownTocOpenedResourceIdsRef = useRef<Set<string>>(new Set());
   const docsPreviewRunSequenceRef = useRef(0);
+  const docsMarkdownScrollSequenceRef = useRef(0);
   const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('project');
   const [activeResourceId, setActiveResourceId] = useState(docsResources[0]?.id ?? '');
   const [docsPanelMode, setDocsPanelMode] = useState<DocsPanelMode>('categories');
   const [docsPanelTransition, setDocsPanelTransition] = useState<DocsPanelTransition>('forward');
   const [activeMarkdownHeadingIdByResourceId, setActiveMarkdownHeadingIdByResourceId] = useState<Record<string, string>>({});
   const [expandedMarkdownHeadingIdsByResourceId, setExpandedMarkdownHeadingIdsByResourceId] = useState<Record<string, string[]>>({});
+  const [docsMarkdownScrollTarget, setDocsMarkdownScrollTarget] = useState<DocsMarkdownScrollTarget | null>(null);
   const [pendingDocsQuickScroll, setPendingDocsQuickScroll] = useState(false);
   const [isDocsSidebarCollapsed, setIsDocsSidebarCollapsed] = useState(false);
   const [isDocsPreviewFullscreen, setIsDocsPreviewFullscreen] = useState(false);
@@ -963,9 +1138,6 @@ export function DocsPlaceholder() {
     : undefined;
   const activeMarkdownHeading = activeMarkdownOutline?.headings.find((heading) => heading.id === activeMarkdownHeadingId)
     ?? activeMarkdownOutline?.headings[0];
-  const activeMarkdownSectionSource = activeMarkdownOutline && activeMarkdownHeading
-    ? extractMarkdownSection(activeMarkdownOutline.source, activeMarkdownHeading, activeMarkdownOutline.headings)
-    : undefined;
   const expandedMarkdownHeadingIds = useMemo(
     () => new Set(expandedMarkdownHeadingIdsByResourceId[activeResource.id] ?? []),
     [activeResource.id, expandedMarkdownHeadingIdsByResourceId],
@@ -1004,6 +1176,9 @@ export function DocsPlaceholder() {
   const cancelDocsPreview = (resourceId: string) => {
     clearDocsQuickPreviewTimer(resourceId);
     clearDocsPreviewProgressTimer(resourceId);
+    if (docsPreviewStates[resourceId]?.status === 'loading') {
+      delete docsPreviewCacheRef.current[resourceId];
+    }
     setDocsPreviewStates((previousStates) => ({
       ...previousStates,
       [resourceId]: docsPreviewIdleState,
@@ -1066,18 +1241,49 @@ export function DocsPlaceholder() {
     const elapsed = window.performance.now() - timer.startedAt;
     const waitMs = isLargeMarkdown ? Math.max(0, MIN_LARGE_MARKDOWN_PROGRESS_MS - elapsed) : 0;
 
-    if (waitMs <= 0) {
+    const startLayoutGate = () => {
+      const cache = createMarkdownPreviewCache(source);
+      docsPreviewCacheRef.current[resource.id] = cache;
       setDocsPreviewProgress(resource.id, runId, {
         stage: 'layout',
         progress: MARKDOWN_MAX_LOADING_PROGRESS,
       });
-      completeDocsPreview(resource.id, runId, createMarkdownPreviewCache(source));
+      setDocsPreviewStates((previousStates) => {
+        const currentState = previousStates[resource.id];
+        if (currentState?.status !== 'loading' || currentState.runId !== runId) {
+          return previousStates;
+        }
+
+        return {
+          ...previousStates,
+          [resource.id]: {
+            ...currentState,
+            stage: 'layout',
+            progress: MARKDOWN_MAX_LOADING_PROGRESS,
+          },
+        };
+      });
+      timer.completionTimeoutId = window.setTimeout(() => {
+        completeDocsPreview(resource.id, runId, cache);
+      }, MARKDOWN_INITIAL_LAYOUT_MAX_WAIT_MS);
+    };
+
+    if (waitMs <= 0) {
+      if (isLargeMarkdown) {
+        startLayoutGate();
+      } else {
+        completeDocsPreview(resource.id, runId, createMarkdownPreviewCache(source));
+      }
       return;
     }
 
     setDocsPreviewProgress(resource.id, runId, getMarkdownPreviewProgressState(elapsed));
     timer.completionTimeoutId = window.setTimeout(() => {
-      completeDocsPreview(resource.id, runId, createMarkdownPreviewCache(source));
+      if (isLargeMarkdown) {
+        startLayoutGate();
+      } else {
+        completeDocsPreview(resource.id, runId, createMarkdownPreviewCache(source));
+      }
     }, waitMs);
   };
 
@@ -1328,9 +1534,19 @@ export function DocsPlaceholder() {
     setDocsPanelMode('resources');
   };
 
-  const scrollDocsPreviewBodyToTop = () => {
-    const previewBody = docsPreviewRef.current?.querySelector<HTMLElement>('.landing-docs-preview-body');
-    previewBody?.scrollTo({ top: 0, behavior: 'auto' });
+  const requestMarkdownHeadingScroll = (headingId: string) => {
+    docsMarkdownScrollSequenceRef.current += 1;
+    setDocsMarkdownScrollTarget({
+      resourceId: activeResource.id,
+      headingId,
+      sequence: docsMarkdownScrollSequenceRef.current,
+    });
+  };
+
+  const scrollActiveMarkdownTocLinkIntoView = (headingId: string) => {
+    const tocRoot = isDocsPreviewFullscreen ? docsPreviewRef.current : docsWorkbenchRef.current;
+    const activeTocLink = tocRoot?.querySelector<HTMLElement>(createDocsTocHeadingAttributeSelector(headingId));
+    activeTocLink?.scrollIntoView({ block: 'nearest' });
   };
 
   const toggleExpandedMarkdownHeading = (resourceId: string, headingId: string) => {
@@ -1364,6 +1580,24 @@ export function DocsPlaceholder() {
     });
   };
 
+  const setActiveMarkdownHeadingFromScroll = (headingId: string) => {
+    setActiveMarkdownHeadingIdByResourceId((previousIds) => {
+      if (previousIds[activeResource.id] === headingId) {
+        return previousIds;
+      }
+
+      return {
+        ...previousIds,
+        [activeResource.id]: headingId,
+      };
+    });
+
+    const parentHeadingId = activeMarkdownOutline?.parentHeadingIdById.get(headingId);
+    if (parentHeadingId) {
+      ensureExpandedMarkdownHeading(activeResource.id, parentHeadingId);
+    }
+  };
+
   const selectMarkdownHeading = (heading: MarkdownHeading, hasChildren = false) => {
     setActiveMarkdownHeadingIdByResourceId((previousIds) => ({
       ...previousIds,
@@ -1381,7 +1615,7 @@ export function DocsPlaceholder() {
       }
     }
 
-    scrollDocsPreviewBodyToTop();
+    requestMarkdownHeadingScroll(heading.id);
   };
 
   const selectFullscreenMarkdownHeading = (heading: MarkdownHeading, hasChildren = false) => {
@@ -1433,6 +1667,24 @@ export function DocsPlaceholder() {
 
     startDocsPreviewFullscreenEnter();
   };
+
+  useEffect(() => {
+    if (!activeMarkdownHeading?.id) {
+      return undefined;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollActiveMarkdownTocLinkIntoView(activeMarkdownHeading.id);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    activeMarkdownHeading?.id,
+    docsPanelMode,
+    expandedMarkdownHeadingIds,
+    isDocsFullscreenTocCollapsed,
+    isDocsPreviewFullscreen,
+  ]);
 
   const docsSidebarTitle = docsPanelMode === 'document-toc' && activeMarkdownOutline
     ? '文档目录'
@@ -1672,8 +1924,10 @@ export function DocsPlaceholder() {
                   resource={activeResource}
                   previewState={activePreviewState}
                   previewCache={activePreviewCache}
-                  markdownSectionSource={activeMarkdownSectionSource}
-                  markdownSectionHeading={activeMarkdownHeading}
+                  markdownOutline={activeMarkdownOutline}
+                  activeMarkdownHeading={activeMarkdownHeading}
+                  markdownScrollTarget={docsMarkdownScrollTarget}
+                  onActiveMarkdownHeadingChange={setActiveMarkdownHeadingFromScroll}
                   onStartPreview={startDocsPreview}
                   onCancelPreview={() => cancelDocsPreview(activeResource.id)}
                   onDownload={handleDownload}
@@ -1761,6 +2015,7 @@ function DocsMarkdownTocPanel({
                 }${isActiveGroup ? ' is-active-group' : ''}${
                   group.children.length > 0 ? ' has-children' : ''
                 }`}
+                data-docs-toc-heading-id={group.heading.id}
                 aria-expanded={group.children.length > 0 ? isExpanded : undefined}
                 onClick={() => onSelectHeading(group.heading, group.children.length > 0)}
               >
@@ -1776,6 +2031,7 @@ function DocsMarkdownTocPanel({
                         className={`landing-docs-document-toc-link landing-docs-document-toc-level-3${
                           activeHeadingId === heading.id ? ' is-active' : ''
                         }`}
+                        data-docs-toc-heading-id={heading.id}
                         tabIndex={!isExpanded ? -1 : undefined}
                         onClick={() => onSelectHeading(heading)}
                       >
@@ -1797,8 +2053,10 @@ function DocsPreview({
   resource,
   previewState,
   previewCache,
-  markdownSectionSource,
-  markdownSectionHeading,
+  markdownOutline,
+  activeMarkdownHeading,
+  markdownScrollTarget,
+  onActiveMarkdownHeadingChange,
   onStartPreview,
   onCancelPreview,
   onDownload,
@@ -1809,8 +2067,10 @@ function DocsPreview({
   resource: DocsResource;
   previewState: DocsPreviewState;
   previewCache?: DocsPreviewCache;
-  markdownSectionSource?: string;
-  markdownSectionHeading?: MarkdownHeading;
+  markdownOutline?: MarkdownOutline;
+  activeMarkdownHeading?: MarkdownHeading;
+  markdownScrollTarget?: DocsMarkdownScrollTarget | null;
+  onActiveMarkdownHeadingChange?: (headingId: string) => void;
   onStartPreview: (resource: DocsResource) => void;
   onCancelPreview: () => void;
   onDownload: () => void;
@@ -1851,6 +2111,26 @@ function DocsPreview({
     );
   }
 
+  if (
+    resource.kind === 'markdown'
+    && previewState.status === 'loading'
+    && previewState.stage === 'layout'
+    && previewState.runId
+    && previewCache?.kind === 'markdown'
+    && previewCache.source.length >= MARKDOWN_VIRTUAL_THRESHOLD
+  ) {
+    return (
+      <MarkdownLayoutGate
+        resource={resource}
+        previewState={previewState}
+        previewCache={previewCache}
+        onCancelPreview={onCancelPreview}
+        onDownload={onDownload}
+        onPreviewSuccess={onPreviewSuccess}
+      />
+    );
+  }
+
   if (previewState.status !== 'success') {
     return (
       <ManualDocsPreviewState
@@ -1867,8 +2147,11 @@ function DocsPreview({
     const markdownSource = previewCache?.kind === 'markdown' ? previewCache.source : resource.source ?? '';
     return (
       <MarkdownDocsPreview
-        source={markdownSectionSource ?? markdownSource}
-        sectionHeading={markdownSectionHeading}
+        source={markdownSource}
+        headings={markdownOutline?.headings}
+        activeHeading={activeMarkdownHeading}
+        scrollTarget={markdownScrollTarget?.resourceId === resource.id ? markdownScrollTarget : null}
+        onActiveHeadingChange={onActiveMarkdownHeadingChange}
       />
     );
   }
@@ -1884,6 +2167,46 @@ function DocsPreview({
   }
 
   return <MissingDocsPreview resource={resource} />;
+}
+
+function MarkdownLayoutGate({
+  resource,
+  previewState,
+  previewCache,
+  onCancelPreview,
+  onDownload,
+  onPreviewSuccess,
+}: {
+  resource: DocsResource;
+  previewState: DocsPreviewState;
+  previewCache: Extract<DocsPreviewCache, { kind: 'markdown' }>;
+  onCancelPreview: () => void;
+  onDownload: () => void;
+  onPreviewSuccess: (resourceId: string, runId: number, cache: DocsPreviewCache) => void;
+}) {
+  const runId = previewState.runId;
+
+  return (
+    <div className="landing-docs-markdown-layout-gate">
+      <ManualDocsPreviewState
+        resource={resource}
+        previewState={previewState}
+        onStartPreview={() => undefined}
+        onCancelPreview={onCancelPreview}
+        onDownload={onDownload}
+      />
+      {runId ? (
+        <div className="landing-docs-markdown-layout-probe" aria-hidden="true">
+          <MarkdownDocsPreview
+            source={previewCache.source}
+            headings={previewCache.headings}
+            isInitialStabilizing
+            onInitialLayoutReady={() => onPreviewSuccess(resource.id, runId, previewCache)}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function ZoomableDocsImagePreview({
@@ -2066,52 +2389,195 @@ function ZoomableDocsImagePreview({
 
 const MarkdownDocsPreview = memo(function MarkdownDocsPreview({
   source,
-  sectionHeading,
+  headings = [],
+  activeHeading,
+  scrollTarget,
+  onActiveHeadingChange,
+  isInitialStabilizing = false,
+  onInitialLayoutReady,
 }: {
   source: string;
-  sectionHeading?: MarkdownHeading;
+  headings?: MarkdownHeading[];
+  activeHeading?: MarkdownHeading;
+  scrollTarget?: DocsMarkdownScrollTarget | null;
+  onActiveHeadingChange?: (headingId: string) => void;
+  isInitialStabilizing?: boolean;
+  onInitialLayoutReady?: () => void;
 }) {
-  if (!sectionHeading && source.length >= MARKDOWN_VIRTUAL_THRESHOLD) {
-    return <VirtualMarkdownPreview source={source} />;
+  if (source.length >= MARKDOWN_VIRTUAL_THRESHOLD) {
+    return (
+      <VirtualMarkdownPreview
+        source={source}
+        headings={headings}
+        activeHeading={activeHeading}
+        scrollTarget={scrollTarget}
+        onActiveHeadingChange={onActiveHeadingChange}
+        isInitialStabilizing={isInitialStabilizing}
+        onInitialLayoutReady={onInitialLayoutReady}
+      />
+    );
   }
 
   return (
-    <div className={`landing-docs-markdown landing-about-markdown${sectionHeading ? ' is-section-preview' : ''}`}>
-      {sectionHeading ? (
+    <StandardMarkdownPreview
+      source={source}
+      headings={headings}
+      activeHeading={activeHeading}
+      scrollTarget={scrollTarget}
+      onActiveHeadingChange={onActiveHeadingChange}
+    />
+  );
+});
+
+function StandardMarkdownPreview({
+  source,
+  headings,
+  activeHeading,
+  scrollTarget,
+  onActiveHeadingChange,
+}: {
+  source: string;
+  headings: MarkdownHeading[];
+  activeHeading?: MarkdownHeading;
+  scrollTarget?: DocsMarkdownScrollTarget | null;
+  onActiveHeadingChange?: (headingId: string) => void;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const activeHeadingIdRef = useRef(activeHeading?.id);
+  const scrollFrameRef = useRef<number | null>(null);
+  const components = createDocsMarkdownComponents(headings);
+
+  useEffect(() => {
+    activeHeadingIdRef.current = activeHeading?.id;
+  }, [activeHeading?.id]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    const container = getMarkdownScrollContainer(root);
+    if (!root || !container || headings.length === 0 || !onActiveHeadingChange) {
+      return undefined;
+    }
+
+    const updateActiveHeading = () => {
+      scrollFrameRef.current = null;
+      const headingElements = Array.from(root.querySelectorAll<HTMLElement>('[data-docs-heading-id]'));
+      const nextHeadingId = findActiveHeadingFromElements(container, headingElements);
+      if (nextHeadingId && nextHeadingId !== activeHeadingIdRef.current) {
+        activeHeadingIdRef.current = nextHeadingId;
+        onActiveHeadingChange(nextHeadingId);
+      }
+    };
+
+    const scheduleUpdate = () => {
+      if (scrollFrameRef.current !== null) {
+        return;
+      }
+      scrollFrameRef.current = window.requestAnimationFrame(updateActiveHeading);
+    };
+
+    scheduleUpdate();
+    container.addEventListener('scroll', scheduleUpdate, { passive: true });
+
+    return () => {
+      container.removeEventListener('scroll', scheduleUpdate);
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, [headings, onActiveHeadingChange]);
+
+  useEffect(() => {
+    if (!scrollTarget) {
+      return;
+    }
+
+    const root = rootRef.current;
+    const container = getMarkdownScrollContainer(root);
+    const target = root?.querySelector<HTMLElement>(createDocsHeadingAttributeSelector(scrollTarget.headingId));
+    if (!root || !container || !target) {
+      return;
+    }
+
+    container.scrollTo({
+      top: Math.max(0, getElementTopWithinScrollContainer(container, target) - MARKDOWN_SCROLL_TARGET_OFFSET),
+      behavior: 'smooth',
+    });
+  }, [scrollTarget?.headingId, scrollTarget?.sequence]);
+
+  return (
+    <div ref={rootRef} className="landing-docs-markdown landing-about-markdown">
+      {activeHeading ? (
         <div className="landing-docs-section-context">
-          当前章节：{sectionHeading.text}
+          当前章节：{activeHeading.text}
         </div>
       ) : null}
       <ReactMarkdown
         remarkPlugins={docsMarkdownRemarkPlugins}
-        components={docsMarkdownComponents}
+        components={components}
       >
         {source}
       </ReactMarkdown>
     </div>
   );
-});
+}
 
-function VirtualMarkdownPreview({ source }: { source: string }) {
+function VirtualMarkdownPreview({
+  source,
+  headings,
+  activeHeading,
+  scrollTarget,
+  onActiveHeadingChange,
+  isInitialStabilizing = false,
+  onInitialLayoutReady,
+}: {
+  source: string;
+  headings: MarkdownHeading[];
+  activeHeading?: MarkdownHeading;
+  scrollTarget?: DocsMarkdownScrollTarget | null;
+  onActiveHeadingChange?: (headingId: string) => void;
+  isInitialStabilizing?: boolean;
+  onInitialLayoutReady?: () => void;
+}) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const blockHeightsRef = useRef<Record<string, number>>({});
   const blockOffsetsRef = useRef<MarkdownVirtualBlockOffset[]>([]);
   const pendingScrollAnchorRef = useRef<{ id: string; offset: number } | null>(null);
-  const blocks = useMemo(() => splitMarkdownVirtualBlocks(source), [source]);
+  const pendingScrollTargetCorrectionRef = useRef<{ headingId: string; sequence: number; attempts: number } | null>(null);
+  const activeHeadingIdRef = useRef(activeHeading?.id);
+  const scrollFrameRef = useRef<number | null>(null);
+  const initialLayoutRequestRef = useRef(0);
+  const blocks = useMemo(() => splitMarkdownVirtualBlocks(source, headings), [headings, source]);
+  const [rootElement, setRootElement] = useState<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState({ scrollTop: 0, height: 680 });
   const [heightVersion, setHeightVersion] = useState(0);
+  const [initialLayoutReady, setInitialLayoutReady] = useState(!isInitialStabilizing);
+
+  const setVirtualMarkdownRoot = useCallback((node: HTMLDivElement | null) => {
+    rootRef.current = node;
+    setRootElement(node);
+  }, []);
 
   const blockOffsets = useMemo(() => {
     let top = 0;
     return blocks.map((block) => {
       const height = blockHeightsRef.current[block.id] ?? estimateMarkdownBlockHeight(block);
-      const offset = { id: block.id, top, height };
+      const offset = { id: block.id, top, height, headingIds: block.headings.map((heading) => heading.id) };
       top += height;
       return offset;
     });
   }, [blocks, heightVersion]);
   blockOffsetsRef.current = blockOffsets;
+
+  useEffect(() => {
+    activeHeadingIdRef.current = activeHeading?.id;
+  }, [activeHeading?.id]);
+
+  useEffect(() => {
+    initialLayoutRequestRef.current += 1;
+    setInitialLayoutReady(!isInitialStabilizing);
+  }, [isInitialStabilizing, source]);
 
   const totalHeight = blockOffsets.length
     ? blockOffsets[blockOffsets.length - 1].top + blockOffsets[blockOffsets.length - 1].height
@@ -2127,44 +2593,154 @@ function VirtualMarkdownPreview({ source }: { source: string }) {
   );
   const normalizedLastVisibleIndex = lastVisibleIndex < firstVisibleIndex ? blocks.length - 1 : lastVisibleIndex;
   const visibleBlocks = blocks.slice(firstVisibleIndex, normalizedLastVisibleIndex + 1);
+  const visibleBlockIds = visibleBlocks.map((block) => block.id).join('|');
+
+  const capturePendingScrollAnchor = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const root = rootElement ?? rootRef.current;
+    if (!container || !root) {
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+
+    const rootTop = getElementTopWithinScrollContainer(container, root);
+    const readingScrollTop = Math.max(0, container.scrollTop - rootTop);
+    const anchorOffset =
+      blockOffsetsRef.current.find((block) => block.top + block.height >= readingScrollTop) ??
+      blockOffsetsRef.current[0];
+    pendingScrollAnchorRef.current = anchorOffset
+      ? {
+          id: anchorOffset.id,
+          offset: readingScrollTop - anchorOffset.top,
+        }
+      : null;
+  }, [rootElement]);
+
+  const applyMeasuredBlockHeights = useCallback((measurements: Array<{ blockId: string; height: number }>) => {
+    let hasChanges = false;
+
+    measurements.forEach(({ blockId, height }) => {
+      if (!Number.isFinite(height) || height <= 0) {
+        return;
+      }
+
+      const previousHeight = blockHeightsRef.current[blockId] ?? 0;
+      if (previousHeight && Math.abs(previousHeight - height) < MARKDOWN_HEIGHT_MEASURE_TOLERANCE) {
+        return;
+      }
+
+      blockHeightsRef.current[blockId] = height;
+      hasChanges = true;
+    });
+
+    if (!hasChanges) {
+      return;
+    }
+
+    capturePendingScrollAnchor();
+    setHeightVersion((value) => value + 1);
+  }, [capturePendingScrollAnchor]);
+
+  const scrollToVirtualHeading = useCallback((headingId: string, behavior: ScrollBehavior = 'auto') => {
+    const root = rootElement ?? rootRef.current;
+    const container = scrollContainerRef.current ?? getMarkdownScrollContainer(root);
+    const headingTop = findVirtualMarkdownHeadingTop(blocks, blockOffsetsRef.current, headingId);
+    if (!root || !container || headingTop === undefined) {
+      return { applied: false, isTargetVisible: false };
+    }
+
+    const rootTop = getElementTopWithinScrollContainer(container, root);
+    const nextScrollTop = Math.max(0, rootTop + headingTop - MARKDOWN_SCROLL_TARGET_OFFSET);
+    const distance = Math.abs(container.scrollTop - nextScrollTop);
+    if (distance > 1) {
+      container.scrollTo({
+        top: nextScrollTop,
+        behavior,
+      });
+    }
+
+    setViewport({
+      scrollTop: Math.max(0, nextScrollTop - rootTop),
+      height: container.clientHeight || 680,
+    });
+
+    const targetElement = root.querySelector<HTMLElement>(createDocsHeadingAttributeSelector(headingId));
+    if (!targetElement) {
+      return { applied: true, isTargetVisible: false };
+    }
+
+    const targetOffset = targetElement.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    return {
+      applied: true,
+      isTargetVisible: targetOffset >= -MARKDOWN_ACTIVE_HEADING_OFFSET && targetOffset <= container.clientHeight * 0.75,
+    };
+  }, [blocks, rootElement]);
 
   useEffect(() => {
-    const container = getMarkdownScrollContainer(rootRef.current);
-    if (!container) {
+    const root = rootElement;
+    const container = getMarkdownScrollContainer(root);
+    if (!root || !container) {
       return undefined;
     }
     scrollContainerRef.current = container;
 
     const updateViewport = () => {
-      setViewport({
-        scrollTop: container.scrollTop,
+      scrollFrameRef.current = null;
+      const rootTop = getElementTopWithinScrollContainer(container, root);
+      const readingScrollTop = Math.max(0, container.scrollTop - rootTop);
+      const nextViewport = {
+        scrollTop: readingScrollTop,
         height: container.clientHeight || 680,
-      });
+      };
+      setViewport(nextViewport);
+
+      if (!isInitialStabilizing && headings.length > 0 && onActiveHeadingChange) {
+        const readingTop = nextViewport.scrollTop + MARKDOWN_ACTIVE_HEADING_OFFSET;
+        const renderedHeadingElements = Array.from(root.querySelectorAll<HTMLElement>('[data-docs-heading-id]'));
+        const nextHeadingId =
+          findPassedHeadingFromElements(container, renderedHeadingElements) ??
+          findActiveVirtualMarkdownHeading(blocks, blockOffsetsRef.current, readingTop);
+        if (nextHeadingId && nextHeadingId !== activeHeadingIdRef.current) {
+          activeHeadingIdRef.current = nextHeadingId;
+          onActiveHeadingChange(nextHeadingId);
+        }
+      }
     };
 
-    updateViewport();
-    container.addEventListener('scroll', updateViewport, { passive: true });
+    const scheduleUpdate = () => {
+      if (scrollFrameRef.current !== null) {
+        return;
+      }
+      scrollFrameRef.current = window.requestAnimationFrame(updateViewport);
+    };
+
+    scheduleUpdate();
+    container.addEventListener('scroll', scheduleUpdate, { passive: true });
 
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(updateViewport);
+      resizeObserver = new ResizeObserver(scheduleUpdate);
       resizeObserver.observe(container);
     }
 
     return () => {
-      container.removeEventListener('scroll', updateViewport);
+      container.removeEventListener('scroll', scheduleUpdate);
       resizeObserver?.disconnect();
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
     };
-  }, []);
+  }, [blocks, headings.length, isInitialStabilizing, onActiveHeadingChange, rootElement]);
 
   useEffect(() => {
-    const container = scrollContainerRef.current ?? getMarkdownScrollContainer(rootRef.current);
+    const container = scrollContainerRef.current ?? getMarkdownScrollContainer(rootElement ?? rootRef.current);
     blockHeightsRef.current = {};
     pendingScrollAnchorRef.current = null;
     container?.scrollTo({ top: 0 });
     setViewport({ scrollTop: 0, height: container?.clientHeight || 680 });
     setHeightVersion((value) => value + 1);
-  }, [source]);
+  }, [rootElement, source]);
 
   useLayoutEffect(() => {
     const anchor = pendingScrollAnchorRef.current;
@@ -2180,55 +2756,166 @@ function VirtualMarkdownPreview({ source }: { source: string }) {
       return;
     }
 
-    const nextScrollTop = Math.max(0, nextAnchorOffset.top + anchor.offset);
+    const root = rootElement ?? rootRef.current;
+    const rootTop = root ? getElementTopWithinScrollContainer(container, root) : 0;
+    const nextScrollTop = Math.max(0, rootTop + nextAnchorOffset.top + anchor.offset);
     if (Math.abs(container.scrollTop - nextScrollTop) > 1) {
       container.scrollTop = nextScrollTop;
       setViewport({
-        scrollTop: container.scrollTop,
+        scrollTop: Math.max(0, container.scrollTop - rootTop),
         height: container.clientHeight || 680,
       });
     }
     pendingScrollAnchorRef.current = null;
   }, [blockOffsets]);
 
-  const handleBlockMeasured = useCallback((blockId: string, height: number) => {
-    const previousHeight = blockHeightsRef.current[blockId] ?? 0;
-    if (previousHeight && Math.abs(previousHeight - height) < MARKDOWN_HEIGHT_MEASURE_TOLERANCE) {
+  useLayoutEffect(() => {
+    if (isInitialStabilizing) {
       return;
     }
 
-    const container = scrollContainerRef.current;
-    if (container) {
-      const anchorOffset =
-        blockOffsetsRef.current.find((block) => block.top + block.height >= container.scrollTop) ??
-        blockOffsetsRef.current[0];
-      pendingScrollAnchorRef.current = anchorOffset
-        ? {
-            id: anchorOffset.id,
-            offset: container.scrollTop - anchorOffset.top,
-          }
-        : null;
+    const pendingTarget = pendingScrollTargetCorrectionRef.current;
+    if (!pendingTarget || pendingTarget.sequence !== scrollTarget?.sequence) {
+      return;
     }
 
-    blockHeightsRef.current[blockId] = height;
-    setHeightVersion((value) => value + 1);
-  }, []);
+    const result = scrollToVirtualHeading(pendingTarget.headingId, 'auto');
+    pendingTarget.attempts += 1;
+
+    if (!result.applied || result.isTargetVisible || pendingTarget.attempts >= 12) {
+      pendingScrollTargetCorrectionRef.current = null;
+    }
+  }, [blockOffsets, isInitialStabilizing, scrollTarget?.sequence, scrollToVirtualHeading]);
+
+  useLayoutEffect(() => {
+    const root = rootElement ?? rootRef.current;
+    if (!root) {
+      return;
+    }
+
+    const measurements = Array.from(root.querySelectorAll<HTMLElement>('[data-docs-markdown-block-id]'))
+      .map((element) => {
+        const blockId = element.dataset.docsMarkdownBlockId;
+        const rectHeight = element.getBoundingClientRect().height;
+        return blockId
+          ? {
+              blockId,
+              height: Math.max(rectHeight, element.scrollHeight, element.offsetHeight),
+            }
+          : null;
+      })
+      .filter((item): item is { blockId: string; height: number } => Boolean(item));
+
+    applyMeasuredBlockHeights(measurements);
+  }, [applyMeasuredBlockHeights, rootElement, visibleBlockIds]);
+
+  useEffect(() => {
+    if (!isInitialStabilizing || initialLayoutReady || !onInitialLayoutReady) {
+      return undefined;
+    }
+
+    const root = rootElement ?? rootRef.current;
+    const container = scrollContainerRef.current ?? getMarkdownScrollContainer(root);
+    if (!root || !container || visibleBlocks.length === 0) {
+      return undefined;
+    }
+
+    const hasMeasuredVisibleBlocks = visibleBlocks.every((block) => {
+      const measuredHeight = blockHeightsRef.current[block.id];
+      return Number.isFinite(measuredHeight) && measuredHeight > 0;
+    });
+    if (!hasMeasuredVisibleBlocks) {
+      return undefined;
+    }
+
+    const requestId = initialLayoutRequestRef.current + 1;
+    initialLayoutRequestRef.current = requestId;
+    let cancelled = false;
+
+    waitForLayoutSignatureStable({
+      stableFrames: MARKDOWN_INITIAL_LAYOUT_STABLE_FRAMES,
+      maxWaitMs: MARKDOWN_INITIAL_LAYOUT_MAX_WAIT_MS,
+      getSignature: () => [
+        Math.round(totalHeight),
+        Math.round(root.scrollHeight),
+        Math.round(root.offsetHeight),
+        Math.round(root.getBoundingClientRect().height),
+        Math.round(container.clientHeight),
+        Math.round(container.scrollHeight),
+        ...visibleBlocks.map((block) => `${block.id}:${Math.round(blockHeightsRef.current[block.id] ?? 0)}`),
+      ].join('|'),
+      isCancelled: () => cancelled,
+    }).then(() => {
+      if (cancelled || initialLayoutRequestRef.current !== requestId) {
+        return;
+      }
+
+      setInitialLayoutReady(true);
+      onInitialLayoutReady();
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    heightVersion,
+    initialLayoutReady,
+    isInitialStabilizing,
+    onInitialLayoutReady,
+    rootElement,
+    totalHeight,
+    visibleBlockIds,
+    visibleBlocks,
+  ]);
+
+  useEffect(() => {
+    if (isInitialStabilizing || !scrollTarget) {
+      return;
+    }
+
+    pendingScrollTargetCorrectionRef.current = {
+      headingId: scrollTarget.headingId,
+      sequence: scrollTarget.sequence,
+      attempts: 0,
+    };
+
+    const result = scrollToVirtualHeading(scrollTarget.headingId, 'smooth');
+    if (!result.applied) {
+      return;
+    }
+
+    if (onActiveHeadingChange && scrollTarget.headingId !== activeHeadingIdRef.current) {
+      activeHeadingIdRef.current = scrollTarget.headingId;
+      onActiveHeadingChange(scrollTarget.headingId);
+    }
+  }, [isInitialStabilizing, onActiveHeadingChange, scrollTarget?.headingId, scrollTarget?.sequence, scrollToVirtualHeading]);
+
+  const handleBlockMeasured = useCallback((blockId: string, height: number) => {
+    applyMeasuredBlockHeights([{ blockId, height }]);
+  }, [applyMeasuredBlockHeights]);
 
   return (
-    <div ref={rootRef} className="landing-docs-virtual-markdown">
-      <div className="landing-docs-virtual-markdown-spacer" style={{ height: `${totalHeight}px` }}>
-        {visibleBlocks.map((block, index) => {
-          const blockIndex = firstVisibleIndex + index;
-          const offset = blockOffsets[blockIndex];
-          return (
-            <VirtualMarkdownBlock
-              key={block.id}
-              block={block}
-              top={offset?.top ?? 0}
-              onMeasured={handleBlockMeasured}
-            />
-          );
-        })}
+    <div className={`landing-docs-virtual-markdown-reader${initialLayoutReady ? '' : ' is-stabilizing'}`}>
+      {activeHeading ? (
+        <div className="landing-docs-section-context landing-docs-virtual-section-context">
+          当前章节：{activeHeading.text}
+        </div>
+      ) : null}
+      <div ref={setVirtualMarkdownRoot} className="landing-docs-virtual-markdown">
+        <div className="landing-docs-virtual-markdown-spacer" style={{ height: `${totalHeight}px` }}>
+          {visibleBlocks.map((block, index) => {
+            const blockIndex = firstVisibleIndex + index;
+            const offset = blockOffsets[blockIndex];
+            return (
+              <VirtualMarkdownBlock
+                key={block.id}
+                block={block}
+                top={offset?.top ?? 0}
+                onMeasured={handleBlockMeasured}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -2245,6 +2932,7 @@ function VirtualMarkdownBlock({
 }) {
   const blockRef = useRef<HTMLDivElement | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
+  const components = createDocsMarkdownComponents(block.headings, block.startLineIndex);
 
   useEffect(() => {
     const element = blockRef.current;
@@ -2259,7 +2947,9 @@ function VirtualMarkdownBlock({
 
       resizeFrameRef.current = window.requestAnimationFrame(() => {
         resizeFrameRef.current = null;
-        onMeasured(block.id, element.getBoundingClientRect().height);
+        const rectHeight = element.getBoundingClientRect().height;
+        const measuredHeight = Math.max(rectHeight, element.scrollHeight, element.offsetHeight);
+        onMeasured(block.id, measuredHeight);
       });
     };
     measure();
@@ -2268,6 +2958,7 @@ function VirtualMarkdownBlock({
       return () => {
         if (resizeFrameRef.current !== null) {
           window.cancelAnimationFrame(resizeFrameRef.current);
+          resizeFrameRef.current = null;
         }
       };
     }
@@ -2278,6 +2969,7 @@ function VirtualMarkdownBlock({
       resizeObserver.disconnect();
       if (resizeFrameRef.current !== null) {
         window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
       }
     };
   }, [block.id, onMeasured]);
@@ -2286,9 +2978,10 @@ function VirtualMarkdownBlock({
     <div
       ref={blockRef}
       className="landing-docs-markdown landing-about-markdown landing-docs-virtual-markdown-block"
+      data-docs-markdown-block-id={block.id}
       style={{ transform: `translateY(${top}px)` }}
     >
-      <ReactMarkdown remarkPlugins={docsMarkdownRemarkPlugins} components={docsMarkdownComponents}>
+      <ReactMarkdown remarkPlugins={docsMarkdownRemarkPlugins} components={components}>
         {block.content}
       </ReactMarkdown>
     </div>
@@ -2431,7 +3124,7 @@ function DocxPreviewPane({
         if (cancelled) return;
 
         onStageChange(resource.id, runId, 'layout');
-        await waitForDocxLayoutFrame();
+        await waitForDocxLayoutStable(container, () => cancelled);
         if (cancelled) return;
 
         updateDocxCanvasScale(container);
@@ -2502,11 +3195,150 @@ function DocxPreviewPane({
   );
 }
 
-function waitForDocxLayoutFrame() {
+async function waitForDocxLayoutStable(container: HTMLElement, isCancelled: () => boolean) {
+  await waitForNextAnimationFrames(2, isCancelled);
+  if (isCancelled()) {
+    return;
+  }
+
+  await waitForDocumentFontsReady(DOCX_ASSET_MAX_WAIT_MS, isCancelled);
+  await waitForImagesReady(container, DOCX_ASSET_MAX_WAIT_MS, isCancelled);
+  if (isCancelled()) {
+    return;
+  }
+
+  await waitForLayoutSignatureStable({
+    stableFrames: DOCX_LAYOUT_STABLE_FRAMES,
+    maxWaitMs: DOCX_LAYOUT_MAX_WAIT_MS,
+    getSignature: () => {
+      updateDocxCanvasScale(container);
+      return getDocxLayoutSignature(container);
+    },
+    isCancelled,
+  });
+}
+
+function waitForNextAnimationFrames(count: number, isCancelled?: () => boolean) {
   return new Promise<void>((resolve) => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => resolve());
-    });
+    let remaining = Math.max(1, count);
+
+    const nextFrame = () => {
+      if (isCancelled?.()) {
+        resolve();
+        return;
+      }
+
+      remaining -= 1;
+      if (remaining <= 0) {
+        resolve();
+        return;
+      }
+
+      window.requestAnimationFrame(nextFrame);
+    };
+
+    window.requestAnimationFrame(nextFrame);
+  });
+}
+
+function waitForTimeout(ms: number, isCancelled?: () => boolean) {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve();
+    };
+    const timeoutId = window.setTimeout(finish, ms);
+    if (!isCancelled) {
+      return;
+    }
+
+    const checkCancel = () => {
+      if (settled) {
+        return;
+      }
+
+      if (isCancelled()) {
+        window.clearTimeout(timeoutId);
+        finish();
+        return;
+      }
+
+      window.requestAnimationFrame(checkCancel);
+    };
+    window.requestAnimationFrame(checkCancel);
+  });
+}
+
+async function waitForDocumentFontsReady(maxWaitMs: number, isCancelled: () => boolean) {
+  if (!('fonts' in document) || !document.fonts) {
+    return;
+  }
+
+  await Promise.race([
+    document.fonts.ready.then(() => undefined),
+    waitForTimeout(maxWaitMs, isCancelled),
+  ]);
+}
+
+async function waitForImagesReady(container: HTMLElement, maxWaitMs: number, isCancelled: () => boolean) {
+  const pendingImages = Array.from(container.querySelectorAll('img')).filter((image) => !image.complete);
+  if (pendingImages.length === 0) {
+    return;
+  }
+
+  await Promise.race([
+    Promise.all(pendingImages.map((image) => new Promise<void>((resolve) => {
+      image.addEventListener('load', () => resolve(), { once: true });
+      image.addEventListener('error', () => resolve(), { once: true });
+    }))).then(() => undefined),
+    waitForTimeout(maxWaitMs, isCancelled),
+  ]);
+}
+
+function waitForLayoutSignatureStable({
+  getSignature,
+  stableFrames,
+  maxWaitMs,
+  isCancelled,
+}: {
+  getSignature: () => string;
+  stableFrames: number;
+  maxWaitMs: number;
+  isCancelled?: () => boolean;
+}) {
+  return new Promise<void>((resolve) => {
+    const startedAt = window.performance.now();
+    let previousSignature = '';
+    let stableFrameCount = 0;
+
+    const check = () => {
+      if (isCancelled?.()) {
+        resolve();
+        return;
+      }
+
+      const signature = getSignature();
+      if (signature === previousSignature && signature.length > 0) {
+        stableFrameCount += 1;
+      } else {
+        previousSignature = signature;
+        stableFrameCount = 0;
+      }
+
+      if (stableFrameCount >= stableFrames || window.performance.now() - startedAt >= maxWaitMs) {
+        resolve();
+        return;
+      }
+
+      window.requestAnimationFrame(check);
+    };
+
+    window.requestAnimationFrame(check);
   });
 }
 
@@ -2570,21 +3402,6 @@ function getDocsMarkdownOutline(
   };
 }
 
-function extractMarkdownSection(source: string, heading: MarkdownHeading, headings: MarkdownHeading[]) {
-  const lines = source.split(/\r?\n/);
-  const headingIndex = headings.findIndex((item) => item.id === heading.id);
-  if (headingIndex === -1) {
-    return source;
-  }
-
-  const nextHeading = headings.slice(headingIndex + 1).find((item) => (
-    heading.level === 2 ? item.level <= 3 : item.level <= heading.level
-  ));
-  const endLineIndex = nextHeading?.lineIndex ?? lines.length;
-  const sectionLines = lines.slice(heading.lineIndex, endLineIndex);
-  return sectionLines.join('\n').trim() || lines[heading.lineIndex] || '';
-}
-
 function estimateMarkdownBlockHeight(block: MarkdownVirtualBlock) {
   const lineCount = block.content.split('\n').length;
   const headingBonus = /^#{1,3}\s/m.test(block.content) ? 44 : 0;
@@ -2616,6 +3433,37 @@ function getDocxPageFrames(container: HTMLElement) {
   });
 
   return Array.from(container.querySelectorAll<HTMLElement>('.landing-docx-page-frame'));
+}
+
+function getDocxLayoutSignature(container: HTMLElement) {
+  const pageFrames = getDocxPageFrames(container);
+  const pageSignature = pageFrames.map((frame) => {
+    const page = frame.querySelector<HTMLElement>('section.landing-docx-rendered');
+    const frameRect = frame.getBoundingClientRect();
+    const pageRect = page?.getBoundingClientRect();
+
+    return [
+      Math.round(frameRect.width),
+      Math.round(frameRect.height),
+      Math.round(frame.scrollWidth),
+      Math.round(frame.scrollHeight),
+      Math.round(pageRect?.width ?? 0),
+      Math.round(pageRect?.height ?? 0),
+      Math.round(page?.scrollWidth ?? 0),
+      Math.round(page?.scrollHeight ?? 0),
+    ].join(':');
+  }).join('|');
+
+  return [
+    pageFrames.length,
+    Math.round(container.clientWidth),
+    Math.round(container.clientHeight),
+    Math.round(container.scrollWidth),
+    Math.round(container.scrollHeight),
+    container.style.getPropertyValue('--landing-docx-scale') || '1',
+    container.style.getPropertyValue('--landing-docx-page-width') || 'auto',
+    pageSignature,
+  ].join('|');
 }
 
 function updateDocxCanvasScale(container: HTMLElement) {
@@ -2730,13 +3578,14 @@ async function downloadDocsResource(resource: DocsResource, previewCache?: DocsP
   return undefined;
 }
 
-function splitMarkdownVirtualBlocks(source: string): MarkdownVirtualBlock[] {
+function splitMarkdownVirtualBlocks(source: string, headings: MarkdownHeading[] = createMarkdownHeadings(source)): MarkdownVirtualBlock[] {
   const blocks: MarkdownVirtualBlock[] = [];
   const lines = source.split(/\r?\n/);
   let buffer: string[] = [];
+  let bufferStartLineIndex = 0;
   let inFence = false;
 
-  const flush = () => {
+  const flush = (endLineIndex: number) => {
     if (buffer.length === 0) {
       return;
     }
@@ -2746,12 +3595,17 @@ function splitMarkdownVirtualBlocks(source: string): MarkdownVirtualBlock[] {
       blocks.push({
         id: `md-block-${blocks.length}`,
         content,
+        startLineIndex: bufferStartLineIndex,
+        endLineIndex,
+        headings: headings.filter((heading) => (
+          heading.lineIndex >= bufferStartLineIndex && heading.lineIndex <= endLineIndex
+        )),
       });
     }
     buffer = [];
   };
 
-  lines.forEach((line) => {
+  lines.forEach((line, lineIndex) => {
     const trimmed = line.trim();
     const isFence = /^```/.test(trimmed);
     const isHeading = /^#{2,3}\s+/.test(trimmed);
@@ -2759,7 +3613,11 @@ function splitMarkdownVirtualBlocks(source: string): MarkdownVirtualBlock[] {
     const shouldSplitLargeBlock = !inFence && buffer.join('\n').length >= MARKDOWN_BLOCK_TARGET_CHARS && trimmed === '';
 
     if (shouldStartNewBlock || shouldSplitLargeBlock) {
-      flush();
+      flush(lineIndex - 1);
+    }
+
+    if (buffer.length === 0) {
+      bufferStartLineIndex = lineIndex;
     }
 
     buffer.push(line);
@@ -2769,8 +3627,16 @@ function splitMarkdownVirtualBlocks(source: string): MarkdownVirtualBlock[] {
     }
   });
 
-  flush();
-  return blocks.length > 0 ? blocks : [{ id: 'md-block-empty', content: source }];
+  flush(lines.length - 1);
+  return blocks.length > 0
+    ? blocks
+    : [{
+        id: 'md-block-empty',
+        content: source,
+        startLineIndex: 0,
+        endLineIndex: lines.length - 1,
+        headings,
+      }];
 }
 
 export function AboutPlaceholder() {

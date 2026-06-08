@@ -865,6 +865,7 @@ public class AnnotationService {
 
   private List<LabelerItemHistoryResponse> buildLabelerItemHistory(AssignmentItemRecord assignment) {
     List<LabelerItemHistoryResponse> history = new ArrayList<>();
+    Map<Long, Boolean> escalatedAnnotations = new java.util.HashMap<>();
     for (LabelerItemHistoryRecord record : annotationRepository.listLabelerItemHistory(assignment.assignmentId())) {
       String type = record.eventType();
       if ("submit".equals(type)) {
@@ -897,10 +898,12 @@ public class AnnotationService {
       }
       if ("human_review".equals(type)) {
         String decision = normalizeDecision(record.humanDecision());
+        boolean finalReview = Boolean.TRUE.equals(escalatedAnnotations.get(record.annotationId()))
+            && isFinalReviewDecision(decision);
         history.add(new LabelerItemHistoryResponse(
             "human-" + record.annotationId() + "-" + history.size(),
             "human_review",
-            resolveHumanHistoryTitle(record.revisionNo(), decision),
+            resolveHumanHistoryTitle(record.revisionNo(), decision, finalReview),
             blankToDefault(record.humanReviewerName(), "Reviewer"),
             decision,
             record.humanReason(),
@@ -908,6 +911,9 @@ public class AnnotationService {
             null,
             formatDateTime(record.humanReviewedAt()),
             "completed"));
+        if ("ESCALATE".equals(decision)) {
+          escalatedAnnotations.put(record.annotationId(), true);
+        }
       }
     }
     if ("returned".equalsIgnoreCase(assignment.assignmentStatus())) {
@@ -926,7 +932,17 @@ public class AnnotationService {
     return history;
   }
 
-  private String resolveHumanHistoryTitle(int revisionNo, String decision) {
+  private String resolveHumanHistoryTitle(int revisionNo, String decision, boolean finalReview) {
+    if (finalReview && ("APPROVE".equals(decision) || "APPROVED".equals(decision))) {
+      return "终审通过";
+    }
+    if (finalReview
+        && ("RETURN".equals(decision)
+            || "RETURNED".equals(decision)
+            || "REJECT".equals(decision)
+            || "REJECTED".equals(decision))) {
+      return "终审驳回";
+    }
     if ("ESCALATE".equals(decision)) {
       return revisionNo <= 1 ? "初审升级" : "复审升级";
     }
@@ -937,6 +953,14 @@ public class AnnotationService {
       return "复审";
     }
     return "终审";
+  }
+
+  private boolean isFinalReviewDecision(String decision) {
+    if (decision == null || decision.isBlank()) {
+      return false;
+    }
+    String normalized = decision.trim().toUpperCase(Locale.ROOT);
+    return List.of("APPROVE", "APPROVED", "RETURN", "RETURNED", "REJECT", "REJECTED").contains(normalized);
   }
 
   private String normalizeDecision(String decision) {

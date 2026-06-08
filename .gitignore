@@ -19,3 +19,11 @@ output/
 backend/target/
 frontend/.vite/
 labelhub.sql
+
+# Office temporary lock files
+~$*
+
+# Playwright and browser test artifacts
+test-results/
+playwright-report/
+blob-report/

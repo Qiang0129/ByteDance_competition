@@ -366,12 +366,12 @@ export default function OwnerExport() {
   ];
 
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack owner-export-page">
       <div className="page-title-row">
         <Title level={3}>导出中心</Title>
       </div>
 
-      <Row gutter={16} className="row-equal">
+      <Row gutter={16} className="row-equal owner-export-kpi-row">
         <Col xs={24} sm={12} xl={6}>
           <Card className="owner-stat-card" loading={loading}>
             <div className="owner-stat-label">

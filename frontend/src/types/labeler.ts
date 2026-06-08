@@ -203,6 +203,7 @@ export interface LabelerReturnedItem {
   reviewResultReason: string;
   reviewedAt: string;
   reworkSubmittedAt: string;
+  reviewTimeline?: LabelerItemHistory[];
 }
 
 /** 提交答卷请求体 */
