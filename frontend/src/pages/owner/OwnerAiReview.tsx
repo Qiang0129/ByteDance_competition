@@ -477,7 +477,7 @@ function RulesKpi({ rules }: { rules: AiReviewRule[] }) {
   const globalRules = rules.filter((r) => !r.scopeTaskId).length;
 
   return (
-    <Row gutter={16} className="row-equal">
+    <Row gutter={16} className="row-equal ai-review-rule-kpi-row">
       <Col xs={24} md={8}>
         <Card className="owner-stat-card">
           <div className="owner-stat-label">规则总数</div>

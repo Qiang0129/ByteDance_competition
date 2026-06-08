@@ -69,6 +69,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import type { InputRef } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
@@ -80,6 +81,7 @@ import {
   DEFAULT_SCHEMA_TAB_ID,
   DEFAULT_SCHEMA_TABS,
   LabelHubFormRenderer,
+  RichTextMarkdown,
   normalizeSchemaFields,
   normalizeSchemaTabs,
   resolveFieldTabId,
@@ -991,6 +993,19 @@ export default function OwnerTemplateDesigner() {
         ]
       : []),
   ];
+  const designerMoreMenu: MenuProps = {
+    items: designerMoreItems,
+    onClick: ({ key, domEvent }) => {
+      domEvent.stopPropagation();
+      if (key === 'export') {
+        setExportOpen(true);
+        return;
+      }
+      if (key === 'withdraw') {
+        void handleWithdraw();
+      }
+    },
+  };
 
   return (
     <DndContext
@@ -1056,25 +1071,42 @@ export default function OwnerTemplateDesigner() {
           )}
           <Dropdown
             trigger={['click']}
-            menu={{
-              items: designerMoreItems,
-              onClick: ({ key, domEvent }) => {
-                domEvent.stopPropagation();
-                if (key === 'export') {
-                  setExportOpen(true);
-                  return;
-                }
-                if (key === 'withdraw') {
-                  void handleWithdraw();
-                }
-              },
-            }}
+            menu={designerMoreMenu}
           >
             <Button className="designer-mobile-more" icon={<MoreOutlined />}>
               更多
             </Button>
           </Dropdown>
         </Space>
+        <div className={`designer-mobile-actions${isPublished ? ' is-published' : ' is-draft'}`}>
+          <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
+            预览
+          </Button>
+          {!isPublished && (
+            <Button
+              className="designer-save-draft-action"
+              icon={<SaveOutlined />}
+              onClick={() => void handleSave()}
+            >
+              保存草稿
+            </Button>
+          )}
+          {!isPublished && (
+            <Button
+              type="primary"
+              className="designer-publish-action"
+              icon={<CheckOutlined />}
+              onClick={handlePublish}
+            >
+              保存并发布
+            </Button>
+          )}
+          <Dropdown trigger={['click']} menu={designerMoreMenu}>
+            <Button icon={<MoreOutlined />}>
+              更多
+            </Button>
+          </Dropdown>
+        </div>
       </div>
 
       <div className="designer-meta-panel">
@@ -1663,7 +1695,13 @@ function renderFieldPreview(field: SchemaField) {
     case 'text-multi':
       return <Input.TextArea placeholder={field.placeholder ?? '请输入'} disabled rows={2} />;
     case 'rich-text':
-      return <Input.TextArea placeholder="富文本内容(预览占位)" disabled rows={3} />;
+      return (
+        <RichTextMarkdown
+          className="designer-rich-text-preview"
+          source={`### 富文本标题
+支持 **加粗**、列表、引用、代码和 [链接](https://example.com)。`}
+        />
+      );
     case 'single-choice':
       return (
         <Space wrap size={6}>

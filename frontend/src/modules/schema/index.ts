@@ -1,5 +1,7 @@
 export { LabelHubFormRenderer } from './LabelHubFormRenderer';
 export type { LabelHubFormRendererProps } from './LabelHubFormRenderer';
+export { RichTextEditor, RichTextMarkdown } from './RichTextEditor';
+export type { RichTextEditorProps, RichTextMarkdownProps } from './RichTextEditor';
 export {
   compileToFormilySchema,
   DEFAULT_SCHEMA_TAB_ID,

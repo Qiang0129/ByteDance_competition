@@ -32,7 +32,13 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
-import { filterVisibleAnswer, LabelHubFormRenderer, resolveRuntimeRules, resolveSemanticType } from '../../modules/schema';
+import {
+  filterVisibleAnswer,
+  LabelHubFormRenderer,
+  RichTextEditor,
+  resolveRuntimeRules,
+  resolveSemanticType,
+} from '../../modules/schema';
 import LabelerAssistantPanel from './LabelerAssistantPanel';
 import type {
   AssignmentItem,
@@ -1708,13 +1714,14 @@ function FieldRenderer({
             );
           case 'rich-text':
             return (
-              <Input.TextArea
-                rows={5}
-                placeholder={field.placeholder ?? '请输入富文本(MVP 暂用纯文本)'}
+              <RichTextEditor
+                rows={6}
+                placeholder={field.placeholder}
                 value={(value as string) ?? ''}
-                onChange={(event) => onChange(event.target.value)}
+                onChange={(next) => onChange(next)}
+                maxLength={field.maxLength}
                 status={error ? 'error' : undefined}
-                disabled={readOnly}
+                readOnly={readOnly}
               />
             );
           case 'single-choice':

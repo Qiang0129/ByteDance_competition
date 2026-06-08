@@ -6,6 +6,7 @@ export interface AnswerDisplayEntry {
   label: string;
   value: unknown;
   displayValue: string;
+  field?: SchemaField;
 }
 
 export function toAnswerDisplayEntries(
@@ -20,6 +21,7 @@ export function toAnswerDisplayEntries(
       label: field?.label || key,
       value,
       displayValue: formatAnswerDisplayValue(value, field),
+      field,
     };
   });
 }

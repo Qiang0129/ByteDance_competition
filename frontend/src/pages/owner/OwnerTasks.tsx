@@ -6,18 +6,25 @@ import {
   CheckCircleFilled,
   CloseOutlined,
   DeleteOutlined,
+  DownOutlined,
+  FilterOutlined,
+  MoreOutlined,
   PauseCircleFilled,
   PlusOutlined,
   ReloadOutlined,
   StopFilled,
   SyncOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
 import {
   App,
+  Badge,
   Button,
   Card,
+  Checkbox,
   Col,
   DatePicker,
+  Dropdown,
   Drawer,
   Form,
   Input,
@@ -34,7 +41,7 @@ import {
   Typography,
   Switch,
 } from 'antd';
-import type { FormProps } from 'antd';
+import type { FormProps, MenuProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import { getApiErrorMessage } from '../../api/client';
@@ -92,6 +99,8 @@ interface AllocationFormValue {
 
 const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm';
 const UNTITLED_DRAFT_TITLE_PREFIX = '未命名任务草稿';
+const MOBILE_TASK_COLLAPSED_COUNT = 3;
+const DATASET_ITEM_PAGE_SIZE = 20;
 
 function createUntitledDraftTitle() {
   return `${UNTITLED_DRAFT_TITLE_PREFIX} ${dayjs().format('MM-DD HH:mm')}`;
@@ -214,6 +223,28 @@ function resolveReviewTooltip(record: OwnerTaskRow) {
   }
 }
 
+function getTaskProgress(record: OwnerTaskRow) {
+  const annotatedCount = record.annotatedItemCount ?? 0;
+  const itemTotal = record.publishedItemTotal ?? 0;
+  const rawPercent = itemTotal > 0 ? (annotatedCount / itemTotal) * 100 : 0;
+  return {
+    annotatedCount,
+    itemTotal,
+    barPercent: Math.min(Math.max(rawPercent, 0), 100),
+    displayPercent: Math.min(Math.round(rawPercent), 100),
+  };
+}
+
+function resolveTaskPrimaryActionLabel(record: OwnerTaskRow) {
+  if (record.state === 'draft') {
+    return '发布';
+  }
+  if (record.state === 'ended') {
+    return '续期发布';
+  }
+  return '详情';
+}
+
 function AllocationEditor({
   name,
   userOptions,
@@ -283,6 +314,9 @@ export default function OwnerTasks() {
   const [reviewStatusFilter, setReviewStatusFilter] = useState<'all' | OwnerTaskReviewStatus>('all');
   const [strategyFilter, setStrategyFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState('');
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [mobileListExpanded, setMobileListExpanded] = useState(false);
+  const [expandedMobileTaskIds, setExpandedMobileTaskIds] = useState<Set<string>>(() => new Set());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeRow, setActiveRow] = useState<OwnerTaskRow | null>(null);
   const [rows, setRows] = useState<OwnerTaskRow[]>([]);
@@ -304,6 +338,7 @@ export default function OwnerTasks() {
   const submitStateRef = useRef<TaskState>('published');
   const lastSchemaSelectionRef = useRef<string | undefined>();
   const lastDatasetSelectionRef = useRef<string | undefined>();
+  const mobileTaskListRef = useRef<HTMLDivElement | null>(null);
   const focusedTaskId = searchParams.get('focusTaskId') ?? '';
 
   const selectedStrategy = Form.useWatch('strategy', form);
@@ -333,6 +368,10 @@ export default function OwnerTasks() {
     }
   }, [focusedTaskId]);
 
+  useEffect(() => {
+    setMobileListExpanded(false);
+  }, [keyword, reviewStatusFilter, stateFilter, strategyFilter]);
+
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
@@ -346,6 +385,15 @@ export default function OwnerTasks() {
       }),
     [keyword, reviewStatusFilter, rows, stateFilter, strategyFilter],
   );
+
+  const mobileRows = mobileListExpanded
+    ? filteredRows
+    : filteredRows.slice(0, MOBILE_TASK_COLLAPSED_COUNT);
+  const activeTaskFilterCount = [
+    stateFilter !== 'all',
+    reviewStatusFilter !== 'all',
+    strategyFilter !== 'all',
+  ].filter(Boolean).length;
 
   const publishedCount = rows.filter((row) => resolveLabelingStatus(row) === 'published').length;
   const draftCount = rows.filter((row) => row.state === 'draft').length;
@@ -536,11 +584,7 @@ export default function OwnerTasks() {
       dataIndex: 'annotatedItemCount',
       width: 220,
       render: (_value, record) => {
-        const annotatedCount = record.annotatedItemCount ?? 0;
-        const itemTotal = record.publishedItemTotal ?? 0;
-        const rawPercent = itemTotal > 0 ? (annotatedCount / itemTotal) * 100 : 0;
-        const barPercent = Math.min(Math.max(rawPercent, 0), 100);
-        const displayPercent = Math.min(Math.round(rawPercent), 100);
+        const { annotatedCount, itemTotal, barPercent, displayPercent } = getTaskProgress(record);
         const tooltip = `已标注数量 ${annotatedCount.toLocaleString()}，任务总额 ${itemTotal.toLocaleString()}，总配额 ${record.quotaTotal.toLocaleString()}`;
         return (
           <Tooltip title={tooltip}>
@@ -702,7 +746,7 @@ export default function OwnerTasks() {
     try {
       const response = await datasetApi.listItemOptions(datasetId, {
         page,
-        pageSize: 20,
+        pageSize: DATASET_ITEM_PAGE_SIZE,
         keyword: keyword.trim() || undefined,
       });
       setDatasetItemOptions(response.items);
@@ -954,8 +998,237 @@ export default function OwnerTasks() {
     message.error(firstMessage ? `请完善任务配置：${firstMessage}` : '请完善任务配置后再提交');
   }
 
+  function resetTaskFilters() {
+    setStateFilter('all');
+    setReviewStatusFilter('all');
+    setStrategyFilter('all');
+  }
+
+  function buildTaskMoreMenu(record: OwnerTaskRow): MenuProps['items'] {
+    const items: MenuProps['items'] = [];
+    if (record.state === 'published') {
+      items.push(
+        { key: 'pause', icon: <PauseCircleFilled />, label: '暂停任务' },
+        { key: 'end', icon: <StopFilled />, label: '结束任务', danger: true },
+      );
+    }
+    if (record.state === 'paused') {
+      items.push(
+        { key: 'resume', icon: <SyncOutlined />, label: '恢复任务' },
+        { key: 'end', icon: <StopFilled />, label: '结束任务', danger: true },
+      );
+    }
+    if (items.length > 0) {
+      items.push({ type: 'divider' });
+    }
+    items.push({ key: 'delete', icon: <DeleteOutlined />, label: '删除任务', danger: true });
+    return items;
+  }
+
+  function handleTaskMoreMenuClick(record: OwnerTaskRow, key: string) {
+    switch (key) {
+      case 'pause':
+        void handleStateChange(record, 'paused');
+        break;
+      case 'resume':
+        void handleStateChange(record, 'published');
+        break;
+      case 'end':
+        void handleStateChange(record, 'ended');
+        break;
+      case 'delete':
+        void handleDelete(record);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function handleMobileItemToggle(itemId: string, checked: boolean) {
+    const nextSelectedIds = new Set<string>((form.getFieldValue('selectedItemIds') ?? []).map(String));
+    if (checked) {
+      nextSelectedIds.add(itemId);
+    } else {
+      nextSelectedIds.delete(itemId);
+    }
+    form.setFieldValue('selectedItemIds', Array.from(nextSelectedIds));
+  }
+
+  function toggleMobileTaskExpanded(taskId: string) {
+    setExpandedMobileTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }
+
+  function handleMobileTaskListToggle() {
+    if (!mobileListExpanded) {
+      setMobileListExpanded(true);
+      return;
+    }
+
+    setMobileListExpanded(false);
+    window.setTimeout(() => {
+      mobileTaskListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  }
+
+  function renderMobileTaskCard(record: OwnerTaskRow) {
+    const labelingStatus = resolveLabelingStatus(record);
+    const labelingMeta = labelingStatusMeta[labelingStatus];
+    const reviewStatus = record.reviewStatus ?? 'not_started';
+    const reviewMeta = reviewStatusMeta[reviewStatus] ?? reviewStatusMeta.not_started;
+    const progress = getTaskProgress(record);
+    const autoNamedDraft = isAutoNamedDraftTask(record);
+    const isFocused = record.taskId === focusedTaskId;
+    const isExpanded = expandedMobileTaskIds.has(record.taskId);
+    return (
+      <article
+        className={`owner-task-mobile-card${isFocused ? ' owner-task-mobile-card-focused' : ''}`}
+        key={record.taskId}
+      >
+        <div className="owner-task-mobile-head">
+          <div className="owner-task-mobile-title-block">
+            <div className={`owner-task-mobile-title${autoNamedDraft ? ' owner-task-name-auto-draft' : ''}`}>
+              {record.title}
+            </div>
+            <div className="owner-task-mobile-tags">
+              {autoNamedDraft ? <Tag className="owner-task-auto-draft-tag">自动命名</Tag> : null}
+              <span className="owner-task-state">
+                {labelingMeta.icon}
+                {labelingMeta.label}
+              </span>
+              <Tooltip title={resolveReviewTooltip(record)}>
+                <Tag color={reviewMeta.color} className="owner-task-review-status">
+                  {reviewMeta.label}
+                </Tag>
+              </Tooltip>
+            </div>
+          </div>
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: buildTaskMoreMenu(record),
+              onClick: ({ key }) => handleTaskMoreMenuClick(record, String(key)),
+            }}
+          >
+            <Button
+              type="text"
+              icon={<MoreOutlined />}
+              className="owner-task-mobile-more"
+              aria-label="更多任务操作"
+            />
+          </Dropdown>
+        </div>
+
+        {isExpanded ? (
+          <div className="owner-task-mobile-meta">
+            <span>任务 ID：{record.taskId}</span>
+            <span>Owner：{record.owner}</span>
+            <span>创建时间：{record.createdAt}</span>
+            <span>分发策略：{strategyLabel[record.assignStrategy]}</span>
+            <span>总配额：{record.quotaTotal.toLocaleString()}</span>
+            {record.assignStrategy === 'quota' && record.maxClaimPerUser ? (
+              <span>每人最多：{record.maxClaimPerUser.toLocaleString()} 条</span>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="owner-task-mobile-progress">
+          <div className="owner-task-mobile-progress-head">
+            <span>标注进度</span>
+            <strong>{progress.displayPercent}%</strong>
+          </div>
+          <div className="owner-task-quota-bar">
+            <span style={{ width: `${progress.barPercent}%` }} />
+          </div>
+          <div className="owner-task-mobile-progress-meta">
+            已标注 {progress.annotatedCount.toLocaleString()} / {progress.itemTotal.toLocaleString()} 题
+          </div>
+        </div>
+
+        <Button
+          type="text"
+          className="owner-task-mobile-expand"
+          icon={isExpanded ? <UpOutlined /> : <DownOutlined />}
+          onClick={() => toggleMobileTaskExpanded(record.taskId)}
+          aria-expanded={isExpanded}
+        >
+          {isExpanded ? '收起' : '展开'}
+        </Button>
+
+        <Button
+          type={record.state === 'draft' || record.state === 'ended' ? 'primary' : 'default'}
+          block
+          onClick={() => openDrawer(record)}
+        >
+          {resolveTaskPrimaryActionLabel(record)}
+        </Button>
+      </article>
+    );
+  }
+
+  function renderMobileItemPicker() {
+    const selectedIdSet = new Set((selectedItemIds ?? []).map(String));
+    const pageTotal = Math.max(Math.ceil(itemOptionTotal / DATASET_ITEM_PAGE_SIZE), 1);
+    const pageStart = itemOptionTotal === 0 ? 0 : (itemOptionPage - 1) * DATASET_ITEM_PAGE_SIZE + 1;
+    const pageEnd = Math.min(itemOptionPage * DATASET_ITEM_PAGE_SIZE, itemOptionTotal);
+    return (
+      <div className="owner-task-mobile-item-picker">
+        {itemOptionLoading ? (
+          <div className="owner-task-mobile-empty">题目加载中...</div>
+        ) : datasetItemOptions.length > 0 ? (
+          datasetItemOptions.map((item) => (
+            <label className="owner-task-mobile-item-card" key={item.itemId}>
+              <Checkbox
+                checked={selectedIdSet.has(item.itemId)}
+                onChange={(event) => handleMobileItemToggle(item.itemId, event.target.checked)}
+              />
+              <span className="owner-task-mobile-item-main">
+                <span className="owner-task-mobile-item-title">{item.label}</span>
+                <span className="owner-task-mobile-item-id">#{item.itemId}</span>
+                <span className="owner-task-mobile-item-summary">{item.summary}</span>
+                <Tag>{item.mediaType}</Tag>
+              </span>
+            </label>
+          ))
+        ) : (
+          <div className="owner-task-mobile-empty">暂无匹配题目</div>
+        )}
+        <div className="owner-task-mobile-item-pagination">
+          <Typography.Text type="secondary">
+            {itemOptionTotal === 0
+              ? '暂无题目'
+              : `${pageStart}-${pageEnd} / ${itemOptionTotal} 题`}
+          </Typography.Text>
+          <Space size={8}>
+            <Button
+              size="small"
+              disabled={itemOptionPage <= 1 || itemOptionLoading}
+              onClick={() => setItemOptionPage((page) => Math.max(page - 1, 1))}
+            >
+              上一页
+            </Button>
+            <Button
+              size="small"
+              disabled={itemOptionPage >= pageTotal || itemOptionLoading}
+              onClick={() => setItemOptionPage((page) => Math.min(page + 1, pageTotal))}
+            >
+              下一页
+            </Button>
+          </Space>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack owner-task-page">
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
           <Typography.Title level={3}>任务管理</Typography.Title>
@@ -968,7 +1241,7 @@ export default function OwnerTasks() {
         </Button>
       </div>
 
-      <Row gutter={16}>
+      <Row gutter={16} className="owner-task-stat-row">
         <Col span={8}>
           <Card className="owner-stat-card">
             <div className="owner-stat-label">发布中任务</div>
@@ -999,7 +1272,7 @@ export default function OwnerTasks() {
       </Row>
 
       <Card className="owner-toolbar">
-        <Space size={12} wrap>
+        <Space size={12} wrap className="owner-toolbar-desktop">
           <Input.Search
             placeholder="搜索任务名 / ID / 负责人"
             allowClear
@@ -1030,6 +1303,25 @@ export default function OwnerTasks() {
             刷新
           </Button>
         </Space>
+        <div className="owner-toolbar-mobile">
+          <Input.Search
+            placeholder="搜索任务名 / ID / 负责人"
+            allowClear
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            onSearch={setKeyword}
+          />
+          <Button icon={<FilterOutlined />} onClick={() => setMobileFilterOpen(true)}>
+            筛选
+            <Badge count={activeTaskFilterCount} size="small" offset={[6, -2]} />
+          </Button>
+          <Button
+            icon={<ReloadOutlined />}
+            loading={loading}
+            aria-label="刷新任务"
+            onClick={() => void loadTasks()}
+          />
+        </div>
       </Card>
 
       <Card className="owner-table-card">
@@ -1047,12 +1339,73 @@ export default function OwnerTasks() {
         />
       </Card>
 
+      <div className="owner-task-mobile-list" ref={mobileTaskListRef}>
+        {loading ? (
+          <div className="owner-task-mobile-empty">任务加载中...</div>
+        ) : mobileRows.length > 0 ? (
+          mobileRows.map(renderMobileTaskCard)
+        ) : (
+          <div className="owner-task-mobile-empty">暂无匹配任务</div>
+        )}
+        {!loading && filteredRows.length > MOBILE_TASK_COLLAPSED_COUNT ? (
+          <Button
+            block
+            className="owner-task-mobile-list-toggle"
+            onClick={handleMobileTaskListToggle}
+          >
+            {mobileListExpanded
+              ? `收回（显示前 ${MOBILE_TASK_COLLAPSED_COUNT} 条）`
+              : `展开全部（共 ${filteredRows.length} 条）`}
+          </Button>
+        ) : !loading && mobileRows.length > 0 ? (
+          <Typography.Text type="secondary" className="owner-task-mobile-count">
+            已显示全部 {filteredRows.length} 条匹配任务
+          </Typography.Text>
+        ) : null}
+      </div>
+
+      <Drawer
+        title="筛选任务"
+        placement="bottom"
+        height={360}
+        open={mobileFilterOpen}
+        onClose={() => setMobileFilterOpen(false)}
+        rootClassName="owner-task-filter-drawer"
+        footer={
+          <div className="owner-task-filter-footer">
+            <Button onClick={resetTaskFilters}>重置筛选</Button>
+            <Button type="primary" onClick={() => setMobileFilterOpen(false)}>
+              完成
+            </Button>
+          </div>
+        }
+      >
+        <Space direction="vertical" size={14} className="owner-task-filter-fields">
+          <Select
+            options={stateFilterOptions}
+            value={stateFilter}
+            onChange={setStateFilter}
+          />
+          <Select
+            options={reviewStatusFilterOptions}
+            value={reviewStatusFilter}
+            onChange={setReviewStatusFilter}
+          />
+          <Select
+            options={strategyFilterOptions}
+            value={strategyFilter}
+            onChange={setStrategyFilter}
+          />
+        </Space>
+      </Drawer>
+
       <Drawer
         title={activeRow ? `发布任务 · ${activeRow.title}` : '新建标注任务'}
         width={760}
         open={drawerOpen}
         onClose={closeDrawer}
         closeIcon={<CloseOutlined />}
+        rootClassName="owner-task-publish-drawer"
         footer={
           <Space className="owner-drawer-footer">
             <Button
@@ -1330,12 +1683,13 @@ export default function OwnerTasks() {
                           ]}
                           pagination={{
                             current: itemOptionPage,
-                            pageSize: 20,
+                            pageSize: DATASET_ITEM_PAGE_SIZE,
                             total: itemOptionTotal,
                             showSizeChanger: false,
                             onChange: (page) => setItemOptionPage(page),
                           }}
                         />
+                        {renderMobileItemPicker()}
                       </Card>
                     ) : null}
                   </Space>

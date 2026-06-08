@@ -22,8 +22,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getApiErrorMessage } from '../../api/client';
 import { reviewerApi } from '../../api/reviewer';
 import { AiAssistantIcon } from '../../components/icons';
-import { toAnswerDisplayEntries } from '../../modules/schema/answerDisplay';
-import { filterVisibleAnswer, LabelHubFormRenderer } from '../../modules/schema';
+import { toAnswerDisplayEntries, type AnswerDisplayEntry } from '../../modules/schema/answerDisplay';
+import { filterVisibleAnswer, LabelHubFormRenderer, RichTextMarkdown } from '../../modules/schema';
 import type {
   AiReviewResult,
   AnnotationToReview,
@@ -672,10 +672,7 @@ function AnnotationDetail({
             </div>
             <div className="ai-wb-answer-fields">
               {previousEntries.map((entry) => (
-                <div key={entry.key} className="ai-wb-answer-row">
-                  <span className="ai-wb-answer-key">{entry.label}</span>
-                  <span className="ai-wb-answer-value">{entry.displayValue}</span>
-                </div>
+                <AnswerDisplayRow key={entry.key} entry={entry} />
               ))}
             </div>
           </div>
@@ -686,14 +683,7 @@ function AnnotationDetail({
             <div className="ai-wb-answer-fields">
               {answerEntries.map((entry) => {
                 const changed = !isSameValue(entry.value, prev?.[entry.key]);
-                return (
-                  <div key={entry.key} className="ai-wb-answer-row">
-                    <span className="ai-wb-answer-key">{entry.label}</span>
-                    <span className={`ai-wb-answer-value${changed ? ' is-changed' : ''}`}>
-                      {entry.displayValue}
-                    </span>
-                  </div>
-                );
+                return <AnswerDisplayRow key={entry.key} entry={entry} changed={changed} />;
               })}
             </div>
           </div>
@@ -706,10 +696,7 @@ function AnnotationDetail({
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无答案数据" />
             ) : (
               answerEntries.map((entry) => (
-                <div key={entry.key} className="ai-wb-answer-row">
-                  <span className="ai-wb-answer-key">{entry.label}</span>
-                  <span className="ai-wb-answer-value">{entry.displayValue}</span>
-                </div>
+                <AnswerDisplayRow key={entry.key} entry={entry} />
               ))
             )}
           </div>
@@ -910,6 +897,43 @@ function ReviewTimeline({ item }: { item: AnnotationToReview }) {
 /* ============ 工具函数 ============ */
 function pickTitle(item: AnnotationToReview): string {
   return item.taskTitle || item.taskId || '标注任务';
+}
+
+function AnswerDisplayValue({
+  entry,
+  changed,
+}: {
+  entry: AnswerDisplayEntry;
+  changed?: boolean;
+}) {
+  const className = `ai-wb-answer-value${changed ? ' is-changed' : ''}`;
+  return <span className={className}>{entry.displayValue}</span>;
+}
+
+function AnswerDisplayRow({
+  entry,
+  changed,
+}: {
+  entry: AnswerDisplayEntry;
+  changed?: boolean;
+}) {
+  if (entry.field?.kind === 'rich-text') {
+    const markdownSource = typeof entry.value === 'string' ? entry.value : '';
+    return (
+      <div className={`ai-wb-answer-row is-rich-text${changed ? ' is-changed' : ''}`}>
+        <div className="ai-wb-answer-rich-head">{entry.label}</div>
+        <div className="ai-wb-answer-rich-content">
+          <RichTextMarkdown source={markdownSource} emptyText="无富文本内容" />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="ai-wb-answer-row">
+      <span className="ai-wb-answer-key">{entry.label}</span>
+      <AnswerDisplayValue entry={entry} changed={changed} />
+    </div>
+  );
 }
 
 function reviewStageLabel(revisionNo: number): string {

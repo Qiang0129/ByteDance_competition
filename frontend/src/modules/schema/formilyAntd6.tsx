@@ -22,6 +22,7 @@ import {
   type LlmTriggerStateUpdater,
   type LlmTriggerUiState,
 } from './llmTriggerState';
+import { RichTextEditor } from './RichTextEditor';
 
 type ChoiceOption = { value: string; label: string };
 
@@ -122,12 +123,14 @@ function TextAreaInput(props: BaseControlProps) {
 
 function RichTextInput(props: BaseControlProps) {
   return (
-    <Input.TextArea
-      rows={5}
-      placeholder={props.placeholder ?? '请输入富文本内容(MVP 暂用纯文本承载)'}
+    <RichTextEditor
+      rows={6}
+      placeholder={props.placeholder}
+      maxLength={props.maxLength}
       value={(props.value as string) ?? ''}
-      disabled={props.disabled || props.readOnly}
-      onChange={(event) => props.onChange?.(event.target.value)}
+      disabled={props.disabled}
+      readOnly={props.readOnly}
+      onChange={(next) => props.onChange?.(next)}
     />
   );
 }
