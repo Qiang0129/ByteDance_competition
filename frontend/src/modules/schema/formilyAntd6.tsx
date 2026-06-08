@@ -1,5 +1,5 @@
-import { CheckOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { useContext, useMemo } from 'react';
+import { CheckOutlined, ReloadOutlined, ThunderboltOutlined, UploadOutlined } from '@ant-design/icons';
+import { useContext, useMemo, useState } from 'react';
 import {
   Alert,
   App as AntdApp,
@@ -10,11 +10,15 @@ import {
   Space,
   Tag,
   Typography,
+  Upload,
 } from 'antd';
+import type { UploadFile, UploadProps } from 'antd';
 import { useField } from '@formily/react';
 
+import { attachmentApi } from '../../api/attachments';
 import { labelerApi, type LlmTriggerFieldResult, type LlmTriggerStreamResult } from '../../api/labeler';
 import type { SchemaField } from '../../types/schema';
+import { AttachmentDisplayList, normalizeAttachmentValue } from './AttachmentDisplay';
 import { formatDisplayValue, getValueByPath, isSubmittableField } from './schemaCompiler';
 import {
   EMPTY_LLM_TRIGGER_STATE,
@@ -34,6 +38,9 @@ interface BaseControlProps {
   placeholder?: string;
   maxLength?: number;
   options?: ChoiceOption[];
+  fieldName?: string;
+  assignmentId?: string;
+  previewMode?: boolean;
 }
 
 interface LlmTriggerControlProps extends BaseControlProps {
@@ -235,13 +242,129 @@ function ShowItem({
 }
 
 function FileUpload(props: BaseControlProps) {
+  const { message } = AntdApp.useApp();
+  const [transientFiles, setTransientFiles] = useState<UploadFile[]>([]);
+  const { attachments, legacyText } = normalizeAttachmentValue(props.value);
+  const readonly = props.disabled || props.readOnly;
+  const uploadDisabled = readonly || props.previewMode || !props.assignmentId || !props.fieldName;
+
+  const updateTransient = (uid: string, patch: Partial<UploadFile>) => {
+    setTransientFiles((items) =>
+      items.map((item) => (item.uid === uid ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const removeTransient = (uid: string) => {
+    setTransientFiles((items) => items.filter((item) => item.uid !== uid));
+  };
+
+  const appendAttachment = (attachment: unknown) => {
+    const current = normalizeAttachmentValue(props.value).attachments;
+    props.onChange?.([...current, attachment]);
+  };
+
+  const uploadOne = async (file: File & { uid?: string }) => {
+    const uid = file.uid ?? `${Date.now()}-${file.name}`;
+    setTransientFiles((items) => [
+      ...items.filter((item) => item.uid !== uid),
+      { uid, name: file.name, status: 'uploading' },
+    ]);
+    try {
+      const attachment = await attachmentApi.uploadAssignmentAttachment(
+        props.assignmentId!,
+        props.fieldName!,
+        file,
+      );
+      appendAttachment(attachment);
+      removeTransient(uid);
+      message.success('附件上传成功');
+    } catch (error) {
+      updateTransient(uid, {
+        status: 'error',
+        response: error instanceof Error ? error.message : '附件上传失败',
+        originFileObj: file,
+      } as Partial<UploadFile>);
+      message.error(error instanceof Error ? error.message : '附件上传失败');
+    }
+  };
+
+  const customRequest: UploadProps['customRequest'] = ({ file }) => {
+    void uploadOne(file as File & { uid?: string });
+  };
+
+  const beforeUpload: UploadProps['beforeUpload'] = (file) => {
+    const pendingCount = transientFiles.filter((item) => item.status === 'uploading').length;
+    if (attachments.length + pendingCount >= 5) {
+      message.warning('每个字段最多上传 5 个附件');
+      return Upload.LIST_IGNORE;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      message.warning('单个附件不能超过 20MB');
+      return Upload.LIST_IGNORE;
+    }
+    return true;
+  };
+
+  const handleRemove = (fileId: string) => {
+    props.onChange?.(attachments.filter((attachment) => attachment.fileId !== fileId));
+  };
+
   return (
-    <Input
-      value={(props.value as string) ?? ''}
-      placeholder={props.placeholder ?? '文件上传组件占位,后续接入文件服务'}
-      disabled={props.disabled || props.readOnly}
-      onChange={(event) => props.onChange?.(event.target.value)}
-    />
+    <div className="lh-file-upload">
+      <Upload
+        multiple
+        disabled={uploadDisabled}
+        showUploadList={false}
+        customRequest={customRequest}
+        beforeUpload={beforeUpload}
+      >
+        <Button icon={<UploadOutlined />} disabled={uploadDisabled}>
+          上传文件 / 图片
+        </Button>
+      </Upload>
+      {props.previewMode && (
+        <Typography.Text type="secondary" className="lh-file-upload-hint">
+          模板预览模式不执行真实上传
+        </Typography.Text>
+      )}
+      {!props.previewMode && !props.assignmentId && (
+        <Typography.Text type="secondary" className="lh-file-upload-hint">
+          缺少作业上下文，暂不能上传
+        </Typography.Text>
+      )}
+      <AttachmentDisplayList
+        value={legacyText ? props.value : attachments}
+        assignmentId={props.assignmentId}
+        onRemove={readonly ? undefined : handleRemove}
+      />
+      {transientFiles.length > 0 && (
+        <div className="lh-attachment-list">
+          {transientFiles.map((file) => (
+            <div key={file.uid} className={`lh-attachment-item is-${file.status}`}>
+              <div className="lh-attachment-thumb">
+                <UploadOutlined />
+              </div>
+              <div className="lh-attachment-main">
+                <div className="lh-attachment-name" title={file.name}>
+                  {file.name}
+                </div>
+                <div className="lh-attachment-meta">
+                  {file.status === 'error' ? String(file.response ?? '上传失败') : '上传中...'}
+                </div>
+              </div>
+              {file.status === 'error' && file.originFileObj && (
+                <Button
+                  size="small"
+                  onClick={() => void uploadOne(file.originFileObj as File & { uid?: string })}
+                >
+                  重试
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

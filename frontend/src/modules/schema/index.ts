@@ -1,5 +1,7 @@
 export { LabelHubFormRenderer } from './LabelHubFormRenderer';
 export type { LabelHubFormRendererProps } from './LabelHubFormRenderer';
+export { AttachmentDisplayList, normalizeAttachmentValue } from './AttachmentDisplay';
+export type { NormalizedAttachment } from './AttachmentDisplay';
 export { RichTextEditor, RichTextMarkdown } from './RichTextEditor';
 export type { RichTextEditorProps, RichTextMarkdownProps } from './RichTextEditor';
 export {

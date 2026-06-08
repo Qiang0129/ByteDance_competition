@@ -227,7 +227,7 @@ function toFormilyFieldSchema(
 
 function inferValueType(field: SchemaField) {
   const semanticType = resolveSemanticType(field);
-  if (semanticType === 'multi_choice' || semanticType === 'tags') return 'array';
+  if (semanticType === 'multi_choice' || semanticType === 'tags' || semanticType === 'file') return 'array';
   if (semanticType === 'display' || semanticType === 'layout') return 'void';
   if (!isSubmittableField(field)) return 'void';
   return 'string';

@@ -81,6 +81,7 @@ public class AnswerValidationService {
         }
       }
       validateChoiceValue(semanticType, field, value, label);
+      validateFileValue(semanticType, value, label);
       validateStructuredValidators(field, value, label);
     }
   }
@@ -237,6 +238,49 @@ public class AnswerValidationService {
         throwAnswerValidation(label + " has invalid option");
       }
     }
+  }
+
+  private void validateFileValue(String semanticType, JsonNode value, String label) {
+    if (!"file".equals(semanticType) || isEmptyAnswer(value)) {
+      return;
+    }
+    if (!value.isArray()) {
+      throwAnswerValidation(label + " must be an attachment array");
+    }
+    if (value.size() > AssignmentAttachmentService.MAX_FILES_PER_FIELD) {
+      throwAnswerValidation(label + " can contain at most " + AssignmentAttachmentService.MAX_FILES_PER_FIELD + " files");
+    }
+    for (JsonNode item : value) {
+      if (!item.isObject()
+          || !hasText(item, "fileId")
+          || !hasText(item, "name")
+          || !hasText(item, "mimeType")
+          || !hasText(item, "checksum")
+          || !isValidSize(item.path("size"))) {
+        throwAnswerValidation(label + " has invalid attachment metadata");
+      }
+    }
+  }
+
+  private boolean hasText(JsonNode node, String field) {
+    JsonNode value = node.path(field);
+    return value.isTextual() && !value.asText().isBlank();
+  }
+
+  private boolean isValidSize(JsonNode value) {
+    long size;
+    if (value.isIntegralNumber()) {
+      size = value.asLong();
+    } else if (value.isTextual()) {
+      try {
+        size = Long.parseLong(value.asText());
+      } catch (NumberFormatException exception) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+    return size >= 0 && size <= AssignmentAttachmentService.MAX_FILE_SIZE_BYTES;
   }
 
   private void validateStructuredValidators(JsonNode field, JsonNode value, String label) {

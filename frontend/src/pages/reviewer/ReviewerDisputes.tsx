@@ -20,7 +20,7 @@ import {
 import { getApiErrorMessage } from '../../api/client';
 import { reviewerApi } from '../../api/reviewer';
 import { AiAssistantIcon } from '../../components/icons';
-import { RichTextMarkdown } from '../../modules/schema';
+import { AttachmentDisplayList, RichTextMarkdown } from '../../modules/schema';
 import { toAnswerDisplayEntries, type AnswerDisplayEntry } from '../../modules/schema/answerDisplay';
 import type {
   AiReviewResult,
@@ -499,7 +499,11 @@ function DisputeAnnotationDetail({
 
       <div className="ai-wb-answer-card">
         <div className="ai-wb-answer-title">标注答案</div>
-        <AnswerRows entries={answerEntries} emptyText="无答案数据" />
+        <AnswerRows
+          entries={answerEntries}
+          emptyText="无答案数据"
+          assignmentId={annotation.assignmentId}
+        />
       </div>
 
       {ai && (
@@ -566,9 +570,11 @@ function KeyValueRows({
 function AnswerRows({
   entries,
   emptyText,
+  assignmentId,
 }: {
   entries: AnswerDisplayEntry[];
   emptyText: string;
+  assignmentId?: string;
 }) {
   if (entries.length === 0) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
@@ -576,7 +582,7 @@ function AnswerRows({
   return (
     <div className="ai-wb-answer-fields">
       {entries.map((entry) => (
-        <AnswerRow key={entry.key} entry={entry} />
+        <AnswerRow key={entry.key} entry={entry} assignmentId={assignmentId} />
       ))}
     </div>
   );
@@ -586,7 +592,7 @@ function AnswerRowValue({ entry }: { entry: AnswerDisplayEntry }) {
   return <span className="ai-wb-answer-value">{entry.displayValue}</span>;
 }
 
-function AnswerRow({ entry }: { entry: AnswerDisplayEntry }) {
+function AnswerRow({ entry, assignmentId }: { entry: AnswerDisplayEntry; assignmentId?: string }) {
   if (entry.field?.kind === 'rich-text') {
     const markdownSource = typeof entry.value === 'string' ? entry.value : '';
     return (
@@ -594,6 +600,16 @@ function AnswerRow({ entry }: { entry: AnswerDisplayEntry }) {
         <div className="ai-wb-answer-rich-head">{entry.label}</div>
         <div className="ai-wb-answer-rich-content">
           <RichTextMarkdown source={markdownSource} emptyText="无富文本内容" />
+        </div>
+      </div>
+    );
+  }
+  if (entry.field?.kind === 'file-upload') {
+    return (
+      <div className="ai-wb-answer-row is-attachment">
+        <div className="ai-wb-answer-rich-head">{entry.label}</div>
+        <div className="ai-wb-answer-rich-content">
+          <AttachmentDisplayList value={entry.value} assignmentId={assignmentId} emptyText="无附件" />
         </div>
       </div>
     );

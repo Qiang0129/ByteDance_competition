@@ -18,3 +18,4 @@ backend/data
 output/
 backend/target/
 frontend/.vite/
+labelhub.sql

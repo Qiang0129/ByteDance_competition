@@ -16,6 +16,7 @@ import {
   App as AntdApp,
   Button,
   Card,
+  Checkbox,
   Col,
   Drawer,
   Form,
@@ -58,6 +59,7 @@ import type {
 
 const { Title, Paragraph, Text } = Typography;
 const RUNNING_STUCK_MINUTES = 10;
+const MOBILE_JOB_PAGE_SIZE = 10;
 const DEFAULT_DIMENSION_MAX_SCORE = 100;
 const DEFAULT_PASS_THRESHOLD = 80;
 const DEFAULT_NEED_HUMAN_THRESHOLD = 70;
@@ -692,6 +694,7 @@ export function JobsPanel() {
   const [loading, setLoading] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
   const [statusFilter, setStatusFilter] = useState<AiReviewJobStatus | 'all'>('all');
+  const [mobileVisibleJobCount, setMobileVisibleJobCount] = useState(MOBILE_JOB_PAGE_SIZE);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [resultDrawer, setResultDrawer] = useState<{
@@ -731,6 +734,10 @@ export function JobsPanel() {
   useEffect(() => {
     void loadJobs();
   }, [loadJobs]);
+
+  useEffect(() => {
+    setMobileVisibleJobCount(MOBILE_JOB_PAGE_SIZE);
+  }, [statusFilter]);
 
   const handleRetry = async (job: AiReviewJob) => {
     try {
@@ -841,6 +848,113 @@ export function JobsPanel() {
         }
       },
     });
+  };
+
+  const selectedJobKeySet = useMemo(() => new Set(selectedRowKeys), [selectedRowKeys]);
+  const visibleMobileJobs = useMemo(
+    () => jobs.slice(0, mobileVisibleJobCount),
+    [jobs, mobileVisibleJobCount],
+  );
+  const shownMobileJobCount = Math.min(mobileVisibleJobCount, jobs.length);
+  const hasMoreMobileJobs = shownMobileJobCount < jobs.length;
+
+  const toggleMobileJobSelection = (jobId: string, checked: boolean) => {
+    setSelectedRowKeys((prev) => {
+      if (checked) {
+        return prev.includes(jobId) ? prev : [...prev, jobId];
+      }
+      return prev.filter((key) => key !== jobId);
+    });
+  };
+
+  const renderMobileJobCard = (job: AiReviewJob) => {
+    const statusMeta = jobStatusMeta[job.status];
+    const decision = job.decision ? decisionMeta[job.decision] : null;
+    const scoreColor = getDecisionScoreColor(job.decision);
+    const attempts = job.retryCount ?? job.attempts ?? 0;
+    const lastError = job.errorSummary ?? job.lastError;
+    const stuck = isRunningStuck(job);
+    const selected = selectedJobKeySet.has(job.jobId);
+
+    return (
+      <Card
+        key={job.jobId}
+        className={`ai-review-job-mobile-card${selected ? ' is-selected' : ''}`}
+      >
+        <div className="ai-review-job-mobile-head">
+          <Checkbox
+            checked={selected}
+            aria-label={`选择作业 ${job.jobId}`}
+            onChange={(event) => toggleMobileJobSelection(job.jobId, event.target.checked)}
+          />
+          <div className="ai-review-job-mobile-main">
+            <div className="ai-review-job-mobile-title-line">
+              <Text code className="ai-review-job-mobile-id">
+                {job.jobId}
+              </Text>
+              <div className="ai-review-job-mobile-status">
+                <Tag color={statusMeta.color}>{statusMeta.label}</Tag>
+                {stuck ? <Tag color="warning">疑似卡住</Tag> : null}
+              </div>
+            </div>
+            <Text strong className="ai-review-job-mobile-task">
+              {job.taskTitle}
+            </Text>
+            <Text type="secondary" className="ai-review-job-mobile-ann">
+              ann:{job.annotationId}
+            </Text>
+          </div>
+        </div>
+
+        <div className="ai-review-job-mobile-metrics">
+          <div className="ai-review-job-mobile-metric">
+            <span>决策</span>
+            {decision ? <Tag color={decision.color}>{decision.label}</Tag> : <strong>-</strong>}
+          </div>
+          <div className="ai-review-job-mobile-metric">
+            <span>总分</span>
+            <strong style={{ color: scoreColor }}>
+              {job.totalScore == null ? '-' : job.totalScore.toFixed(2)}
+            </strong>
+          </div>
+          <div className="ai-review-job-mobile-metric">
+            <span>尝试</span>
+            <strong>{attempts}</strong>
+          </div>
+        </div>
+
+        <div className="ai-review-job-mobile-meta">
+          <span>创建：{job.createdAt}</span>
+          {job.finishedAt ? <span>结束：{job.finishedAt}</span> : null}
+        </div>
+
+        {lastError ? <div className="ai-review-job-mobile-error">{lastError}</div> : null}
+
+        <div className="ai-review-job-mobile-actions">
+          <Button type="primary" icon={<EyeOutlined />} onClick={() => void openResult(job)}>
+            查看结果
+          </Button>
+          {job.status === 'failed' && (
+            <Button icon={<RedoOutlined />} onClick={() => void handleRetry(job)}>
+              重新执行
+            </Button>
+          )}
+          {job.status === 'running' && (
+            <Popconfirm
+              title="取消并重新排队"
+              description="旧 Agent 如果稍后回写，会因 runToken 失效被拒绝；该 Job 会重新进入 pending 队列。"
+              okText="确认取消"
+              cancelText="再等等"
+              onConfirm={() => void handleCancel(job)}
+            >
+              <Button danger={stuck} icon={<StopOutlined />}>
+                取消并重新排队
+              </Button>
+            </Popconfirm>
+          )}
+        </div>
+      </Card>
+    );
   };
 
   const columns: ColumnsType<AiReviewJob> = [
@@ -984,12 +1098,13 @@ export function JobsPanel() {
   ];
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space direction="vertical" size={16} className="ai-review-jobs-panel" style={{ width: '100%' }}>
       <JobsKpi jobs={jobs} />
 
-      <Card className="owner-toolbar">
-        <Space size={12} wrap>
+      <Card className="owner-toolbar ai-review-jobs-toolbar">
+        <Space size={12} wrap className="ai-review-jobs-toolbar-inner">
           <Segmented
+            className="ai-review-jobs-status-filter"
             value={statusFilter}
             onChange={(v) => setStatusFilter(v as typeof statusFilter)}
             options={[
@@ -1000,11 +1115,16 @@ export function JobsPanel() {
               { label: '失败', value: 'failed' },
             ]}
           />
-          <Button icon={<ReloadOutlined />} onClick={() => void loadJobs()}>
+          <Button
+            className="ai-review-jobs-refresh"
+            icon={<ReloadOutlined />}
+            onClick={() => void loadJobs()}
+          >
             刷新
           </Button>
           {selectedRowKeys.length > 0 && (
             <Button
+              className="ai-review-jobs-delete-selected"
               danger
               icon={<DeleteOutlined />}
               loading={deleting}
@@ -1013,11 +1133,15 @@ export function JobsPanel() {
               删除选中 ({selectedRowKeys.length})
             </Button>
           )}
-          {usingFallback && <Tag color="gold">演示模式 · 后端未就绪</Tag>}
+          {usingFallback && (
+            <Tag color="gold" className="ai-review-jobs-fallback-tag">
+              演示模式 · 后端未就绪
+            </Tag>
+          )}
         </Space>
       </Card>
 
-      <Card className="owner-table-card" loading={loading}>
+      <Card className="owner-table-card ai-review-jobs-table-card" loading={loading}>
         <Table<AiReviewJob>
           rowKey="jobId"
           columns={columns}
@@ -1034,6 +1158,37 @@ export function JobsPanel() {
           }}
         />
       </Card>
+
+      <div className="ai-review-job-mobile-list">
+        {loading && visibleMobileJobs.length === 0 ? (
+          <Card className="ai-review-job-mobile-card" loading />
+        ) : visibleMobileJobs.length > 0 ? (
+          visibleMobileJobs.map(renderMobileJobCard)
+        ) : (
+          <div className="ai-review-job-mobile-empty">暂无执行记录</div>
+        )}
+
+        {jobs.length > 0 && (
+          <div className="ai-review-job-mobile-footer">
+            {hasMoreMobileJobs ? (
+              <Button
+                block
+                className="ai-review-job-mobile-load-more"
+                disabled={loading}
+                onClick={() =>
+                  setMobileVisibleJobCount((count) =>
+                    Math.min(count + MOBILE_JOB_PAGE_SIZE, jobs.length),
+                  )
+                }
+              >
+                加载更多（已显示 {shownMobileJobCount} / {jobs.length}）
+              </Button>
+            ) : (
+              <Text type="secondary">已显示全部（共 {jobs.length} 条）</Text>
+            )}
+          </div>
+        )}
+      </div>
 
       <JobResultDrawer
         open={resultDrawer.open}
@@ -1069,7 +1224,7 @@ export function JobsKpi({ jobs }: { jobs: AiReviewJob[] }) {
   }, [jobs]);
 
   return (
-    <Row gutter={16} className="row-equal">
+    <Row gutter={16} className="row-equal ai-review-job-kpi-row">
       <Col xs={12} md={6}>
         <Card className="owner-stat-card">
           <div className="owner-stat-label">作业总数</div>
@@ -1123,6 +1278,23 @@ function JobResultDrawer({
   loading?: boolean;
   onClose: () => void;
 }) {
+  const [commentExpanded, setCommentExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setCommentExpanded(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    setCommentExpanded(false);
+  }, [job?.jobId, result?.decision]);
+
+  const comment = result?.comment?.trim() || '未提供。';
+  const scoreEntries = Object.entries(result?.scores ?? {});
+  const riskFlags = result?.risk_flags ?? [];
+  const evidenceItems = result?.evidence ?? [];
+
   return (
     <Drawer
       title={
@@ -1140,71 +1312,86 @@ function JobResultDrawer({
       {!result || loading ? (
         <Text type="secondary">{loading ? '加载中...' : '暂无结果'}</Text>
       ) : (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <div className="ai-review-result-content">
           {/* 决策 + 总分 */}
-          <Card>
-            <Row gutter={12} align="middle">
-              <Col span={12}>
-                <Text type="secondary">决策</Text>
-                <div style={{ marginTop: 4 }}>
-                  <Tag color={decisionMeta[result.decision].color} style={{ fontSize: 14, padding: '2px 12px' }}>
-                    {decisionMeta[result.decision].label}
-                  </Tag>
-                </div>
-              </Col>
-              <Col span={12}>
-                <Text type="secondary">总分</Text>
-                <div style={{ marginTop: 4 }}>
-                  <Text strong style={{ fontSize: 22, color: getDecisionScoreColor(result.decision) }}>
-                    {result.total_score == null ? '-' : result.total_score.toFixed(2)}
-                  </Text>
-                </div>
-              </Col>
-            </Row>
+          <Card className="ai-review-result-summary-card">
+            <div className="ai-review-result-summary">
+              <div className="ai-review-result-summary-item">
+                <span className="ai-review-result-summary-label">AI 结论</span>
+                <Tag color={decisionMeta[result.decision].color} className="ai-review-result-decision-tag">
+                  {decisionMeta[result.decision].label}
+                </Tag>
+              </div>
+              <div className="ai-review-result-summary-item">
+                <span className="ai-review-result-summary-label">总分</span>
+                <strong
+                  className="ai-review-result-total-score"
+                  style={{ color: getDecisionScoreColor(result.decision) }}
+                >
+                  {result.total_score == null ? '-' : result.total_score.toFixed(2)}
+                </strong>
+              </div>
+            </div>
           </Card>
 
           {/* 各维度评分 */}
-          <Card title="评分明细">
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              {Object.entries(result.scores ?? {}).map(([key, value]) => (
-                <ScoreRow key={key} label={key} value={value ?? 0} />
-              ))}
-            </Space>
+          <Card title="评分明细" className="ai-review-result-score-card">
+            <div className="ai-review-result-score-list">
+              {scoreEntries.length > 0 ? (
+                scoreEntries.map(([key, value]) => (
+                  <ScoreRow key={key} label={key} value={value ?? 0} />
+                ))
+              ) : (
+                <Text type="secondary">暂无评分明细</Text>
+              )}
+            </div>
           </Card>
 
           {/* 评估理由 */}
-          <Card title="评估理由">
-            <Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
-              {result.comment || '未提供。'}
+          <Card title="评估理由" className="ai-review-result-comment-card">
+            <Paragraph
+              className={`ai-review-result-comment${commentExpanded ? ' is-expanded' : ''}`}
+            >
+              {comment}
             </Paragraph>
+            {comment.length > 120 && (
+              <Button
+                type="link"
+                className="ai-review-result-comment-toggle"
+                onClick={() => setCommentExpanded((expanded) => !expanded)}
+              >
+                {commentExpanded ? '收起' : '展开全文'}
+              </Button>
+            )}
           </Card>
 
           {/* Risk flags */}
-          {(result.risk_flags?.length ?? 0) > 0 && (
-            <Card title="风险标记">
-              <Space wrap>
-                {result.risk_flags.map((flag) => (
-                  <Tag key={flag} color="error">
+          {riskFlags.length > 0 && (
+            <Card title="风险标记" className="ai-review-result-risk-card">
+              <div className="ai-review-result-risk-list">
+                {riskFlags.map((flag) => (
+                  <Tag key={flag} color="error" className="ai-review-result-risk-tag">
                     {flag}
-                  </Tag>
-                ))}
-              </Space>
-            </Card>
-          )}
-
-          {/* Evidence */}
-          {(result.evidence?.length ?? 0) > 0 && (
-            <Card title="证据 / 引用字段" className="ai-review-evidence-card">
-              <div className="ai-review-evidence-list">
-                {result.evidence.map((ev) => (
-                  <Tag key={ev} color="processing" className="ai-review-evidence-tag">
-                    {ev}
                   </Tag>
                 ))}
               </div>
             </Card>
           )}
-        </Space>
+
+          {/* Evidence */}
+          {evidenceItems.length > 0 && (
+            <Card title="证据 / 引用字段" className="ai-review-evidence-card">
+              <ol className="ai-review-result-evidence-list">
+                {evidenceItems.map((ev, index) => (
+                  <li key={`${ev}-${index}`} className="ai-review-result-evidence-item">
+                    <span className="ai-review-result-evidence-index">{index + 1}</span>
+                    <span className="ai-review-result-evidence-text">{ev}</span>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          )}
+        </div>
       )}
     </Drawer>
   );
@@ -1214,11 +1401,11 @@ function ScoreRow({ label, value }: { label: string; value: number }) {
   const ratio = Math.min(1, Math.max(0, value) / DEFAULT_DIMENSION_MAX_SCORE);
   return (
     <div className="ai-review-score-row">
-      <Text style={{ minWidth: 120 }}>{label}</Text>
+      <Text className="ai-review-score-label">{label}</Text>
       <div className="ai-review-score-bar">
         <span style={{ width: `${ratio * 100}%` }} />
       </div>
-      <Text strong style={{ minWidth: 36, textAlign: 'right' }}>
+      <Text strong className="ai-review-score-value">
         {value.toFixed(1)}
       </Text>
     </div>

@@ -563,6 +563,10 @@ public class ExportService {
       if (node.isValueNode()) {
         return node.asText();
       }
+      String attachmentNames = attachmentNames(node);
+      if (attachmentNames != null) {
+        return attachmentNames;
+      }
       try {
         return objectMapper.writeValueAsString(node);
       } catch (JsonProcessingException exception) {
@@ -573,6 +577,23 @@ public class ExportService {
       return formatDateTime(dateTime);
     }
     return String.valueOf(value);
+  }
+
+  private String attachmentNames(JsonNode node) {
+    if (!node.isArray() || node.isEmpty()) {
+      return null;
+    }
+    List<String> names = new ArrayList<>();
+    for (JsonNode item : node) {
+      if (!item.isObject() || !item.path("fileId").isTextual() || !item.path("name").isTextual()) {
+        return null;
+      }
+      String name = item.path("name").asText("");
+      if (!name.isBlank()) {
+        names.add(name);
+      }
+    }
+    return String.join("、", names);
   }
 
   private void writeCell(Cell cell, Object value) {

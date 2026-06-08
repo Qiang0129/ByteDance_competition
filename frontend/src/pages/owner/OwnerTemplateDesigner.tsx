@@ -25,6 +25,7 @@ import {
   TagsOutlined,
   ThunderboltOutlined,
   UnorderedListOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -1727,7 +1728,27 @@ function renderFieldPreview(field: SchemaField) {
     case 'show-item':
       return <div className="field-show-text">{field.showText ?? '(展示内容)'}</div>;
     case 'file-upload':
-      return <div className="field-show-text">📎 文件 / 图片上传(支持 jpg / png / mp4)</div>;
+      return (
+        <div className="lh-file-upload is-preview">
+          <Button icon={<UploadOutlined />} disabled>
+            上传文件 / 图片
+          </Button>
+          <Typography.Text type="secondary" className="lh-file-upload-hint">
+            每字段最多 5 个附件，单文件最大 20MB
+          </Typography.Text>
+          <div className="lh-attachment-list">
+            <div className="lh-attachment-item">
+              <div className="lh-attachment-thumb">
+                <FileZipOutlined />
+              </div>
+              <div className="lh-attachment-main">
+                <div className="lh-attachment-name">附件预览</div>
+                <div className="lh-attachment-meta">图片 / PDF / Office / 压缩包</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
     case 'json-editor':
       return <pre className="field-show-text">{`{}`}</pre>;
     case 'llm-trigger':

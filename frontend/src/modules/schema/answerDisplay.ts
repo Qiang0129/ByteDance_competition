@@ -38,6 +38,9 @@ export function formatAnswerDisplayValue(value: unknown, field?: SchemaField): s
       .map((item) => resolveOptionLabel(item, field) ?? formatPlainValue(item))
       .join('、');
   }
+  if (semanticType === 'file') {
+    return formatFileValue(value);
+  }
   return formatPlainValue(value);
 }
 
@@ -52,4 +55,18 @@ function formatPlainValue(value: unknown): string {
   if (Array.isArray(value)) return value.map((entry) => formatPlainValue(entry)).join('、');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+function formatFileValue(value: unknown): string {
+  if (value == null) return '—';
+  if (typeof value === 'string') return value || '—';
+  if (!Array.isArray(value)) return formatPlainValue(value);
+  if (value.length === 0) return '—';
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return formatPlainValue(item);
+      const name = (item as Record<string, unknown>).name;
+      return typeof name === 'string' && name.trim() ? name.trim() : formatPlainValue(item);
+    })
+    .join('、');
 }

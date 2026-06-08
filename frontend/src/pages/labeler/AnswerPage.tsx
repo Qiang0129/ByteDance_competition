@@ -36,6 +36,7 @@ import {
   filterVisibleAnswer,
   LabelHubFormRenderer,
   RichTextEditor,
+  normalizeAttachmentValue,
   resolveRuntimeRules,
   resolveSemanticType,
 } from '../../modules/schema';
@@ -440,6 +441,14 @@ export default function AnswerPage() {
           JSON.parse(value);
         } catch {
           next[field.fieldName] = 'JSON 格式不合法';
+        }
+      }
+      if (semanticType === 'file' && value !== undefined && value !== null && value !== '') {
+        const { attachments, legacyText } = normalizeAttachmentValue(value);
+        if (legacyText || !Array.isArray(value)) {
+          next[field.fieldName] = '请上传文件或图片';
+        } else if (attachments.length > 5) {
+          next[field.fieldName] = '每个字段最多上传 5 个附件';
         }
       }
     });

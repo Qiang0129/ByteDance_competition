@@ -12109,6 +12109,153 @@ html.lh-public-page body {
   flex: 1 1 auto;
 }
 
+.ai-review-job-mobile-list {
+  display: none;
+}
+
+.ai-review-result-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-review-result-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.ai-review-result-summary-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-review-result-summary-label {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.ai-review-result-decision-tag.ant-tag {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline-end: 0;
+  padding: 2px 12px;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-review-result-total-score {
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.ai-review-result-score-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.ai-review-score-label {
+  flex: 0 1 128px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-review-score-value {
+  flex: 0 0 auto;
+  min-width: 42px;
+  text-align: right;
+}
+
+.ai-review-result-comment {
+  margin-bottom: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ai-review-result-comment-toggle.ant-btn-link {
+  display: none;
+  height: auto;
+  margin-top: 8px;
+  padding: 0;
+  font-weight: 600;
+}
+
+.ai-review-result-risk-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-review-result-risk-tag.ant-tag {
+  max-width: 100%;
+  margin-inline-end: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 22px;
+}
+
+.ai-review-result-evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-review-result-evidence-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+
+.ai-review-result-evidence-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(47, 123, 255, 0.14);
+  color: var(--lh-primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ai-review-result-evidence-text {
+  min-width: 0;
+  color: #1f2a44;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* 评分条:label / 渐变条 / 数值 三段 */
 .ai-review-score-row {
   display: flex;
@@ -12162,6 +12309,33 @@ html.lh-public-page body {
 /* 暗色适配 */
 :root[data-color-mode='dark'] .ai-review-score-bar {
   background: #20242d;
+}
+
+:root[data-color-mode='dark'] .ai-review-result-summary-label,
+:root[data-color-mode='dark'] .ai-review-score-label {
+  color: #94a3b8;
+}
+
+:root[data-color-mode='dark'] .ai-review-result-total-score,
+:root[data-color-mode='dark'] .ai-review-score-value,
+:root[data-color-mode='dark'] .ai-review-result-comment,
+:root[data-color-mode='dark'] .ai-review-result-evidence-text {
+  color: #f8fafc;
+}
+
+:root[data-color-mode='dark'] .ai-review-result-summary-item,
+:root[data-color-mode='dark'] .ai-review-result-evidence-item {
+  background: #20242d;
+  border-color: #2c313b;
+}
+
+:root[data-color-mode='dark'] .ai-review-result-evidence-index {
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--lh-primary-light);
+}
+
+:root[data-color-mode='dark'] .ai-review-result-drawer .ai-review-score-row {
+  border-bottom-color: #2c313b;
 }
 
 /* ========== AI Reviewer 最近作业:卡片式列表 ========== */
@@ -15445,6 +15619,496 @@ html.lh-public-page body {
     color: #cbd5e1;
   }
 
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-panel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row > [class*="ant-col"] {
+    display: block;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    flex: initial;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .owner-stat-card.ant-card {
+    min-height: 112px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .owner-stat-card .ant-card-body {
+    display: flex;
+    min-height: 112px;
+    flex-direction: column;
+    justify-content: center;
+    padding: 12px 10px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .owner-stat-label {
+    margin-bottom: 6px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .owner-stat-value {
+    margin: 0 0 8px;
+    font-size: 20px;
+    line-height: 1.1;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .ant-tag {
+    display: block;
+    max-width: 100%;
+    margin-inline-end: 0;
+    padding: 1px 7px;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .ant-tag .anticon {
+    margin-inline-end: 4px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-toolbar.ant-card .ant-card-body {
+    padding: 12px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-toolbar-inner.ant-space {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px !important;
+    width: 100%;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-toolbar-inner > .ant-space-item {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-toolbar-inner > .ant-space-item:first-child,
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-toolbar-inner > .ant-space-item:has(.ai-review-jobs-delete-selected),
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-toolbar-inner > .ant-space-item:has(.ai-review-jobs-fallback-tag) {
+    grid-column: 1 / -1;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-status-filter {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-status-filter::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-status-filter .ant-segmented-group {
+    min-width: max-content;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-refresh.ant-btn {
+    min-width: 88px;
+    border-radius: 10px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-delete-selected.ant-btn {
+    width: 100%;
+    border-radius: 10px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-fallback-tag.ant-tag {
+    max-width: 100%;
+    margin-inline-end: 0;
+    white-space: normal;
+    line-height: 1.5;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-jobs-table-card {
+    display: none;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-card.ant-card {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-card.ant-card.is-selected {
+    border-color: rgba(14, 165, 233, 0.58);
+    box-shadow: inset 3px 0 0 rgba(14, 165, 233, 0.82), 0 6px 18px rgba(14, 165, 233, 0.12);
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-card .ant-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-main {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-title-line {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-id {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-status {
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 4px;
+    max-width: 45%;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-status .ant-tag {
+    margin-inline-end: 0;
+    line-height: 20px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-task {
+    color: #1f2a44;
+    font-size: 14px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-ann {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-metric {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 5px;
+    padding: 9px 8px;
+    border-radius: 10px;
+    background: #f8fafc;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-metric span {
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-metric strong {
+    color: #1f2a44;
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-metric .ant-tag {
+    max-width: 100%;
+    margin-inline-end: 0;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-meta {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-meta span,
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-error {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-error {
+    padding: 9px 10px;
+    border-radius: 10px;
+    background: #fff1f2;
+    color: #be123c;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-actions .ant-btn {
+    width: 100%;
+    min-width: 0;
+    border-radius: 10px;
+    padding-inline: 8px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-footer {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding: 2px 0 4px;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-load-more.ant-btn {
+    height: 38px;
+    border-radius: 10px;
+  }
+
+  .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-empty {
+    width: 100%;
+    padding: 18px 12px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    color: #64748b;
+    text-align: center;
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+
+  .ai-review-result-drawer .ant-drawer-body {
+    padding: 16px;
+  }
+
+  .ai-review-result-drawer .ant-card,
+  .ai-review-result-drawer .ant-card-body {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .ai-review-result-drawer .ant-card-body {
+    padding: 12px;
+  }
+
+  .ai-review-result-content {
+    gap: 12px;
+  }
+
+  .ai-review-result-drawer .ant-card-head {
+    min-height: 42px;
+    padding: 0 12px;
+  }
+
+  .ai-review-result-drawer .ant-card-head-title {
+    padding: 10px 0;
+    font-size: 14px;
+  }
+
+  .ai-review-result-summary {
+    gap: 8px;
+  }
+
+  .ai-review-result-summary-card.ant-card .ant-card-body {
+    padding: 12px;
+  }
+
+  .ai-review-result-summary-item {
+    padding: 10px;
+    border-radius: 10px;
+    background: #f8fafc;
+  }
+
+  .ai-review-result-summary-label {
+    font-size: 11px;
+  }
+
+  .ai-review-result-decision-tag.ant-tag {
+    padding: 1px 8px;
+    font-size: 12px;
+    line-height: 20px;
+  }
+
+  .ai-review-result-total-score {
+    font-size: 22px;
+  }
+
+  .ai-review-result-score-list {
+    gap: 9px;
+  }
+
+  .ai-review-result-drawer .ai-review-score-row {
+    display: grid;
+    grid-template-columns: minmax(82px, 0.9fr) minmax(72px, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 8px 0;
+    border-bottom: 1px solid #eef2f7;
+  }
+
+  .ai-review-result-drawer .ai-review-score-row:last-child {
+    border-bottom: none;
+  }
+
+  .ai-review-result-drawer .ai-review-score-label {
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .ai-review-result-drawer .ai-review-score-bar {
+    min-width: 0;
+  }
+
+  .ai-review-result-drawer .ai-review-score-value {
+    min-width: 36px;
+    font-size: 13px;
+  }
+
+  .ai-review-result-comment {
+    color: #1f2a44;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .ai-review-result-comment:not(.is-expanded) {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 6;
+    -webkit-box-orient: vertical;
+  }
+
+  .ai-review-result-comment-toggle.ant-btn-link {
+    display: inline-flex;
+  }
+
+  .ai-review-result-risk-list {
+    gap: 6px;
+  }
+
+  .ai-review-result-risk-tag.ant-tag {
+    padding: 1px 8px;
+    font-size: 12px;
+  }
+
+  .ai-review-result-evidence-list {
+    gap: 8px;
+  }
+
+  .ai-review-result-evidence-item {
+    padding: 9px 10px;
+  }
+
+  .ai-review-result-evidence-text {
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .owner-stat-card.ant-card,
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-card.ant-card {
+    background: #1a1d24;
+    border-color: #2c313b;
+  }
+
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-card.ant-card.is-selected {
+    border-color: rgba(56, 189, 248, 0.55);
+    box-shadow: inset 3px 0 0 rgba(56, 189, 248, 0.85), 0 6px 18px rgba(56, 189, 248, 0.12);
+  }
+
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .owner-stat-label,
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-ann,
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-meta,
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-metric span {
+    color: #94a3b8;
+  }
+
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-kpi-row .owner-stat-value,
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-task,
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-metric strong {
+    color: #f8fafc;
+  }
+
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-metric,
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-empty {
+    background: #20242d;
+    border-color: #2c313b;
+  }
+
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-error {
+    background: rgba(220, 38, 38, 0.14);
+    color: #fca5a5;
+  }
+
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-load-more.ant-btn {
+    background: #20242d;
+    border-color: #2c313b;
+    color: #cbd5e1;
+  }
+
+  :root[data-color-mode='dark'] .app-shell.is-mobile .ai-review-page .ai-review-job-mobile-load-more.ant-btn:hover {
+    background: #252a34;
+    border-color: var(--lh-primary-bg-40);
+    color: var(--lh-primary-light);
+  }
+
   .app-shell.is-mobile .owner-task-name-row {
     max-width: 260px;
   }
@@ -16775,4 +17439,154 @@ html.lh-public-page body {
     display: none;
   }
 
+}
+.lh-file-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lh-file-upload.is-preview {
+  align-items: flex-start;
+}
+
+.lh-file-upload-hint {
+  display: block;
+  font-size: 12px;
+}
+
+.lh-attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lh-attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #e6edf7;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.lh-attachment-item.is-error {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(254, 242, 242, 0.9);
+}
+
+.lh-attachment-thumb {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 7px;
+  background: #eef4ff;
+  color: #2f7bff;
+}
+
+.lh-attachment-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lh-attachment-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lh-attachment-name {
+  overflow: hidden;
+  color: #1f2a44;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lh-attachment-meta {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-wb-answer-row.is-attachment {
+  display: block;
+  padding: 10px 12px 12px;
+  border: 1px solid #e7edf6;
+  border-left: 3px solid rgba(47, 123, 255, 0.55);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.98));
+}
+
+.ai-wb-answer-row.is-attachment.is-changed {
+  border-color: rgba(34, 197, 94, 0.34);
+  border-left-color: rgba(34, 197, 94, 0.9);
+  background: linear-gradient(180deg, rgba(240, 253, 244, 0.92), rgba(255, 255, 255, 0.98));
+}
+
+:root[data-color-mode='dark'] .lh-attachment-item {
+  border-color: #2c313b;
+  background: #151922;
+}
+
+:root[data-color-mode='dark'] .lh-attachment-item.is-error {
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(127, 29, 29, 0.18);
+}
+
+:root[data-color-mode='dark'] .lh-attachment-thumb {
+  background: #1e293b;
+  color: #93c5fd;
+}
+
+:root[data-color-mode='dark'] .lh-attachment-name {
+  color: #eef2ff;
+}
+
+:root[data-color-mode='dark'] .lh-attachment-meta {
+  color: #9aa6bd;
+}
+
+:root[data-color-mode='dark'] .ai-wb-answer-row.is-attachment {
+  background: linear-gradient(180deg, rgba(26, 29, 36, 0.96), rgba(17, 20, 27, 0.98));
+  border-color: #2c313b;
+  border-left-color: rgba(125, 211, 252, 0.82);
+}
+
+:root[data-color-mode='dark'] .ai-wb-answer-row.is-attachment.is-changed {
+  background: linear-gradient(180deg, rgba(20, 83, 45, 0.22), rgba(17, 20, 27, 0.98));
+  border-color: rgba(34, 197, 94, 0.28);
+  border-left-color: rgba(74, 222, 128, 0.88);
+}
+
+@media (max-width: 768px) {
+  .lh-attachment-item {
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .lh-attachment-thumb {
+    flex-basis: 38px;
+    width: 38px;
+    height: 38px;
+  }
+
+  .ai-wb-answer-row.is-attachment {
+    padding: 10px;
+  }
 }

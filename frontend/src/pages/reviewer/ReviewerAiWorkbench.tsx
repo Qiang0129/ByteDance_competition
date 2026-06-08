@@ -23,7 +23,12 @@ import { getApiErrorMessage } from '../../api/client';
 import { reviewerApi } from '../../api/reviewer';
 import { AiAssistantIcon } from '../../components/icons';
 import { toAnswerDisplayEntries, type AnswerDisplayEntry } from '../../modules/schema/answerDisplay';
-import { filterVisibleAnswer, LabelHubFormRenderer, RichTextMarkdown } from '../../modules/schema';
+import {
+  AttachmentDisplayList,
+  filterVisibleAnswer,
+  LabelHubFormRenderer,
+  RichTextMarkdown,
+} from '../../modules/schema';
 import type {
   AiReviewResult,
   AnnotationToReview,
@@ -672,7 +677,7 @@ function AnnotationDetail({
             </div>
             <div className="ai-wb-answer-fields">
               {previousEntries.map((entry) => (
-                <AnswerDisplayRow key={entry.key} entry={entry} />
+                <AnswerDisplayRow key={entry.key} entry={entry} assignmentId={item.assignmentId} />
               ))}
             </div>
           </div>
@@ -683,7 +688,14 @@ function AnnotationDetail({
             <div className="ai-wb-answer-fields">
               {answerEntries.map((entry) => {
                 const changed = !isSameValue(entry.value, prev?.[entry.key]);
-                return <AnswerDisplayRow key={entry.key} entry={entry} changed={changed} />;
+                return (
+                  <AnswerDisplayRow
+                    key={entry.key}
+                    entry={entry}
+                    changed={changed}
+                    assignmentId={item.assignmentId}
+                  />
+                );
               })}
             </div>
           </div>
@@ -696,7 +708,7 @@ function AnnotationDetail({
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无答案数据" />
             ) : (
               answerEntries.map((entry) => (
-                <AnswerDisplayRow key={entry.key} entry={entry} />
+                <AnswerDisplayRow key={entry.key} entry={entry} assignmentId={item.assignmentId} />
               ))
             )}
           </div>
@@ -913,9 +925,11 @@ function AnswerDisplayValue({
 function AnswerDisplayRow({
   entry,
   changed,
+  assignmentId,
 }: {
   entry: AnswerDisplayEntry;
   changed?: boolean;
+  assignmentId?: string;
 }) {
   if (entry.field?.kind === 'rich-text') {
     const markdownSource = typeof entry.value === 'string' ? entry.value : '';
@@ -924,6 +938,16 @@ function AnswerDisplayRow({
         <div className="ai-wb-answer-rich-head">{entry.label}</div>
         <div className="ai-wb-answer-rich-content">
           <RichTextMarkdown source={markdownSource} emptyText="无富文本内容" />
+        </div>
+      </div>
+    );
+  }
+  if (entry.field?.kind === 'file-upload') {
+    return (
+      <div className={`ai-wb-answer-row is-attachment${changed ? ' is-changed' : ''}`}>
+        <div className="ai-wb-answer-rich-head">{entry.label}</div>
+        <div className="ai-wb-answer-rich-content">
+          <AttachmentDisplayList value={entry.value} assignmentId={assignmentId} emptyText="无附件" />
         </div>
       </div>
     );
