@@ -171,7 +171,7 @@ public class LabelerOverviewRepository {
         SELECT COALESCE(SUM(accepted_rewards.reward_per_item), 0)
         FROM (
           SELECT
-            COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0) AS reward_per_item,
+            COALESCE(a.reward_amount, 0) AS reward_per_item,
             COALESCE(accepted_audit.created_at, accepted_hr.created_at, an.updated_at) AS accepted_at
           FROM assignments a
           JOIN tasks t ON t.id = a.task_id
@@ -231,7 +231,7 @@ public class LabelerOverviewRepository {
                 AND ranked.status <> 'voided'
                 AND ranked.id <= a.id
             ) AS item_index,
-            COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0) AS reward_per_item,
+            COALESCE(a.reward_amount, 0) AS reward_per_item,
             COALESCE(accepted_audit.created_at, accepted_hr.created_at, an.updated_at) AS accepted_at
           FROM assignments a
           JOIN tasks t ON t.id = a.task_id
@@ -385,7 +385,7 @@ public class LabelerOverviewRepository {
           COALESCE(t.quota, item_counts.total_items, 0) AS total_quota,
           COALESCE(assignment_counts.quota_used, 0) AS quota_used,
           t.deadline,
-          CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)) AS reward_per_item,
+          COALESCE(entry.reward_amount, 0) AS reward_per_item,
           recent.latest_updated
         FROM (
           SELECT a.task_id, MAX(a.updated_at) AS latest_updated

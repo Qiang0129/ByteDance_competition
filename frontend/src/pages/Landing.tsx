@@ -27,6 +27,7 @@ import {
   MenuUnfoldOutlined,
   PictureOutlined,
   ReadOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons';
 import { App, Button, Dropdown, type MenuProps } from 'antd';
 import { parseAsync, renderDocument } from 'docx-preview';
@@ -34,12 +35,14 @@ import JSZip from 'jszip';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
-import deliveryGuideSource from '../../../docs/delivery-guide.md?raw';
-import readmeSource from '../../../README.md?raw';
-import courseRequirementDocxUrl from '../../../LabelHub 数据标注平台 · AI全栈课题实现要求.docx?url';
-import implementationPlanDocxUrl from '../../../项目实施计划书.docx?url';
-import basicTechDocxUrl from '../../../submission/Related_documents/基础技术文档.docx?url';
-import architectureDiagramUrl from '../../../submission/screenshots/系统架构图.png?url';
+import deliveryGuideSource from '../../../submission/演示说明.md?raw';
+import readmeSource from '../../../submission/README.md?raw';
+import aboutSource from '../../../关于.md?raw';
+import implementationPlanDocxUrl from '../../../submission/相关文档/项目实施计划书.docx?url';
+import basicTechDocxUrl from '../../../submission/相关文档/基础技术文档.docx?url';
+import architectureDiagramUrl from '../../../submission/相关文档/系统架构图.png?url';
+import demoScreenshotUrl from '../../../submission/相关文档/Demo截图/数据集页面.png?url';
+import demoVideoUrl from '../../../submission/演示视频/系统演示.mp4?url';
 import docsCenterPreviewUrl from '../../images/文档中心.png';
 import imageIconUrl from '../../images/图片.svg';
 import loginIconUrl from '../../images/登陆账号.svg';
@@ -56,7 +59,7 @@ const ENDPOINT_SWITCH_INTERVAL = 4000;
 const LANDING_ROUTE_ANIMATION_MS = 500;
 const PUBLIC_NAV_ANIMATION_MS = 360;
 const DOCS_FULLSCREEN_ANIMATION_MS = 320;
-const ABOUT_README_PREVIEWED_STORAGE_KEY = 'labelhub.about.readme.previewed';
+const ABOUT_DOCUMENT_PREVIEWED_STORAGE_KEY = 'labelhub.about.document.previewed';
 
 type PublicNavKey = 'home' | 'docs' | 'about';
 type LandingTransitionKind = 'login' | 'signup';
@@ -68,11 +71,13 @@ type LandingRouteTransition = {
   y: number;
 };
 
-type DocsCategoryKey = 'project' | 'technical' | 'delivery' | 'records';
-type DocsResourceKind = 'markdown' | 'docx' | 'image' | 'external' | 'missing';
+type DocsCategoryKey = 'readme' | 'video' | 'related' | 'guide' | 'api';
+type DocsResourceKind = 'markdown' | 'docx' | 'image' | 'video' | 'external' | 'missing';
 type DocsPanelMode = 'categories' | 'resources' | 'document-toc';
 type DocsPanelTransition = 'forward' | 'back';
 type DocsFullscreenTransition = 'entering' | 'leaving' | null;
+
+type DocsCategoryAction = 'resource' | 'group';
 
 type DocsResource = {
   id: string;
@@ -88,6 +93,23 @@ type DocsResource = {
   externalUrl?: string;
   downloadName?: string;
   meta?: string;
+  groupLabel?: string;
+};
+
+type DocsCategory = {
+  key: DocsCategoryKey;
+  label: string;
+  description: string;
+  action: DocsCategoryAction;
+  resourceId?: string;
+};
+
+type DocsResourceListItem =
+  | { type: 'group'; id: string; label: string }
+  | { type: 'resource'; resource: DocsResource };
+
+type DocsDownloadableResource = DocsResource & {
+  downloadPathSegments: string[];
 };
 
 type DocsPreviewStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -104,6 +126,7 @@ type DocsPreviewState = {
 type DocsPreviewCache =
   | { kind: 'markdown'; source: string; headings?: MarkdownHeading[]; tocGroups?: MarkdownTocGroup[] }
   | { kind: 'image' }
+  | { kind: 'video' }
   | {
       kind: 'docx';
       html: string;
@@ -328,11 +351,16 @@ function createDocsMarkdownComponents(headings: MarkdownHeading[], lineOffset = 
   };
 }
 
-const loadPhasePlanSource = () => import('../../../阶段计划.md?raw').then((module: MarkdownRawModule) => module.default);
+const loadPhasePlanSource = () =>
+  import('../../../submission/相关文档/阶段计划.md?raw').then((module: MarkdownRawModule) => module.default);
 const loadPhaseImplementationSource = () =>
-  import('../../../阶段实现.md?raw').then((module: MarkdownRawModule) => module.default);
+  import('../../../submission/相关文档/阶段实现.md?raw').then((module: MarkdownRawModule) => module.default);
 const loadInterfaceDocsSource = () =>
-  import('../../../接口文档.md?raw').then((module: MarkdownRawModule) => module.default);
+  import('../../../submission/API文档/接口文档.md?raw').then((module: MarkdownRawModule) => module.default);
+const loadIssueArchiveSource = () =>
+  import('../../../submission/相关文档/问题点归档.md?raw').then((module: MarkdownRawModule) => module.default);
+const loadKeyTechPointsSource = () =>
+  import('../../../submission/相关文档/关键技术点.md?raw').then((module: MarkdownRawModule) => module.default);
 
 const navItems: Array<{ key: PublicNavKey; label: string; path: string }> = [
   { key: 'home', label: '首页', path: '/' },
@@ -340,25 +368,55 @@ const navItems: Array<{ key: PublicNavKey; label: string; path: string }> = [
   { key: 'about', label: '关于', path: '/about' },
 ];
 
-type ReadmeHeading = MarkdownHeading;
-type ReadmeTocGroup = MarkdownTocGroup;
+type AboutDocumentHeading = MarkdownHeading;
+type AboutDocumentTocGroup = MarkdownTocGroup;
 
-const README_HEADINGS = createReadmeHeadings(readmeSource);
-const README_TOC_GROUPS = createReadmeTocGroups(README_HEADINGS);
-const README_PARENT_HEADING_ID_BY_ID = createReadmeParentHeadingIdMap(README_TOC_GROUPS);
+const ABOUT_DOCUMENT_HEADINGS = createAboutDocumentHeadings(aboutSource);
+const ABOUT_DOCUMENT_TOC_GROUPS = createAboutDocumentTocGroups(ABOUT_DOCUMENT_HEADINGS);
+const ABOUT_DOCUMENT_PARENT_HEADING_ID_BY_ID =
+  createAboutDocumentParentHeadingIdMap(ABOUT_DOCUMENT_TOC_GROUPS);
 const SWAGGER_URL = 'http://127.0.0.1:8080/swagger-ui/index.html';
 
-const docsCategories: Array<{ key: DocsCategoryKey; label: string; description: string }> = [
-  { key: 'project', label: '项目资料', description: 'README、计划书与课题要求' },
-  { key: 'technical', label: '技术文档', description: '基础技术文档与系统架构图' },
-  { key: 'delivery', label: '演示说明', description: '演示路线、资料说明与环境信息' },
-  { key: 'records', label: '过程记录', description: '阶段记录、接口文档与 Swagger' },
+const docsCategories: DocsCategory[] = [
+  {
+    key: 'readme',
+    label: 'README.md',
+    description: '项目说明与运行入口',
+    action: 'resource',
+    resourceId: 'readme',
+  },
+  {
+    key: 'video',
+    label: '演示视频',
+    description: '系统演示视频',
+    action: 'resource',
+    resourceId: 'demo-video',
+  },
+  {
+    key: 'related',
+    label: '相关文档',
+    description: '过程记录、技术文档与截图',
+    action: 'group',
+  },
+  {
+    key: 'guide',
+    label: '演示说明',
+    description: '演示路线、资料说明与环境信息',
+    action: 'resource',
+    resourceId: 'delivery-guide',
+  },
+  {
+    key: 'api',
+    label: 'API文档',
+    description: '接口文档与 Swagger',
+    action: 'group',
+  },
 ];
 
 const docsResources: DocsResource[] = [
   {
     id: 'readme',
-    category: 'project',
+    category: 'readme',
     title: 'README.md',
     description: '仓库根目录说明文档，包含项目状态、环境要求和启动方式。',
     kind: 'markdown',
@@ -366,11 +424,23 @@ const docsResources: DocsResource[] = [
     badge: 'MD',
     source: readmeSource,
     downloadName: 'README.md',
-    meta: '根目录',
+    meta: 'submission',
+  },
+  {
+    id: 'demo-video',
+    category: 'video',
+    title: '系统演示.mp4',
+    description: '提交资料中的系统演示视频，可在文档中心直接预览和下载。',
+    kind: 'video',
+    status: 'available',
+    badge: 'MP4',
+    fileUrl: demoVideoUrl,
+    downloadName: '系统演示.mp4',
+    meta: 'submission/演示视频',
   },
   {
     id: 'implementation-plan-docx',
-    category: 'project',
+    category: 'related',
     title: '项目实施计划书.docx',
     description: '项目实施计划、阶段目标和范围的 Word 原文档。',
     kind: 'docx',
@@ -378,59 +448,12 @@ const docsResources: DocsResource[] = [
     badge: 'DOCX',
     fileUrl: implementationPlanDocxUrl,
     downloadName: '项目实施计划书.docx',
-    meta: '根目录',
-  },
-  {
-    id: 'course-requirement-docx',
-    category: 'project',
-    title: 'AI 全栈课题实现要求',
-    description: 'LabelHub 数据标注平台课题要求原始 Word 文档。',
-    kind: 'docx',
-    status: 'available',
-    badge: 'DOCX',
-    fileUrl: courseRequirementDocxUrl,
-    downloadName: 'LabelHub 数据标注平台 · AI全栈课题实现要求.docx',
-    meta: '根目录',
-  },
-  {
-    id: 'basic-tech-docx',
-    category: 'technical',
-    title: '基础技术文档.docx',
-    description: '技术说明主文档，覆盖架构、流程、数据模型、前后端设计和 Agent 设计。',
-    kind: 'docx',
-    status: 'available',
-    badge: 'DOCX',
-    fileUrl: basicTechDocxUrl,
-    downloadName: '基础技术文档.docx',
-    meta: 'submission/Related_documents',
-  },
-  {
-    id: 'architecture-diagram',
-    category: 'technical',
-    title: '系统架构图',
-    description: 'LabelHub 系统架构图图片预览。',
-    kind: 'image',
-    status: 'available',
-    badge: 'PNG',
-    fileUrl: architectureDiagramUrl,
-    downloadName: '系统架构图.png',
-    meta: 'submission/screenshots',
-  },
-  {
-    id: 'delivery-guide',
-    category: 'delivery',
-    title: '演示与资料说明.md',
-    description: '集中说明演示路线、资料覆盖关系、可访问环境和推荐阅读顺序。',
-    kind: 'markdown',
-    status: 'available',
-    badge: 'MD',
-    source: deliveryGuideSource,
-    downloadName: '演示与资料说明.md',
-    meta: 'docs/delivery-guide.md',
+    meta: 'submission/相关文档',
+    groupLabel: 'AI Coding 过程记录',
   },
   {
     id: 'phase-plan',
-    category: 'records',
+    category: 'related',
     title: '阶段计划.md',
     description: 'AI Coding 过程中的阶段计划与实施前记录。',
     kind: 'markdown',
@@ -438,11 +461,12 @@ const docsResources: DocsResource[] = [
     badge: 'MD',
     loadSource: loadPhasePlanSource,
     downloadName: '阶段计划.md',
-    meta: '根目录',
+    meta: 'submission/相关文档',
+    groupLabel: 'AI Coding 过程记录',
   },
   {
     id: 'phase-implementation',
-    category: 'records',
+    category: 'related',
     title: '阶段实现.md',
     description: 'AI Coding 过程中的阶段实现记录。',
     kind: 'markdown',
@@ -450,11 +474,86 @@ const docsResources: DocsResource[] = [
     badge: 'MD',
     loadSource: loadPhaseImplementationSource,
     downloadName: '阶段实现.md',
-    meta: '根目录',
+    meta: 'submission/相关文档',
+    groupLabel: 'AI Coding 过程记录',
+  },
+  {
+    id: 'issue-archive',
+    category: 'related',
+    title: '问题点归档.md',
+    description: '风险、缺陷、阻塞和待跟踪问题归档。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    loadSource: loadIssueArchiveSource,
+    downloadName: '问题点归档.md',
+    meta: 'submission/相关文档',
+    groupLabel: 'AI Coding 过程记录',
+  },
+  {
+    id: 'basic-tech-docx',
+    category: 'related',
+    title: '基础技术文档.docx',
+    description: '技术说明主文档，覆盖架构、流程、数据模型、前后端设计和 Agent 设计。',
+    kind: 'docx',
+    status: 'available',
+    badge: 'DOCX',
+    fileUrl: basicTechDocxUrl,
+    downloadName: '基础技术文档.docx',
+    meta: 'submission/相关文档',
+  },
+  {
+    id: 'architecture-diagram',
+    category: 'related',
+    title: '系统架构图.png',
+    description: 'LabelHub 系统架构图图片预览。',
+    kind: 'image',
+    status: 'available',
+    badge: 'PNG',
+    fileUrl: architectureDiagramUrl,
+    downloadName: '系统架构图.png',
+    meta: 'submission/相关文档',
+  },
+  {
+    id: 'demo-screenshot-dataset',
+    category: 'related',
+    title: '数据集页面.png',
+    description: 'Demo 截图中的数据集页面预览图。',
+    kind: 'image',
+    status: 'available',
+    badge: 'PNG',
+    fileUrl: demoScreenshotUrl,
+    downloadName: '数据集页面.png',
+    meta: 'submission/相关文档/Demo截图',
+    groupLabel: 'Demo 截图',
+  },
+  {
+    id: 'key-tech-points',
+    category: 'related',
+    title: '关键技术点.md',
+    description: '提交资料中的关键技术点文档。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    loadSource: loadKeyTechPointsSource,
+    downloadName: '关键技术点.md',
+    meta: 'submission/相关文档',
+  },
+  {
+    id: 'delivery-guide',
+    category: 'guide',
+    title: '演示说明',
+    description: '集中说明演示路线、资料覆盖关系、可访问环境和推荐阅读顺序。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: deliveryGuideSource,
+    downloadName: '演示说明.md',
+    meta: 'submission',
   },
   {
     id: 'interface-docs',
-    category: 'records',
+    category: 'api',
     title: '接口文档.md',
     description: '前后端接口记录，同时提供 Swagger 外部入口。',
     kind: 'markdown',
@@ -463,11 +562,11 @@ const docsResources: DocsResource[] = [
     loadSource: loadInterfaceDocsSource,
     externalUrl: SWAGGER_URL,
     downloadName: '接口文档.md',
-    meta: '根目录',
+    meta: 'submission/API文档',
   },
   {
     id: 'swagger',
-    category: 'records',
+    category: 'api',
     title: 'Swagger UI',
     description: '后端 OpenAPI 调试和接口浏览入口。',
     kind: 'external',
@@ -477,6 +576,53 @@ const docsResources: DocsResource[] = [
     meta: '127.0.0.1:8080',
   },
 ];
+
+function getDocsCategoryResourceCount(category: DocsCategory) {
+  if (category.action === 'resource') {
+    return category.resourceId ? 1 : 0;
+  }
+
+  return docsResources.filter((resource) => resource.category === category.key).length;
+}
+
+function createDocsResourceListItems(resources: DocsResource[]): DocsResourceListItem[] {
+  const items: DocsResourceListItem[] = [];
+  let currentGroupLabel: string | undefined;
+
+  resources.forEach((resource) => {
+    if (resource.groupLabel && resource.groupLabel !== currentGroupLabel) {
+      currentGroupLabel = resource.groupLabel;
+      items.push({
+        type: 'group',
+        id: `group-${createHeadingBaseId(resource.groupLabel) || items.length}`,
+        label: resource.groupLabel,
+      });
+    }
+
+    if (!resource.groupLabel) {
+      currentGroupLabel = undefined;
+    }
+
+    items.push({ type: 'resource', resource });
+  });
+
+  return items;
+}
+
+function getDocsResourceNavigationSegments(resource: DocsResource) {
+  const categoryLabel = getDocsCategoryLabel(resource.category);
+  if (resource.category === 'related' && resource.groupLabel) {
+    return [categoryLabel, resource.groupLabel];
+  }
+  if (resource.category === 'readme' || resource.category === 'guide') {
+    return ['顶层目录'];
+  }
+  return [categoryLabel];
+}
+
+function getDocsResourceDownloadPathSegments(resource: DocsResource) {
+  return [...getDocsResourceNavigationSegments(resource), sanitizeFilename(resource.downloadName ?? resource.title)];
+}
 
 function normalizeHeadingText(text: string) {
   return text
@@ -642,15 +788,15 @@ function findVirtualMarkdownHeadingTop(
   return blockOffsets[blockIndex]?.top;
 }
 
-function createReadmeHeadings(source: string): ReadmeHeading[] {
+function createAboutDocumentHeadings(source: string): AboutDocumentHeading[] {
   return createMarkdownHeadings(source);
 }
 
-function createReadmeTocGroups(headings: ReadmeHeading[]): ReadmeTocGroup[] {
+function createAboutDocumentTocGroups(headings: AboutDocumentHeading[]): AboutDocumentTocGroup[] {
   return createMarkdownTocGroups(headings);
 }
 
-function createReadmeParentHeadingIdMap(groups: ReadmeTocGroup[]) {
+function createAboutDocumentParentHeadingIdMap(groups: AboutDocumentTocGroup[]) {
   return createMarkdownParentHeadingIdMap(groups);
 }
 
@@ -1028,7 +1174,7 @@ export function DocsPlaceholder() {
   const docsMarkdownTocOpenedResourceIdsRef = useRef<Set<string>>(new Set());
   const docsPreviewRunSequenceRef = useRef(0);
   const docsMarkdownScrollSequenceRef = useRef(0);
-  const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('project');
+  const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('readme');
   const [activeResourceId, setActiveResourceId] = useState(docsResources[0]?.id ?? '');
   const [docsPanelMode, setDocsPanelMode] = useState<DocsPanelMode>('categories');
   const [docsPanelTransition, setDocsPanelTransition] = useState<DocsPanelTransition>('forward');
@@ -1043,6 +1189,7 @@ export function DocsPlaceholder() {
   const [docsPreviewStates, setDocsPreviewStates] = useState<Record<string, DocsPreviewState>>({});
   const activeResource = docsResources.find((resource) => resource.id === activeResourceId) ?? docsResources[0];
   const visibleResources = docsResources.filter((resource) => resource.category === activeCategory);
+  const visibleResourceListItems = useMemo(() => createDocsResourceListItems(visibleResources), [visibleResources]);
   const activeCategoryMeta = docsCategories.find((category) => category.key === activeCategory) ?? docsCategories[0];
   const downloadableResources = useMemo(() => docsResources.filter(isDownloadableDocsResource), []);
   const currentCategoryDownloadableResources = useMemo(
@@ -1208,7 +1355,15 @@ export function DocsPlaceholder() {
   };
 
   const startDocsPreview = (resource: DocsResource) => {
-    if (resource.status !== 'available' || (resource.kind !== 'markdown' && resource.kind !== 'docx' && resource.kind !== 'image')) {
+    if (
+      resource.status !== 'available'
+      || (
+        resource.kind !== 'markdown'
+        && resource.kind !== 'docx'
+        && resource.kind !== 'image'
+        && resource.kind !== 'video'
+      )
+    ) {
       return;
     }
 
@@ -1256,7 +1411,7 @@ export function DocsPlaceholder() {
     }
 
     docsQuickPreviewTimersRef.current[resource.id] = window.setTimeout(() => {
-      completeDocsPreview(resource.id, runId, { kind: 'image' });
+      completeDocsPreview(resource.id, runId, { kind: resource.kind === 'video' ? 'video' : 'image' });
       delete docsQuickPreviewTimersRef.current[resource.id];
     }, 180);
   };
@@ -1396,7 +1551,7 @@ export function DocsPlaceholder() {
   useEffect(() => {
     if (
       !pendingDocsQuickScroll ||
-      activeCategory !== 'records' ||
+      activeCategory !== 'api' ||
       activeResourceId !== 'interface-docs' ||
       docsPanelMode !== 'resources'
     ) {
@@ -1430,18 +1585,22 @@ export function DocsPlaceholder() {
     return () => window.removeEventListener('keydown', handleDocsFullscreenKeyDown);
   }, [docsFullscreenTransition, isDocsPreviewFullscreen]);
 
-  const selectCategory = (category: DocsCategoryKey) => {
+  const selectCategory = (categoryKey: DocsCategoryKey) => {
     if (docsPreviewStates[activeResourceId]?.status === 'loading') {
       cancelDocsPreview(activeResourceId);
     }
 
-    setActiveCategory(category);
-    const firstResource = docsResources.find((resource) => resource.category === category);
+    setActiveCategory(categoryKey);
+    const category = docsCategories.find((item) => item.key === categoryKey);
+    const firstResource = category?.resourceId
+      ? docsResources.find((resource) => resource.id === category.resourceId)
+      : docsResources.find((resource) => resource.category === categoryKey);
+
     if (firstResource) {
       setActiveResourceId(firstResource.id);
     }
     setDocsPanelTransition('forward');
-    setDocsPanelMode('resources');
+    setDocsPanelMode(category?.action === 'resource' ? 'categories' : 'resources');
   };
 
   const backToCategories = () => {
@@ -1606,7 +1765,7 @@ export function DocsPlaceholder() {
       {
         key: 'zip-current-category',
         icon: <DownloadOutlined />,
-        label: `打包当前分类：${activeCategoryMeta.label}（${currentCategoryDownloadableResources.length} 个文件）`,
+        label: `打包当前目录：${activeCategoryMeta.label}（${currentCategoryDownloadableResources.length} 个文件）`,
         disabled: currentCategoryDownloadableResources.length === 0,
       },
       {
@@ -1618,17 +1777,20 @@ export function DocsPlaceholder() {
       { key: 'download-divider-files', type: 'divider' },
     ];
 
-    docsCategories.forEach((category) => {
-      const categoryResources = downloadableResources.filter((resource) => resource.category === category.key);
-      if (categoryResources.length === 0) {
-        return;
-      }
+    const downloadableGroups = new Map<string, DocsResource[]>();
+    downloadableResources.forEach((resource) => {
+      const groupLabel = getDocsResourceNavigationSegments(resource).join(' / ');
+      const groupResources = downloadableGroups.get(groupLabel) ?? [];
+      groupResources.push(resource);
+      downloadableGroups.set(groupLabel, groupResources);
+    });
 
+    downloadableGroups.forEach((groupResources, groupLabel) => {
       items.push({
-        key: `download-group-${category.key}`,
+        key: `download-group-${createHeadingBaseId(groupLabel)}`,
         type: 'group',
-        label: category.label,
-        children: categoryResources.map((resource) => ({
+        label: groupLabel,
+        children: groupResources.map((resource) => ({
           key: `file:${resource.id}`,
           icon: getDocsResourceIcon(resource.kind),
           label: resource.title,
@@ -1646,7 +1808,7 @@ export function DocsPlaceholder() {
     }
 
     if (key === 'zip-current-category') {
-      handleDownloadZip(currentCategoryDownloadableResources, `LabelHub-${sanitizeFilename(activeCategoryMeta.label)}-资料.zip`);
+      handleDownloadZip(currentCategoryDownloadableResources, `LabelHub-${sanitizeFilename(activeCategoryMeta.label)}.zip`);
       return;
     }
 
@@ -1670,7 +1832,7 @@ export function DocsPlaceholder() {
     }
 
     setPendingDocsQuickScroll(true);
-    setActiveCategory('records');
+    setActiveCategory('api');
     setActiveResourceId('interface-docs');
     setDocsPanelTransition('forward');
     setDocsPanelMode('resources');
@@ -1711,7 +1873,7 @@ export function DocsPlaceholder() {
     ? '文档目录'
     : docsPanelMode === 'resources' || docsPanelMode === 'document-toc'
       ? activeCategoryMeta.label
-      : '资源分类';
+      : '文档目录';
   const shouldShowDocumentTocPanel = docsPanelMode === 'document-toc' && activeMarkdownOutline;
   const shouldShowFullscreenToc = Boolean(isDocsPreviewFullscreen && activeMarkdownOutline && activeMarkdownHeading);
 
@@ -1797,7 +1959,7 @@ export function DocsPlaceholder() {
                 <>
                   <nav className="landing-docs-category-list" aria-label="资源分类">
                     {docsCategories.map((category) => {
-                      const categoryResources = docsResources.filter((resource) => resource.category === category.key);
+                      const categoryResourceCount = getDocsCategoryResourceCount(category);
                       return (
                         <button
                           key={category.key}
@@ -1807,7 +1969,7 @@ export function DocsPlaceholder() {
                         >
                           <span>{category.label}</span>
                           <small>{category.description}</small>
-                          <em>{categoryResources.length}</em>
+                          <em>{categoryResourceCount}</em>
                         </button>
                       );
                     })}
@@ -1836,24 +1998,35 @@ export function DocsPlaceholder() {
                     <strong>{visibleResources.length}</strong>
                   </div>
                   <div className="landing-docs-resource-list landing-docs-resource-list-in-sidebar">
-                    {visibleResources.map((resource) => (
-                      <button
-                        key={resource.id}
-                        type="button"
-                        className={`landing-docs-resource${activeResource.id === resource.id ? ' is-active' : ''}${
-                          resource.status === 'missing' ? ' is-missing' : ''
-                        }`}
-                        onClick={() => selectDocsResource(resource.id)}
-                      >
-                        <span className="landing-docs-resource-icon" aria-hidden="true">
-                          {getDocsResourceIcon(resource.kind)}
-                        </span>
-                        <span className="landing-docs-resource-text">
-                          <strong>{resource.title}</strong>
-                          <span className="landing-docs-resource-badge">{resource.badge}</span>
-                        </span>
-                      </button>
-                    ))}
+                    {visibleResourceListItems.map((item) => {
+                      if (item.type === 'group') {
+                        return (
+                          <div key={item.id} className="landing-docs-resource-group-title">
+                            {item.label}
+                          </div>
+                        );
+                      }
+
+                      const { resource } = item;
+                      return (
+                        <button
+                          key={resource.id}
+                          type="button"
+                          className={`landing-docs-resource${activeResource.id === resource.id ? ' is-active' : ''}${
+                            resource.status === 'missing' ? ' is-missing' : ''
+                          }${resource.groupLabel ? ' is-grouped' : ''}`}
+                          onClick={() => selectDocsResource(resource.id)}
+                        >
+                          <span className="landing-docs-resource-icon" aria-hidden="true">
+                            {getDocsResourceIcon(resource.kind)}
+                          </span>
+                          <span className="landing-docs-resource-text">
+                            <strong>{resource.title}</strong>
+                            <span className="landing-docs-resource-badge">{resource.badge}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -2190,7 +2363,19 @@ function DocsPreview({
     );
   }
 
+  if (resource.kind === 'video' && resource.fileUrl) {
+    return <VideoDocsPreview title={resource.title} fileUrl={resource.fileUrl} />;
+  }
+
   return <MissingDocsPreview resource={resource} />;
+}
+
+function VideoDocsPreview({ title, fileUrl }: { title: string; fileUrl: string }) {
+  return (
+    <div className="landing-docs-video-preview">
+      <video controls preload="metadata" playsInline src={fileUrl} aria-label={`${title} 预览`} />
+    </div>
+  );
 }
 
 function MarkdownLayoutGate({
@@ -3566,6 +3751,7 @@ function MissingDocsPreview({ resource }: { resource: DocsResource }) {
 function getDocsResourceIcon(kind: DocsResourceKind) {
   if (kind === 'docx') return <FileWordOutlined />;
   if (kind === 'image') return <PictureOutlined />;
+  if (kind === 'video') return <VideoCameraOutlined />;
   if (kind === 'external') return <ApiOutlined />;
   if (kind === 'missing') return <InfoCircleOutlined />;
   return <FileTextOutlined />;
@@ -3682,8 +3868,10 @@ async function downloadDocsResourcesZip(
       resource,
       previewCaches[resource.id],
     );
-    const categoryFolder = sanitizeFilename(getDocsCategoryLabel(resource.category));
-    const zipPath = createUniqueZipPath(`${categoryFolder}/${resourceFilename}`, usedPaths);
+    const zipPath = createUniqueZipPath(
+      getDocsResourceDownloadPathSegments(resource).join('/'),
+      usedPaths,
+    );
     zip.file(zipPath, blob);
 
     if (markdownSource && resource.kind === 'markdown') {
@@ -3762,31 +3950,32 @@ function splitMarkdownVirtualBlocks(source: string, headings: MarkdownHeading[] 
 }
 
 export function AboutPlaceholder() {
-  const readmeBodyRef = useRef<HTMLDivElement | null>(null);
+  const aboutDocumentBodyRef = useRef<HTMLDivElement | null>(null);
   const tocRef = useRef<HTMLElement | null>(null);
-  const aboutReadmeFullscreenTimerRef = useRef<number | null>(null);
+  const aboutDocumentFullscreenTimerRef = useRef<number | null>(null);
   const { message } = App.useApp();
-  const [activeReadmeHeadingId, setActiveReadmeHeadingId] = useState(README_HEADINGS[0]?.id ?? '');
-  const [isReadmeTocCollapsed, setIsReadmeTocCollapsed] = useState(false);
-  const [isAboutReadmePreviewed, setIsAboutReadmePreviewed] = useState(() => {
+  const [activeAboutDocumentHeadingId, setActiveAboutDocumentHeadingId] =
+    useState(ABOUT_DOCUMENT_HEADINGS[0]?.id ?? '');
+  const [isAboutDocumentTocCollapsed, setIsAboutDocumentTocCollapsed] = useState(false);
+  const [isAboutDocumentPreviewed, setIsAboutDocumentPreviewed] = useState(() => {
     try {
-      return window.localStorage.getItem(ABOUT_README_PREVIEWED_STORAGE_KEY) === 'true';
+      return window.localStorage.getItem(ABOUT_DOCUMENT_PREVIEWED_STORAGE_KEY) === 'true';
     } catch {
       return false;
     }
   });
-  const [isAboutReadmeFullscreen, setIsAboutReadmeFullscreen] = useState(false);
-  const [isAboutReadmeFullscreenTocCollapsed, setIsAboutReadmeFullscreenTocCollapsed] = useState(false);
-  const [aboutReadmeFullscreenTransition, setAboutReadmeFullscreenTransition] =
+  const [isAboutDocumentFullscreen, setIsAboutDocumentFullscreen] = useState(false);
+  const [isAboutDocumentFullscreenTocCollapsed, setIsAboutDocumentFullscreenTocCollapsed] = useState(false);
+  const [aboutDocumentFullscreenTransition, setAboutDocumentFullscreenTransition] =
     useState<DocsFullscreenTransition>(null);
-  const [expandedReadmeHeadingIds, setExpandedReadmeHeadingIds] = useState<Set<string>>(
+  const [expandedAboutDocumentHeadingIds, setExpandedAboutDocumentHeadingIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const isReadmeTocVisuallyCollapsed = isAboutReadmeFullscreen
-    ? isAboutReadmeFullscreenTocCollapsed
-    : isReadmeTocCollapsed;
+  const isAboutDocumentTocVisuallyCollapsed = isAboutDocumentFullscreen
+    ? isAboutDocumentFullscreenTocCollapsed
+    : isAboutDocumentTocCollapsed;
   const intro = useMemo(() => {
-    const lines = readmeSource.split(/\r?\n/);
+    const lines = aboutSource.split(/\r?\n/);
     const firstParagraph = lines.find((line) => {
       const trimmed = line.trim();
       return trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('```');
@@ -3798,24 +3987,24 @@ export function AboutPlaceholder() {
     return createHeadingId(text);
   };
 
-  const findReadmeHeadingElement = (headingId: string) => {
-    const container = readmeBodyRef.current;
+  const findAboutDocumentHeadingElement = (headingId: string) => {
+    const container = aboutDocumentBodyRef.current;
     if (!container) {
       return null;
     }
 
-    return Array.from(container.querySelectorAll<HTMLElement>('[data-readme-heading-id]')).find(
-      (element) => element.dataset.readmeHeadingId === headingId,
+    return Array.from(container.querySelectorAll<HTMLElement>('[data-about-heading-id]')).find(
+      (element) => element.dataset.aboutHeadingId === headingId,
     ) ?? null;
   };
 
-  const scrollToReadmeHeading = (
-    heading: ReadmeHeading,
+  const scrollToAboutDocumentHeading = (
+    heading: AboutDocumentHeading,
     behavior: ScrollBehavior = 'smooth',
     updateHash = true,
   ) => {
-    const container = readmeBodyRef.current;
-    const target = findReadmeHeadingElement(heading.id);
+    const container = aboutDocumentBodyRef.current;
+    const target = findAboutDocumentHeadingElement(heading.id);
     if (!container || !target) {
       return;
     }
@@ -3824,10 +4013,10 @@ export function AboutPlaceholder() {
     const targetRect = target.getBoundingClientRect();
     const nextTop = container.scrollTop + targetRect.top - containerRect.top - 20;
     container.scrollTo({ top: Math.max(nextTop, 0), behavior });
-    setActiveReadmeHeadingId(heading.id);
-    const parentHeadingId = README_PARENT_HEADING_ID_BY_ID.get(heading.id);
+    setActiveAboutDocumentHeadingId(heading.id);
+    const parentHeadingId = ABOUT_DOCUMENT_PARENT_HEADING_ID_BY_ID.get(heading.id);
     if (parentHeadingId && parentHeadingId !== heading.id) {
-      setExpandedReadmeHeadingIds((previousIds) => {
+      setExpandedAboutDocumentHeadingIds((previousIds) => {
         if (previousIds.has(parentHeadingId)) {
           return previousIds;
         }
@@ -3850,17 +4039,17 @@ export function AboutPlaceholder() {
     activeLink?.scrollIntoView({ block: 'nearest', behavior });
   };
 
-  const handleReadmeTocClick = (event: MouseEvent<HTMLAnchorElement>, heading: ReadmeHeading) => {
+  const handleAboutDocumentTocClick = (event: MouseEvent<HTMLAnchorElement>, heading: AboutDocumentHeading) => {
     event.preventDefault();
 
     if (heading.level === 2) {
-      const group = README_TOC_GROUPS.find((item) => item.heading.id === heading.id);
+      const group = ABOUT_DOCUMENT_TOC_GROUPS.find((item) => item.heading.id === heading.id);
       if (!group || group.children.length === 0) {
-        scrollToReadmeHeading(heading);
+        scrollToAboutDocumentHeading(heading);
         return;
       }
 
-      setExpandedReadmeHeadingIds((previousIds) => {
+      setExpandedAboutDocumentHeadingIds((previousIds) => {
         const nextIds = new Set(previousIds);
         if (nextIds.has(heading.id)) {
           nextIds.delete(heading.id);
@@ -3872,11 +4061,11 @@ export function AboutPlaceholder() {
       return;
     }
 
-    scrollToReadmeHeading(heading);
+    scrollToAboutDocumentHeading(heading);
 
-    const parentHeadingId = README_PARENT_HEADING_ID_BY_ID.get(heading.id);
+    const parentHeadingId = ABOUT_DOCUMENT_PARENT_HEADING_ID_BY_ID.get(heading.id);
     if (parentHeadingId) {
-      setExpandedReadmeHeadingIds((previousIds) => {
+      setExpandedAboutDocumentHeadingIds((previousIds) => {
         if (previousIds.has(parentHeadingId)) {
           return previousIds;
         }
@@ -3907,69 +4096,69 @@ export function AboutPlaceholder() {
     }
   };
 
-  const clearAboutReadmeFullscreenTimer = () => {
-    if (aboutReadmeFullscreenTimerRef.current !== null) {
-      window.clearTimeout(aboutReadmeFullscreenTimerRef.current);
-      aboutReadmeFullscreenTimerRef.current = null;
+  const clearAboutDocumentFullscreenTimer = () => {
+    if (aboutDocumentFullscreenTimerRef.current !== null) {
+      window.clearTimeout(aboutDocumentFullscreenTimerRef.current);
+      aboutDocumentFullscreenTimerRef.current = null;
     }
   };
 
-  const startAboutReadmeFullscreenEnter = () => {
-    clearAboutReadmeFullscreenTimer();
-    setIsAboutReadmeFullscreenTocCollapsed(window.innerWidth <= 900);
-    setIsAboutReadmeFullscreen(true);
-    setAboutReadmeFullscreenTransition('entering');
+  const startAboutDocumentFullscreenEnter = () => {
+    clearAboutDocumentFullscreenTimer();
+    setIsAboutDocumentFullscreenTocCollapsed(window.innerWidth <= 900);
+    setIsAboutDocumentFullscreen(true);
+    setAboutDocumentFullscreenTransition('entering');
     message.success('全屏模式');
-    aboutReadmeFullscreenTimerRef.current = window.setTimeout(() => {
-      setAboutReadmeFullscreenTransition(null);
-      aboutReadmeFullscreenTimerRef.current = null;
+    aboutDocumentFullscreenTimerRef.current = window.setTimeout(() => {
+      setAboutDocumentFullscreenTransition(null);
+      aboutDocumentFullscreenTimerRef.current = null;
     }, DOCS_FULLSCREEN_ANIMATION_MS);
   };
 
-  const startAboutReadmeFullscreenExit = () => {
-    clearAboutReadmeFullscreenTimer();
-    setAboutReadmeFullscreenTransition('leaving');
+  const startAboutDocumentFullscreenExit = () => {
+    clearAboutDocumentFullscreenTimer();
+    setAboutDocumentFullscreenTransition('leaving');
     message.success('退出全屏');
-    aboutReadmeFullscreenTimerRef.current = window.setTimeout(() => {
-      setIsAboutReadmeFullscreen(false);
-      setAboutReadmeFullscreenTransition(null);
-      aboutReadmeFullscreenTimerRef.current = null;
+    aboutDocumentFullscreenTimerRef.current = window.setTimeout(() => {
+      setIsAboutDocumentFullscreen(false);
+      setAboutDocumentFullscreenTransition(null);
+      aboutDocumentFullscreenTimerRef.current = null;
     }, DOCS_FULLSCREEN_ANIMATION_MS);
   };
 
-  const toggleAboutReadmeFullscreen = () => {
-    if (isAboutReadmeFullscreen) {
-      startAboutReadmeFullscreenExit();
+  const toggleAboutDocumentFullscreen = () => {
+    if (isAboutDocumentFullscreen) {
+      startAboutDocumentFullscreenExit();
       return;
     }
 
-    startAboutReadmeFullscreenEnter();
+    startAboutDocumentFullscreenEnter();
   };
 
-  const toggleReadmeTocCollapsed = () => {
-    if (isAboutReadmeFullscreen) {
-      setIsAboutReadmeFullscreenTocCollapsed((collapsed) => !collapsed);
+  const toggleAboutDocumentTocCollapsed = () => {
+    if (isAboutDocumentFullscreen) {
+      setIsAboutDocumentFullscreenTocCollapsed((collapsed) => !collapsed);
       return;
     }
 
-    setIsReadmeTocCollapsed((collapsed) => !collapsed);
+    setIsAboutDocumentTocCollapsed((collapsed) => !collapsed);
   };
 
-  const handleStartAboutReadmePreview = () => {
-    setIsAboutReadmePreviewed(true);
+  const handleStartAboutDocumentPreview = () => {
+    setIsAboutDocumentPreviewed(true);
     try {
-      window.localStorage.setItem(ABOUT_README_PREVIEWED_STORAGE_KEY, 'true');
+      window.localStorage.setItem(ABOUT_DOCUMENT_PREVIEWED_STORAGE_KEY, 'true');
     } catch {
       // localStorage 不可用时仍允许当前页面会话内预览。
     }
   };
 
-  const handleDownloadReadme = () => {
-    const blob = new Blob([readmeSource], { type: 'text/markdown;charset=utf-8' });
+  const handleDownloadAboutDocument = () => {
+    const blob = new Blob([aboutSource], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'README.md';
+    link.download = '关于.md';
     document.body.appendChild(link);
     message.loading('正在下载', 1.2);
     link.click();
@@ -3978,7 +4167,7 @@ export function AboutPlaceholder() {
   };
 
   useEffect(() => {
-    if (!isAboutReadmePreviewed) {
+    if (!isAboutDocumentPreviewed) {
       return undefined;
     }
 
@@ -3987,7 +4176,7 @@ export function AboutPlaceholder() {
       return undefined;
     }
 
-    const targetHeading = README_HEADINGS.find(
+    const targetHeading = ABOUT_DOCUMENT_HEADINGS.find(
       (heading) => heading.id === hashText || heading.text === hashText,
     );
     if (!targetHeading) {
@@ -3995,20 +4184,20 @@ export function AboutPlaceholder() {
     }
 
     const frameId = window.requestAnimationFrame(() => {
-      scrollToReadmeHeading(targetHeading, 'auto', false);
+      scrollToAboutDocumentHeading(targetHeading, 'auto', false);
     });
 
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [isAboutReadmePreviewed]);
+  }, [isAboutDocumentPreviewed]);
 
   useEffect(() => {
-    if (!isAboutReadmePreviewed) {
+    if (!isAboutDocumentPreviewed) {
       return undefined;
     }
 
-    const container = readmeBodyRef.current;
+    const container = aboutDocumentBodyRef.current;
     if (!container) {
       return undefined;
     }
@@ -4016,11 +4205,11 @@ export function AboutPlaceholder() {
     let frameId: number | null = null;
     const updateActiveHeading = () => {
       frameId = null;
-      const tocHeadingIds = new Set(README_HEADINGS.map((heading) => heading.id));
+      const tocHeadingIds = new Set(ABOUT_DOCUMENT_HEADINGS.map((heading) => heading.id));
       const headings = Array.from(
-        container.querySelectorAll<HTMLElement>('[data-readme-heading-id]'),
+        container.querySelectorAll<HTMLElement>('[data-about-heading-id]'),
       ).filter((heading) => {
-        const headingId = heading.dataset.readmeHeadingId;
+        const headingId = heading.dataset.aboutHeadingId;
         return Boolean(headingId && tocHeadingIds.has(headingId));
       });
       if (headings.length === 0) {
@@ -4028,23 +4217,23 @@ export function AboutPlaceholder() {
       }
 
       const containerTop = container.getBoundingClientRect().top;
-      let nextActiveId = headings[0].dataset.readmeHeadingId ?? '';
+      let nextActiveId = headings[0].dataset.aboutHeadingId ?? '';
       for (const heading of headings) {
         const offset = heading.getBoundingClientRect().top - containerTop;
         if (offset <= 32) {
-          nextActiveId = heading.dataset.readmeHeadingId ?? nextActiveId;
+          nextActiveId = heading.dataset.aboutHeadingId ?? nextActiveId;
         } else {
           break;
         }
       }
 
-      setActiveReadmeHeadingId((previousId) => (
+      setActiveAboutDocumentHeadingId((previousId) => (
         previousId === nextActiveId ? previousId : nextActiveId
       ));
 
-      const parentHeadingId = README_PARENT_HEADING_ID_BY_ID.get(nextActiveId);
+      const parentHeadingId = ABOUT_DOCUMENT_PARENT_HEADING_ID_BY_ID.get(nextActiveId);
       if (parentHeadingId && parentHeadingId !== nextActiveId) {
-        setExpandedReadmeHeadingIds((previousIds) => {
+        setExpandedAboutDocumentHeadingIds((previousIds) => {
           if (previousIds.has(parentHeadingId)) {
             return previousIds;
           }
@@ -4071,18 +4260,18 @@ export function AboutPlaceholder() {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [isAboutReadmePreviewed]);
+  }, [isAboutDocumentPreviewed]);
 
-  useEffect(() => () => clearAboutReadmeFullscreenTimer(), []);
+  useEffect(() => () => clearAboutDocumentFullscreenTimer(), []);
 
   useEffect(() => {
-    if (!isAboutReadmeFullscreen) {
+    if (!isAboutDocumentFullscreen) {
       return undefined;
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        startAboutReadmeFullscreenExit();
+        startAboutDocumentFullscreenExit();
       }
     };
 
@@ -4091,10 +4280,10 @@ export function AboutPlaceholder() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isAboutReadmeFullscreen]);
+  }, [isAboutDocumentFullscreen]);
 
   return (
-    <main className={`landing-page landing-about-page${isAboutReadmeFullscreen ? ' is-about-readme-fullscreen' : ''}`}>
+    <main className={`landing-page landing-about-page${isAboutDocumentFullscreen ? ' is-about-readme-fullscreen' : ''}`}>
       <PublicHeader activeKey="about" />
 
       <section className="landing-about-hero" aria-labelledby="about-title">
@@ -4110,19 +4299,19 @@ export function AboutPlaceholder() {
           <p>{intro}</p>
           <div className="landing-about-summary-grid" aria-label="平台能力摘要">
             <article>
-              <span>协作角色</span>
+              <span>核心流程</span>
               <strong>Owner / Labeler / Reviewer</strong>
               <p>覆盖任务创建、认领、标注、审核和角色切换的核心协作链路。</p>
             </article>
             <article>
-              <span>技术栈</span>
-              <strong>React + Spring Boot</strong>
-              <p>前端使用 Vite 与 Ant Design，后端使用 Java 21 与 Spring Boot。</p>
+              <span>质量保障</span>
+              <strong>AI 预审 + 人工复核</strong>
+              <p>把机器初筛和人工裁决放在同一流程里，降低漏审和返工成本。</p>
             </article>
             <article>
-              <span>AI 扩展</span>
-              <strong>Agent 预审流程</strong>
-              <p>预留并接入 AI 预审、模型配置和独立 Worker 的演进方向。</p>
+              <span>演示闭环</span>
+              <strong>从导入到导出</strong>
+              <p>支持从数据准备、协作标注、审核追踪到结果导出的完整演示。</p>
             </article>
           </div>
         </div>
@@ -4131,31 +4320,31 @@ export function AboutPlaceholder() {
       <section className="landing-about-docs" aria-labelledby="about-readme-title">
         <div
           className={`landing-about-docs-shell${
-            isReadmeTocVisuallyCollapsed ? ' is-toc-collapsed' : ''
-          }${isAboutReadmeFullscreen ? ' is-fullscreen' : ''}${
-            aboutReadmeFullscreenTransition ? ` is-fullscreen-${aboutReadmeFullscreenTransition}` : ''
+            isAboutDocumentTocVisuallyCollapsed ? ' is-toc-collapsed' : ''
+          }${isAboutDocumentFullscreen ? ' is-fullscreen' : ''}${
+            aboutDocumentFullscreenTransition ? ` is-fullscreen-${aboutDocumentFullscreenTransition}` : ''
           }`}
         >
-          <aside className="landing-about-toc" aria-label="README 目录" ref={tocRef}>
+          <aside className="landing-about-toc" aria-label="关于文档目录" ref={tocRef}>
             <div className="landing-about-toc-header">
-              <div className="landing-about-toc-title">README</div>
+              <div className="landing-about-toc-title">关于文档</div>
               <button
                 type="button"
                 className="landing-about-toc-toggle"
-                aria-label={isReadmeTocVisuallyCollapsed ? '展开 README 目录' : '收起 README 目录'}
-                aria-expanded={!isReadmeTocVisuallyCollapsed}
-                title={isReadmeTocVisuallyCollapsed ? '展开目录' : '收起目录'}
-                onClick={toggleReadmeTocCollapsed}
+                aria-label={isAboutDocumentTocVisuallyCollapsed ? '展开关于文档目录' : '收起关于文档目录'}
+                aria-expanded={!isAboutDocumentTocVisuallyCollapsed}
+                title={isAboutDocumentTocVisuallyCollapsed ? '展开目录' : '收起目录'}
+                onClick={toggleAboutDocumentTocCollapsed}
               >
-                {isReadmeTocVisuallyCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                {isAboutDocumentTocVisuallyCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               </button>
             </div>
-            <nav className="landing-about-toc-nav" aria-hidden={isReadmeTocVisuallyCollapsed}>
-              {README_TOC_GROUPS.map((group) => {
-                const isExpanded = expandedReadmeHeadingIds.has(group.heading.id);
+            <nav className="landing-about-toc-nav" aria-hidden={isAboutDocumentTocVisuallyCollapsed}>
+              {ABOUT_DOCUMENT_TOC_GROUPS.map((group) => {
+                const isExpanded = expandedAboutDocumentHeadingIds.has(group.heading.id);
                 const isActiveGroup =
-                  activeReadmeHeadingId === group.heading.id ||
-                  group.children.some((child) => child.id === activeReadmeHeadingId);
+                  activeAboutDocumentHeadingId === group.heading.id ||
+                  group.children.some((child) => child.id === activeAboutDocumentHeadingId);
 
                 return (
                   <div
@@ -4164,14 +4353,14 @@ export function AboutPlaceholder() {
                   >
                     <a
                       className={`landing-about-toc-link landing-about-toc-level-2${
-                        activeReadmeHeadingId === group.heading.id ? ' is-active' : ''
+                        activeAboutDocumentHeadingId === group.heading.id ? ' is-active' : ''
                       }${isActiveGroup ? ' is-active-group' : ''}${
                         group.children.length > 0 ? ' has-children' : ''
                       }`}
                       href={`#${group.heading.id}`}
-                      tabIndex={isReadmeTocVisuallyCollapsed ? -1 : undefined}
+                      tabIndex={isAboutDocumentTocVisuallyCollapsed ? -1 : undefined}
                       aria-expanded={group.children.length > 0 ? isExpanded : undefined}
-                      onClick={(event) => handleReadmeTocClick(event, group.heading)}
+                      onClick={(event) => handleAboutDocumentTocClick(event, group.heading)}
                     >
                       <span>{group.heading.text}</span>
                     </a>
@@ -4182,11 +4371,11 @@ export function AboutPlaceholder() {
                             <a
                               key={`${heading.id}-${heading.text}`}
                               className={`landing-about-toc-link landing-about-toc-level-3${
-                                activeReadmeHeadingId === heading.id ? ' is-active' : ''
+                                activeAboutDocumentHeadingId === heading.id ? ' is-active' : ''
                               }`}
                               href={`#${heading.id}`}
-                              tabIndex={isReadmeTocVisuallyCollapsed || !isExpanded ? -1 : undefined}
-                              onClick={(event) => handleReadmeTocClick(event, heading)}
+                              tabIndex={isAboutDocumentTocVisuallyCollapsed || !isExpanded ? -1 : undefined}
+                              onClick={(event) => handleAboutDocumentTocClick(event, heading)}
                             >
                               {heading.text}
                             </a>
@@ -4203,25 +4392,25 @@ export function AboutPlaceholder() {
           <article className="landing-about-readme" aria-labelledby="about-readme-title">
             <div className="landing-about-readme-header">
               <div className="landing-about-readme-heading">
-                <span>Repository README</span>
-                <h2 id="about-readme-title">项目说明文档</h2>
-                <p>以下内容直接来自仓库根目录 README.md，便于公开页与项目文档保持同步。</p>
+                <span>About Document</span>
+                <h2 id="about-readme-title">LabelHub 平台介绍</h2>
+                <p>以下内容来自仓库根目录 关于.md，用更简洁的方式介绍平台能力和演示价值。</p>
               </div>
               <div className="landing-about-readme-actions">
                 <button
                   type="button"
                   className="landing-docs-action-link landing-about-readme-fullscreen-button"
-                  onClick={toggleAboutReadmeFullscreen}
-                  aria-label={isAboutReadmeFullscreen ? '退出全屏观看 README' : '全屏观看 README'}
-                  title={isAboutReadmeFullscreen ? '退出全屏' : '全屏观看'}
+                  onClick={toggleAboutDocumentFullscreen}
+                  aria-label={isAboutDocumentFullscreen ? '退出全屏观看关于文档' : '全屏观看关于文档'}
+                  title={isAboutDocumentFullscreen ? '退出全屏' : '全屏观看'}
                 >
-                  {isAboutReadmeFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                  {isAboutReadmeFullscreen ? '退出全屏' : '全屏'}
+                  {isAboutDocumentFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                  {isAboutDocumentFullscreen ? '退出全屏' : '全屏'}
                 </button>
                 <button
                   type="button"
                   className="landing-docs-action-link"
-                  onClick={handleDownloadReadme}
+                  onClick={handleDownloadAboutDocument}
                 >
                   <DownloadOutlined />
                   下载
@@ -4229,11 +4418,11 @@ export function AboutPlaceholder() {
               </div>
             </div>
             <div
-              className={`landing-about-readme-body${!isAboutReadmePreviewed ? ' is-preview-gate' : ''}`}
-              ref={readmeBodyRef}
+              className={`landing-about-readme-body${!isAboutDocumentPreviewed ? ' is-preview-gate' : ''}`}
+              ref={aboutDocumentBodyRef}
               tabIndex={0}
             >
-              {isAboutReadmePreviewed ? (
+              {isAboutDocumentPreviewed ? (
                 <div className="landing-about-markdown">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
@@ -4241,7 +4430,7 @@ export function AboutPlaceholder() {
                       h1: ({ children, node: _node, ...props }) => {
                         const id = getMarkdownHeadingId(children);
                         return (
-                          <h1 {...props} id={id} data-readme-heading-id={id}>
+                          <h1 {...props} id={id} data-about-heading-id={id}>
                             {children}
                           </h1>
                         );
@@ -4249,7 +4438,7 @@ export function AboutPlaceholder() {
                       h2: ({ children, node: _node, ...props }) => {
                         const id = getMarkdownHeadingId(children);
                         return (
-                          <h2 {...props} id={id} data-readme-heading-id={id}>
+                          <h2 {...props} id={id} data-about-heading-id={id}>
                             {children}
                           </h2>
                         );
@@ -4257,7 +4446,7 @@ export function AboutPlaceholder() {
                       h3: ({ children, node: _node, ...props }) => {
                         const id = getMarkdownHeadingId(children);
                         return (
-                          <h3 {...props} id={id} data-readme-heading-id={id}>
+                          <h3 {...props} id={id} data-about-heading-id={id}>
                             {children}
                           </h3>
                         );
@@ -4293,11 +4482,11 @@ export function AboutPlaceholder() {
                       ),
                     }}
                   >
-                    {readmeSource}
+                    {aboutSource}
                   </ReactMarkdown>
                 </div>
               ) : (
-                <AboutReadmePreviewCard onPreview={handleStartAboutReadmePreview} />
+                <AboutDocumentPreviewCard onPreview={handleStartAboutDocumentPreview} />
               )}
             </div>
           </article>
@@ -4309,14 +4498,14 @@ export function AboutPlaceholder() {
   );
 }
 
-function AboutReadmePreviewCard({ onPreview }: { onPreview: () => void }) {
+function AboutDocumentPreviewCard({ onPreview }: { onPreview: () => void }) {
   return (
     <div className="landing-docs-preview-state landing-docs-manual-preview landing-about-readme-preview-gate is-idle">
       <span className="landing-docs-preview-state-icon" aria-hidden="true">
         <FileTextOutlined />
       </span>
-      <strong>README.md</strong>
-      <p>仓库根目录项目说明文档。</p>
+      <strong>关于.md</strong>
+      <p>面向参赛评委和普通访客的平台介绍文档。</p>
       <div className="landing-docs-preview-state-actions">
         <button type="button" className="landing-docs-preview-primary-action" onClick={onPreview}>
           <ReadOutlined />

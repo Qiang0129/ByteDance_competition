@@ -214,15 +214,39 @@ function parseCanvasScope(id: string): CanvasScope | null {
   return null;
 }
 
+function getNestedCanvasOwnerFieldId(id: string) {
+  const scope = parseCanvasScope(id);
+  return scope?.type === 'group' || scope?.type === 'tab' ? scope.fieldId : null;
+}
+
 const designerCollisionDetection: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
   if (pointerCollisions.length === 0) {
     return args.pointerCoordinates ? [] : closestCenter(args);
   }
 
+  const activeId = String(args.active.id);
   const directFieldCollisions = pointerCollisions.filter(
-    (collision) => !isCanvasDroppableId(String(collision.id)),
+    (collision) => {
+      const collisionId = String(collision.id);
+      return collisionId !== activeId && !isCanvasDroppableId(collisionId);
+    },
   );
+  const directFieldCollisionIds = new Set(
+    directFieldCollisions.map((collision) => String(collision.id)),
+  );
+  const nestedCanvasCollision = pointerCollisions.find((collision) => {
+    const ownerFieldId = getNestedCanvasOwnerFieldId(String(collision.id));
+    return (
+      ownerFieldId != null &&
+      directFieldCollisionIds.has(ownerFieldId) &&
+      directFieldCollisions.every((directCollision) => String(directCollision.id) === ownerFieldId)
+    );
+  });
+  if (nestedCanvasCollision) {
+    return [nestedCanvasCollision];
+  }
+
   if (directFieldCollisions.length > 0) {
     return directFieldCollisions;
   }
@@ -406,6 +430,36 @@ function normalizeDesignerSchema(schema: SchemaVersion): SchemaVersion {
   };
 }
 
+function createInitialDesignerSchema(versionId: string | null, isNew: boolean): SchemaVersion {
+  return normalizeDesignerSchema({
+    versionId: versionId ?? `draft-${Date.now()}`,
+    versionNumber: versionId ? 'r12' : 'r-draft',
+    taskId: undefined,
+    taskTitle: undefined,
+    name: isNew ? '新建模板' : '商品清洗 · v3',
+    description: 'Schema 与渲染解耦:左物料 → 中画布 → 右属性,产物为可序列化 JSON Schema。',
+    datasetId: undefined,
+    datasetName: undefined,
+    status: 'draft',
+    tabs: DEFAULT_SCHEMA_TABS,
+    fields: isNew ? [] : defaultDemoFields,
+    updatedAt: new Date().toISOString(),
+    createdBy: 'Owner Demo',
+  });
+}
+
+function buildDesignerDraftFingerprint(schema: SchemaVersion) {
+  return JSON.stringify({
+    name: schema.name.trim(),
+    description: schema.description?.trim() ?? '',
+    taskId: schema.taskId ?? '',
+    datasetId: schema.datasetId ?? '',
+    datasetName: schema.datasetName ?? '',
+    tabs: normalizeSchemaTabs(schema.tabs),
+    fields: normalizeSchemaFields(schema.fields),
+  });
+}
+
 function sameCanvasScope(a: CanvasScope | null, b: CanvasScope | null) {
   if (!a || !b || a.type !== b.type) return false;
   if (a.type === 'root' && b.type === 'root') return true;
@@ -585,21 +639,15 @@ export default function OwnerTemplateDesigner() {
 
   const { message } = AntdApp.useApp();
 
-  const [schema, setSchema] = useState<SchemaVersion>({
-    versionId: versionId ?? `draft-${Date.now()}`,
-    versionNumber: versionId ? 'r12' : 'r-draft',
-    taskId: undefined,
-    taskTitle: undefined,
-    name: isNew ? '新建模板' : '商品清洗 · v3',
-    description: 'Schema 与渲染解耦:左物料 → 中画布 → 右属性,产物为可序列化 JSON Schema。',
-    datasetId: undefined,
-    datasetName: undefined,
-    status: 'draft',
-    tabs: DEFAULT_SCHEMA_TABS,
-    fields: isNew ? [] : defaultDemoFields,
-    updatedAt: new Date().toISOString(),
-    createdBy: 'Owner Demo',
-  });
+  const initialSchemaRef = useRef<SchemaVersion | null>(null);
+  if (!initialSchemaRef.current) {
+    initialSchemaRef.current = createInitialDesignerSchema(versionId, isNew);
+  }
+
+  const [schema, setSchema] = useState<SchemaVersion>(() => initialSchemaRef.current!);
+  const [savedDraftFingerprint, setSavedDraftFingerprint] = useState(() =>
+    buildDesignerDraftFingerprint(initialSchemaRef.current!),
+  );
 
   const [activeSchemaTabId, setActiveSchemaTabId] = useState(DEFAULT_SCHEMA_TAB_ID);
   const [editingSchemaTabId, setEditingSchemaTabId] = useState<string | null>(null);
@@ -621,6 +669,8 @@ export default function OwnerTemplateDesigner() {
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
   const [mobileSection, setMobileSection] = useState<MobileDesignerSection>('canvas');
+  const [returnConfirmOpen, setReturnConfirmOpen] = useState(false);
+  const [returnSaving, setReturnSaving] = useState(false);
 
   /** dnd-kit 传感器:按下 8px 才激活,避免与点击事件冲突 */
   const sensors = useSensors(
@@ -637,6 +687,7 @@ export default function OwnerTemplateDesigner() {
         if (!cancelled) {
           const nextSchema = normalizeDesignerSchema({ ...real, tabs: normalizeSchemaTabs(real.tabs) });
           setSchema(nextSchema);
+          setSavedDraftFingerprint(buildDesignerDraftFingerprint(nextSchema));
           setActiveFieldId(flattenSchemaFields(nextSchema.fields)[0]?.id ?? null);
           setUsingFallback(false);
         }
@@ -717,6 +768,11 @@ export default function OwnerTemplateDesigner() {
     [schema.fields, activeFieldId],
   );
   const schemaCheck = useMemo(() => validateSchemaFields(schema.fields), [schema.fields]);
+  const currentDraftFingerprint = useMemo(
+    () => buildDesignerDraftFingerprint(schema),
+    [schema],
+  );
+  const hasUnsavedDraft = currentDraftFingerprint !== savedDraftFingerprint;
   const previewRawPayload = useMemo(
     () => normalizePreviewItem(previewItems[previewItemIndex]) ?? fallbackPreviewPayload,
     [previewItems, previewItemIndex],
@@ -1000,6 +1056,7 @@ export default function OwnerTemplateDesigner() {
         fields: normalizedFields,
       });
       setSchema(created);
+      setSavedDraftFingerprint(buildDesignerDraftFingerprint(created));
       const createdFields = flattenSchemaFields(created.fields);
       setActiveFieldId(
         createdFields.some((field) => field.id === currentActiveFieldId)
@@ -1023,6 +1080,7 @@ export default function OwnerTemplateDesigner() {
       fields: normalizedFields,
     });
     setSchema(updated);
+    setSavedDraftFingerprint(buildDesignerDraftFingerprint(updated));
     const updatedFields = flattenSchemaFields(updated.fields);
     setActiveFieldId(
       updatedFields.some((field) => field.id === currentActiveFieldId)
@@ -1043,6 +1101,29 @@ export default function OwnerTemplateDesigner() {
     }
   }
 
+  async function handleSaveDraftAndReturn() {
+    setReturnSaving(true);
+    try {
+      if (!(await validateTemplateBeforePersist())) return;
+      await saveDraft();
+      message.success('草稿已保存');
+      setReturnConfirmOpen(false);
+      navigate('/owner/templates');
+    } catch (error) {
+      message.error(getApiErrorMessage(error, '草稿保存失败,请确认后端接口和模板状态。'));
+    } finally {
+      setReturnSaving(false);
+    }
+  }
+
+  function handleReturnToTemplateList() {
+    if (!hasUnsavedDraft) {
+      navigate('/owner/templates');
+      return;
+    }
+    setReturnConfirmOpen(true);
+  }
+
   async function handlePublish() {
     if (!(await validateTemplateBeforePersist())) return;
     Modal.confirm({
@@ -1055,6 +1136,7 @@ export default function OwnerTemplateDesigner() {
           const draft = await saveDraft();
           const published = await schemaApi.publish(draft.versionId);
           setSchema(published);
+          setSavedDraftFingerprint(buildDesignerDraftFingerprint(published));
           setUsingFallback(false);
           message.success(`已发布版本 ${published.versionNumber}`);
         } catch (error) {
@@ -1152,7 +1234,7 @@ export default function OwnerTemplateDesigner() {
           <Button
             type="text"
             icon={<ArrowLeftOutlined />}
-            onClick={() => navigate('/owner/templates')}
+            onClick={handleReturnToTemplateList}
           >
             返回模板列表
           </Button>
@@ -1236,6 +1318,40 @@ export default function OwnerTemplateDesigner() {
           </Dropdown>
         </div>
       </div>
+
+      <Modal
+        title="是否保存当前草稿?"
+        open={returnConfirmOpen}
+        onCancel={() => setReturnConfirmOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setReturnConfirmOpen(false)} disabled={returnSaving}>
+            取消
+          </Button>,
+          <Button
+            key="discard"
+            danger
+            disabled={returnSaving}
+            onClick={() => {
+              setReturnConfirmOpen(false);
+              navigate('/owner/templates');
+            }}
+          >
+            不保存返回
+          </Button>,
+          <Button
+            key="save"
+            type="primary"
+            loading={returnSaving}
+            onClick={() => void handleSaveDraftAndReturn()}
+          >
+            保存草稿并返回
+          </Button>,
+        ]}
+      >
+        <Typography.Paragraph>
+          当前模板有未保存的修改。保存草稿后返回可以保留本次编辑；不保存返回会放弃这些修改。
+        </Typography.Paragraph>
+      </Modal>
 
       <div className="designer-meta-panel">
         <div className="designer-meta-field">

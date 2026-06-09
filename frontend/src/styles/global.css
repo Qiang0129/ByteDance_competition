@@ -1896,6 +1896,18 @@ html.lh-public-page body {
   scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
 }
 
+.landing-docs-resource-group-title {
+  margin: 16px 2px 9px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.landing-docs-resource-group-title:first-child {
+  margin-top: 2px;
+}
+
 .landing-docs-resource-list::-webkit-scrollbar,
 .landing-docs-preview-body::-webkit-scrollbar,
 .landing-docs-docx-canvas::-webkit-scrollbar {
@@ -1948,6 +1960,11 @@ html.lh-public-page body {
   background: #ffffff;
   border-color: var(--lh-primary-bg-35, rgba(47, 123, 255, 0.35));
   box-shadow: 0 16px 34px rgba(47, 123, 255, 0.1);
+}
+
+.landing-docs-resource.is-grouped {
+  width: calc(100% - 12px);
+  margin-left: 12px;
 }
 
 .landing-docs-resource.is-missing {
@@ -2295,6 +2312,27 @@ html.lh-public-page body {
 .landing-docs-preview-state.is-error button,
 .landing-docs-external-preview a {
   margin-top: 18px;
+}
+
+.landing-docs-video-preview {
+  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  box-sizing: border-box;
+  background: #0f172a;
+}
+
+.landing-docs-video-preview video {
+  display: block;
+  width: min(100%, 1120px);
+  max-height: 100%;
+  border-radius: 10px;
+  background: #020617;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.22);
 }
 
 .landing-docs-image-preview {
@@ -6173,11 +6211,14 @@ html.lh-public-page body {
 }
 
 .designer-left {
+  position: sticky;
+  top: 96px;
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
-  max-height: calc(100vh - 240px);
+  max-height: calc(100vh - 112px);
 }
 
 .material-group-title {
@@ -6654,8 +6695,11 @@ html.lh-public-page body {
 
 /* 右侧属性面板 */
 .designer-right {
+  position: sticky;
+  top: 96px;
+  align-self: start;
   overflow-y: auto;
-  max-height: calc(100vh - 240px);
+  max-height: calc(100vh - 112px);
 }
 
 .property-panel {
@@ -6909,6 +6953,9 @@ html.lh-public-page body {
   }
   .designer-left,
   .designer-right {
+    position: static;
+    top: auto;
+    align-self: stretch;
     max-height: none;
   }
 }

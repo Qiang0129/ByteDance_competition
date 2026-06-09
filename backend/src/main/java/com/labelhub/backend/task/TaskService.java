@@ -895,6 +895,7 @@ public class TaskService {
 
     if (!allocations.isEmpty()) {
       LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
+      double rewardAmount = resolveAssignmentRewardAmount(metadata);
       for (TaskRepository.UserAllocationRecord allocation : allocations) {
         long alreadyAssigned = taskRepository.countLabelerTaskAssignments(taskId, allocation.userId());
         int remaining = (int) Math.max(allocation.itemCount() - alreadyAssigned, 0);
@@ -906,7 +907,12 @@ public class TaskService {
           throw noAssignableItemOrQuota(taskId, "assign");
         }
         for (long itemId : itemIds) {
-          long assignmentId = createAssignmentOrConflict(taskId, itemId, allocation.userId(), lockedUntil);
+          long assignmentId = createAssignmentOrConflict(
+              taskId,
+              itemId,
+              allocation.userId(),
+              lockedUntil,
+              rewardAmount);
           auditAssignmentCreation(assignmentId, owner, "owner", taskId, itemId, allocation.userId());
         }
       }
@@ -926,10 +932,11 @@ public class TaskService {
 
     int startIndex = (int) (existingAssignments % labelerIds.size());
     LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
+    double rewardAmount = resolveAssignmentRewardAmount(metadata);
     for (int i = 0; i < itemIds.size(); i++) {
       long labelerId = labelerIds.get((startIndex + i) % labelerIds.size());
       long itemId = itemIds.get(i);
-      long assignmentId = createAssignmentOrConflict(taskId, itemId, labelerId, lockedUntil);
+      long assignmentId = createAssignmentOrConflict(taskId, itemId, labelerId, lockedUntil, rewardAmount);
       auditAssignmentCreation(assignmentId, owner, "owner", taskId, itemIds.get(i), labelerId);
     }
   }
@@ -1123,8 +1130,9 @@ public class TaskService {
     }
 
     LocalDateTime lockedUntil = LocalDateTime.now().plusHours(2);
+    double rewardAmount = resolveAssignmentRewardAmount(metadata);
     for (long itemId : itemIds) {
-      long assignmentId = createAssignmentOrConflict(task.id(), itemId, labelerId, lockedUntil);
+      long assignmentId = createAssignmentOrConflict(task.id(), itemId, labelerId, lockedUntil, rewardAmount);
       auditAssignmentCreation(assignmentId, operator, operatorRole, task.id(), itemId, labelerId);
     }
     return itemIds.size();
@@ -1134,9 +1142,10 @@ public class TaskService {
       long taskId,
       long itemId,
       long labelerId,
-      LocalDateTime lockedUntil) {
+      LocalDateTime lockedUntil,
+      double rewardAmount) {
     try {
-      return taskRepository.createAssignment(taskId, itemId, labelerId, lockedUntil);
+      return taskRepository.createAssignment(taskId, itemId, labelerId, lockedUntil, rewardAmount);
     } catch (TaskRepository.DuplicateAssignmentException exception) {
       throw new ApiException(
           HttpStatus.CONFLICT,
@@ -1215,6 +1224,14 @@ public class TaskService {
     }
     long quotaRemaining = quota - taskRepository.countTaskAssignments(taskId);
     return Math.min(Math.max(quotaRemaining, 0), claimableItems);
+  }
+
+  private double resolveAssignmentRewardAmount(TaskMetadata metadata) {
+    double rewardPerItem = metadata.rewardPerItem() == null ? 0D : metadata.rewardPerItem();
+    if (!Double.isFinite(rewardPerItem) || rewardPerItem < 0D) {
+      return 0D;
+    }
+    return roundMoney(rewardPerItem);
   }
 
   private int estimateClaimBatchSize(TaskRecord task, TaskMetadata metadata, long labelerId) {

@@ -297,7 +297,7 @@ public class TaskRepository {
         SELECT COALESCE(SUM(accepted_rewards.reward_per_item), 0)
         FROM (
           SELECT
-            COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0) AS reward_per_item,
+            COALESCE(a.reward_amount, 0) AS reward_per_item,
             COALESCE(accepted_audit.created_at, accepted_hr.created_at, an.updated_at) AS accepted_at
           FROM assignments a
           JOIN tasks t ON t.id = a.task_id
@@ -341,7 +341,7 @@ public class TaskRepository {
   public double sumMonthlyPendingRewardEstimate(long labelerId) {
     return queryDouble(
         """
-        SELECT COALESCE(SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0)), 0)
+        SELECT COALESCE(SUM(COALESCE(a.reward_amount, 0)), 0)
         FROM assignments a
         JOIN tasks t ON t.id = a.task_id
         WHERE a.labeler_id = ?
@@ -572,23 +572,25 @@ public class TaskRepository {
       long taskId,
       long itemId,
       long labelerId,
-      LocalDateTime lockedUntil) {
+      LocalDateTime lockedUntil,
+      double rewardAmount) {
     KeyHolder keyHolder = new GeneratedKeyHolder();
     try {
       jdbcTemplate.update(connection -> {
         var statement = connection.prepareStatement(
             """
-            INSERT INTO assignments (task_id, item_id, labeler_id, status, locked_until)
-            VALUES (?, ?, ?, 'claimed', ?)
+            INSERT INTO assignments (task_id, item_id, labeler_id, reward_amount, status, locked_until)
+            VALUES (?, ?, ?, ?, 'claimed', ?)
             """,
             Statement.RETURN_GENERATED_KEYS);
         statement.setLong(1, taskId);
         statement.setLong(2, itemId);
         statement.setLong(3, labelerId);
+        statement.setBigDecimal(4, BigDecimal.valueOf(roundRewardAmount(rewardAmount)));
         if (lockedUntil == null) {
-          statement.setNull(4, Types.TIMESTAMP);
+          statement.setNull(5, Types.TIMESTAMP);
         } else {
-          statement.setTimestamp(4, Timestamp.valueOf(lockedUntil));
+          statement.setTimestamp(5, Timestamp.valueOf(lockedUntil));
         }
         return statement;
       }, keyHolder);
@@ -1199,6 +1201,13 @@ public class TaskRepository {
       return decimal.doubleValue();
     }
     return value.doubleValue();
+  }
+
+  private double roundRewardAmount(double value) {
+    if (!Double.isFinite(value) || value < 0D) {
+      return 0D;
+    }
+    return Math.round(value * 10000.0) / 10000.0;
   }
 
   private record QueryParts(String whereClause, List<Object> args) {}
