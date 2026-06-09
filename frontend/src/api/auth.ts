@@ -1,10 +1,12 @@
 import { apiRequest, clearAuthToken, setAuthToken } from './client';
 import type {
   AuthUser,
+  CreateOwnerInvitationResponse,
   CreateReviewerInvitationResponse,
   CurrentUserResponse,
   LoginRequest,
   LoginResponse,
+  OwnerInvitationValidationResponse,
   RegisterRequest,
   ReviewerInvitationValidationResponse,
 } from '../types/auth';
@@ -81,9 +83,22 @@ export const authApi = {
     });
   },
 
+  createOwnerInvitation(): Promise<CreateOwnerInvitationResponse> {
+    return apiRequest<CreateOwnerInvitationResponse>('/auth/owner-invitations', {
+      method: 'POST',
+    });
+  },
+
   validateReviewerInvitation(token: string): Promise<ReviewerInvitationValidationResponse> {
     return apiRequest<ReviewerInvitationValidationResponse>(
       `/auth/reviewer-invitations/validate?token=${encodeURIComponent(token)}`,
+      { skipAuth: true },
+    );
+  },
+
+  validateOwnerInvitation(token: string): Promise<OwnerInvitationValidationResponse> {
+    return apiRequest<OwnerInvitationValidationResponse>(
+      `/auth/owner-invitations/validate?token=${encodeURIComponent(token)}`,
       { skipAuth: true },
     );
   },

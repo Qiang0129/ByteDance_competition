@@ -50,6 +50,16 @@ public class AuthController {
     return authService.validateReviewerInvitation(token);
   }
 
+  @PostMapping("/owner-invitations")
+  public CreateOwnerInvitationResponse createOwnerInvitation(Authentication authentication) {
+    return authService.createOwnerInvitation(authentication);
+  }
+
+  @GetMapping("/owner-invitations/validate")
+  public OwnerInvitationValidationResponse validateOwnerInvitation(@RequestParam String token) {
+    return authService.validateOwnerInvitation(token);
+  }
+
   @PostMapping("/logout")
   public ResponseEntity<Void> logout(
       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {

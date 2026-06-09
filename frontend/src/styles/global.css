@@ -3801,6 +3801,17 @@ html.lh-public-page body {
   text-shadow: none;
 }
 
+.owner-invite-link-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
 .app-header-profile-text {
   display: flex;
   flex-direction: column;

@@ -21,6 +21,7 @@ public class AuthService {
   private static final List<String> LOGIN_ROLES =
       List.of("owner", "labeler", "reviewer", "ai_reviewer", "system_agent");
   private static final int REVIEWER_INVITE_TTL_HOURS = 24;
+  private static final int OWNER_INVITE_TTL_HOURS = 24;
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
   private final AuthProperties authProperties;
@@ -109,17 +110,29 @@ public class AuthService {
     turnstileVerificationService.verify(request.turnstileToken(), remoteIp);
 
     String username = request.username().trim();
-    String inviteToken = normalizeInviteToken(request.inviteToken());
-    ReviewerInvitationRecord invitation = null;
+    String reviewerInviteToken = normalizeInviteToken(request.inviteToken());
+    String ownerInviteToken = normalizeInviteToken(request.ownerInviteToken());
+    ReviewerInvitationRecord reviewerInvitation = null;
+    OwnerInvitationRecord ownerInvitation = null;
     String role = "labeler";
+
+    if (reviewerInviteToken != null && ownerInviteToken != null) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "MULTIPLE_INVITATIONS",
+          "only one invitation token can be used at a time");
+    }
 
     if (authRepository.usernameExists(username)) {
       throw new ApiException(HttpStatus.CONFLICT, "USERNAME_EXISTS", "username already exists");
     }
 
-    if (inviteToken != null) {
-      invitation = requireUsableReviewerInvitation(inviteToken);
+    if (reviewerInviteToken != null) {
+      reviewerInvitation = requireUsableReviewerInvitation(reviewerInviteToken);
       role = "reviewer";
+    } else if (ownerInviteToken != null) {
+      ownerInvitation = requireUsableOwnerInvitation(ownerInviteToken);
+      role = "owner";
     }
 
     UserAccount user = authRepository.createUser(
@@ -127,10 +140,18 @@ public class AuthService {
         username,
         passwordEncoder.encode(request.password()),
         role);
-    if (invitation != null) {
-      int marked = authRepository.markReviewerInvitationUsed(invitation.id(), user.id());
+    if (reviewerInvitation != null) {
+      int marked = authRepository.markReviewerInvitationUsed(reviewerInvitation.id(), user.id());
       if (marked == 0) {
         throw new ApiException(HttpStatus.CONFLICT, "INVITATION_USED", "invitation has already been used");
+      }
+    } else if (ownerInvitation != null) {
+      int marked = authRepository.markOwnerInvitationUsed(ownerInvitation.id(), user.id());
+      if (marked == 0) {
+        throw new ApiException(
+            HttpStatus.CONFLICT,
+            "OWNER_INVITATION_USED",
+            "owner invitation has already been used");
       }
     }
     return toAuthUser(user, authRepository.findRoleCodes(user.id()));
@@ -144,6 +165,14 @@ public class AuthService {
     return new CreateReviewerInvitationResponse(token, formatDateTime(expiresAt));
   }
 
+  public CreateOwnerInvitationResponse createOwnerInvitation(Authentication authentication) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    String token = generateInviteToken();
+    LocalDateTime expiresAt = LocalDateTime.now().plusHours(OWNER_INVITE_TTL_HOURS);
+    authRepository.createOwnerInvitation(hashToken(token), owner.id(), expiresAt);
+    return new CreateOwnerInvitationResponse(token, formatDateTime(expiresAt));
+  }
+
   public ReviewerInvitationValidationResponse validateReviewerInvitation(String token) {
     String inviteToken = normalizeInviteToken(token);
     if (inviteToken == null) {
@@ -152,6 +181,16 @@ public class AuthService {
     return authRepository.findReviewerInvitationByTokenHash(hashToken(inviteToken))
         .map(this::toInvitationValidationResponse)
         .orElseGet(() -> new ReviewerInvitationValidationResponse(false, "invalid", null));
+  }
+
+  public OwnerInvitationValidationResponse validateOwnerInvitation(String token) {
+    String inviteToken = normalizeInviteToken(token);
+    if (inviteToken == null) {
+      return new OwnerInvitationValidationResponse(false, "invalid", null);
+    }
+    return authRepository.findOwnerInvitationByTokenHash(hashToken(inviteToken))
+        .map(this::toOwnerInvitationValidationResponse)
+        .orElseGet(() -> new OwnerInvitationValidationResponse(false, "invalid", null));
   }
 
   public void logout(String authorizationHeader) {
@@ -221,6 +260,25 @@ public class AuthService {
     return invitation;
   }
 
+  private OwnerInvitationRecord requireUsableOwnerInvitation(String token) {
+    OwnerInvitationRecord invitation = authRepository.findOwnerInvitationByTokenHash(hashToken(token))
+        .orElseThrow(() ->
+            new ApiException(HttpStatus.BAD_REQUEST, "INVALID_OWNER_INVITATION", "invalid owner invitation"));
+    if (invitation.usedAt() != null) {
+      throw new ApiException(
+          HttpStatus.CONFLICT,
+          "OWNER_INVITATION_USED",
+          "owner invitation has already been used");
+    }
+    if (invitation.expiresAt().isBefore(LocalDateTime.now())) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "OWNER_INVITATION_EXPIRED",
+          "owner invitation has expired");
+    }
+    return invitation;
+  }
+
   private ReviewerInvitationValidationResponse toInvitationValidationResponse(ReviewerInvitationRecord invitation) {
     if (invitation.usedAt() != null) {
       return new ReviewerInvitationValidationResponse(false, "used", formatDateTime(invitation.expiresAt()));
@@ -229,6 +287,16 @@ public class AuthService {
       return new ReviewerInvitationValidationResponse(false, "expired", formatDateTime(invitation.expiresAt()));
     }
     return new ReviewerInvitationValidationResponse(true, null, formatDateTime(invitation.expiresAt()));
+  }
+
+  private OwnerInvitationValidationResponse toOwnerInvitationValidationResponse(OwnerInvitationRecord invitation) {
+    if (invitation.usedAt() != null) {
+      return new OwnerInvitationValidationResponse(false, "used", formatDateTime(invitation.expiresAt()));
+    }
+    if (invitation.expiresAt().isBefore(LocalDateTime.now())) {
+      return new OwnerInvitationValidationResponse(false, "expired", formatDateTime(invitation.expiresAt()));
+    }
+    return new OwnerInvitationValidationResponse(true, null, formatDateTime(invitation.expiresAt()));
   }
 
   private String normalizeInviteToken(String token) {

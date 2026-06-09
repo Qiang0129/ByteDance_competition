@@ -12,6 +12,7 @@ export interface RegisterRequest {
   password: string;
   role?: Exclude<UserRole, 'admin' | 'system_agent' | 'ai_reviewer'>;
   inviteToken?: string;
+  ownerInviteToken?: string;
   turnstileToken?: string;
 }
 
@@ -39,7 +40,18 @@ export interface CreateReviewerInvitationResponse {
   expiresAt: string;
 }
 
+export interface CreateOwnerInvitationResponse {
+  token: string;
+  expiresAt: string;
+}
+
 export interface ReviewerInvitationValidationResponse {
+  valid: boolean;
+  reason?: 'invalid' | 'expired' | 'used' | null;
+  expiresAt?: string | null;
+}
+
+export interface OwnerInvitationValidationResponse {
   valid: boolean;
   reason?: 'invalid' | 'expired' | 'used' | null;
   expiresAt?: string | null;

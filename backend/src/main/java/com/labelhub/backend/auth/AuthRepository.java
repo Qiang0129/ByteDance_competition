@@ -201,6 +201,28 @@ public class AuthRepository {
     return key.longValue();
   }
 
+  public long createOwnerInvitation(String tokenHash, long createdBy, LocalDateTime expiresAt) {
+    KeyHolder keyHolder = new GeneratedKeyHolder();
+    jdbcTemplate.update(connection -> {
+      var statement = connection.prepareStatement(
+          """
+          INSERT INTO owner_invitations (token_hash, created_by, expires_at)
+          VALUES (?, ?, ?)
+          """,
+          new String[] {"id"});
+      statement.setString(1, tokenHash);
+      statement.setLong(2, createdBy);
+      statement.setObject(3, expiresAt);
+      return statement;
+    }, keyHolder);
+
+    Number key = keyHolder.getKey();
+    if (key == null) {
+      throw new IllegalStateException("failed to create owner invitation");
+    }
+    return key.longValue();
+  }
+
   public Optional<ReviewerInvitationRecord> findReviewerInvitationByTokenHash(String tokenHash) {
     List<ReviewerInvitationRecord> records = jdbcTemplate.query(
         """
@@ -219,10 +241,39 @@ public class AuthRepository {
     return records.stream().findFirst();
   }
 
+  public Optional<OwnerInvitationRecord> findOwnerInvitationByTokenHash(String tokenHash) {
+    List<OwnerInvitationRecord> records = jdbcTemplate.query(
+        """
+        SELECT id, token_hash, created_by, expires_at, used_at, used_by
+        FROM owner_invitations
+        WHERE token_hash = ?
+        """,
+        (rs, rowNum) -> new OwnerInvitationRecord(
+            rs.getLong("id"),
+            rs.getString("token_hash"),
+            rs.getLong("created_by"),
+            rs.getObject("expires_at", LocalDateTime.class),
+            rs.getObject("used_at", LocalDateTime.class),
+            nullableLong(rs, "used_by")),
+        tokenHash);
+    return records.stream().findFirst();
+  }
+
   public int markReviewerInvitationUsed(long invitationId, long userId) {
     return jdbcTemplate.update(
         """
         UPDATE reviewer_invitations
+        SET used_at = CURRENT_TIMESTAMP, used_by = ?
+        WHERE id = ? AND used_at IS NULL
+        """,
+        userId,
+        invitationId);
+  }
+
+  public int markOwnerInvitationUsed(long invitationId, long userId) {
+    return jdbcTemplate.update(
+        """
+        UPDATE owner_invitations
         SET used_at = CURRENT_TIMESTAMP, used_by = ?
         WHERE id = ? AND used_at IS NULL
         """,

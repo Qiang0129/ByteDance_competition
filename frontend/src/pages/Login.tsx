@@ -41,6 +41,7 @@ const SIGNUP_HASH = '#signup';
 const LOGIN_HASH = '#login';
 const LOGIN_ENTRY_ANIMATION_MS = 560;
 const REVIEWER_INVITE_QUERY_KEY = 'reviewerInvite';
+const OWNER_INVITE_QUERY_KEY = 'ownerInvite';
 const DEFAULT_TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
 const TURNSTILE_SITE_KEY =
   import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || DEFAULT_TURNSTILE_SITE_KEY;
@@ -63,12 +64,18 @@ function resolveReviewerInviteToken(search: string) {
   return value && value.trim() ? value.trim() : null;
 }
 
+function resolveOwnerInviteToken(search: string) {
+  const value = new URLSearchParams(search).get(OWNER_INVITE_QUERY_KEY);
+  return value && value.trim() ? value.trim() : null;
+}
+
 function replaceReviewerInviteSearch() {
   if (typeof window === 'undefined') {
     return;
   }
   const params = new URLSearchParams(window.location.search);
   params.delete(REVIEWER_INVITE_QUERY_KEY);
+  params.delete(OWNER_INVITE_QUERY_KEY);
   const query = params.toString();
   const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${LOGIN_HASH}`;
   window.history.replaceState(window.history.state, '', nextUrl);
@@ -103,9 +110,14 @@ export default function Login() {
   const loginTurnstileRef = useRef<TurnstileWidgetHandle | null>(null);
   const signupTurnstileRef = useRef<TurnstileWidgetHandle | null>(null);
   const reviewerInviteToken = resolveReviewerInviteToken(location.search);
+  const ownerInviteToken = resolveOwnerInviteToken(location.search);
 
   useEffect(() => {
     if (!reviewerInviteToken) {
+      return undefined;
+    }
+    if (ownerInviteToken) {
+      message.warning('同一注册链接不能同时包含审核员和负责人邀请');
       return undefined;
     }
     let cancelled = false;
@@ -126,7 +138,35 @@ export default function Login() {
     return () => {
       cancelled = true;
     };
-  }, [message, reviewerInviteToken]);
+  }, [message, ownerInviteToken, reviewerInviteToken]);
+
+  useEffect(() => {
+    if (!ownerInviteToken) {
+      return undefined;
+    }
+    if (reviewerInviteToken) {
+      message.warning('同一注册链接不能同时包含审核员和负责人邀请');
+      return undefined;
+    }
+    let cancelled = false;
+    setMode('signup');
+    void authApi.validateOwnerInvitation(ownerInviteToken).then((result) => {
+      if (cancelled || result.valid) return;
+      const reasonText = result.reason === 'expired'
+        ? '负责人邀请链接已过期'
+        : result.reason === 'used'
+          ? '负责人邀请链接已被使用'
+          : '负责人邀请链接无效';
+      message.warning(reasonText);
+    }).catch(() => {
+      if (!cancelled) {
+        message.warning('负责人邀请链接校验失败，提交注册时会再次校验');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [message, ownerInviteToken, reviewerInviteToken]);
 
   useEffect(() => {
     setMode(resolveModeFromHash(location.hash));
@@ -246,9 +286,13 @@ export default function Login() {
         ...values,
         role: 'labeler',
         inviteToken: reviewerInviteToken ?? undefined,
+        ownerInviteToken: ownerInviteToken ?? undefined,
         turnstileToken,
       });
-      if (reviewerInviteToken) {
+      if (ownerInviteToken) {
+        replaceReviewerInviteSearch();
+        message.success('负责人账号创建成功，请使用任务负责人身份登录');
+      } else if (reviewerInviteToken) {
         replaceReviewerInviteSearch();
         message.success('审核员账号创建成功，请使用人工审核员身份登录');
       } else {

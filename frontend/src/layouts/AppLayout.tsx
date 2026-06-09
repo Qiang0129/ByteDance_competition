@@ -4,6 +4,7 @@ import {
   ApiOutlined,
   AuditOutlined,
   BgColorsOutlined,
+  CopyOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
@@ -30,6 +31,8 @@ import {
   Dropdown,
   Layout,
   Menu,
+  Modal,
+  Space,
   Typography,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -53,6 +56,13 @@ const { Header, Sider, Content } = Layout;
 const SIDER_COPYRIGHT_TEXT = 'Copyright © SCU-肖强 | 蜀ICP备2026020302号-1';
 const SIDER_COPYRIGHT_LINES = ['Copyright © SCU-肖强 | 蜀ICP备', '2026020302号-1'];
 const SIDER_OPENING_ANIMATION_MS = 520;
+
+type OwnerInviteState = {
+  link: string | null;
+  expiresAt: string | null;
+  loading: boolean;
+  error: string | null;
+};
 
 /** 角色顶层路径前缀,用于推断当前在哪个角色端 */
 type RoleSection = WorkspaceRole;
@@ -315,6 +325,13 @@ export default function AppLayout() {
     };
   }, []);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getStoredAuthUser());
+  const [ownerInviteOpen, setOwnerInviteOpen] = useState(false);
+  const [ownerInvite, setOwnerInvite] = useState<OwnerInviteState>({
+    link: null,
+    expiresAt: null,
+    loading: false,
+    error: null,
+  });
 
   // 路由变化时自动收起移动端抽屉(点菜单跳转后不该继续盖着遮罩)
   useEffect(() => {
@@ -440,6 +457,11 @@ export default function AppLayout() {
       return;
     }
 
+    if (key === 'owner-invite') {
+      setOwnerInviteOpen(true);
+      return;
+    }
+
     if (key === 'appearance') {
       navigate(`${section === 'ai_reviewer' ? '/ai-reviewer' : `/${section}`}/settings/appearance`);
       return;
@@ -469,6 +491,15 @@ export default function AppLayout() {
       icon: section === 'ai_reviewer' || section === 'owner' ? <AiAssistantIcon /> : <UserOutlined />,
       label: section === 'ai_reviewer' || section === 'owner' ? '模型配置' : '个人资料',
     },
+    ...(section === 'owner'
+      ? [
+          {
+            key: 'owner-invite',
+            icon: <UserOutlined />,
+            label: '负责人邀请',
+          },
+        ]
+      : []),
     { key: 'appearance', icon: <BgColorsOutlined />, label: '外观主题' },
     {
       type: 'group',
@@ -489,6 +520,36 @@ export default function AppLayout() {
       danger: true,
     },
   ];
+
+  const createOwnerInvite = async () => {
+    setOwnerInvite((current) => ({ ...current, loading: true, error: null }));
+    try {
+      const result = await authApi.createOwnerInvitation();
+      const link = `${window.location.origin}/login?ownerInvite=${encodeURIComponent(result.token)}#signup`;
+      setOwnerInvite({
+        link,
+        expiresAt: result.expiresAt,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      setOwnerInvite((current) => ({
+        ...current,
+        loading: false,
+        error: error instanceof Error ? error.message : '负责人邀请链接生成失败',
+      }));
+    }
+  };
+
+  const copyOwnerInvite = async () => {
+    if (!ownerInvite.link) return;
+    try {
+      await navigator.clipboard.writeText(ownerInvite.link);
+      message.success('负责人邀请链接已复制');
+    } catch {
+      message.error('复制失败，请手动复制邀请链接');
+    }
+  };
 
   return (
     <Layout className={`app-shell app-shell-enter${isMobile ? ' is-mobile' : ''}${isMobile && mobileNavOpen ? ' nav-open' : ''}`}>
@@ -614,6 +675,49 @@ export default function AppLayout() {
           </PageErrorBoundary>
         </Content>
       </Layout>
+      <Modal
+        title="负责人邀请"
+        open={ownerInviteOpen}
+        onCancel={() => setOwnerInviteOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setOwnerInviteOpen(false)}>
+            关闭
+          </Button>,
+          <Button
+            key="generate"
+            type="primary"
+            loading={ownerInvite.loading}
+            onClick={() => void createOwnerInvite()}
+          >
+            生成链接
+          </Button>,
+        ]}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            链接 24 小时内有效且只能使用一次。被邀请人注册成功后将获得任务负责人权限。
+          </Typography.Text>
+          {ownerInvite.error ? (
+            <Typography.Text type="danger">{ownerInvite.error}</Typography.Text>
+          ) : null}
+          {ownerInvite.link ? (
+            <div className="owner-invite-link-box">
+              <Typography.Text ellipsis title={ownerInvite.link}>
+                {ownerInvite.link}
+              </Typography.Text>
+              <Button
+                size="small"
+                icon={<CopyOutlined />}
+                onClick={() => void copyOwnerInvite()}
+                aria-label="复制负责人邀请链接"
+              />
+            </div>
+          ) : null}
+          {ownerInvite.expiresAt ? (
+            <Typography.Text type="secondary">过期时间：{ownerInvite.expiresAt}</Typography.Text>
+          ) : null}
+        </Space>
+      </Modal>
     </Layout>
   );
 }

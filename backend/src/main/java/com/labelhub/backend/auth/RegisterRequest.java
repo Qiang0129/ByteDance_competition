@@ -12,4 +12,5 @@ public record RegisterRequest(
     String password,
     String role,
     String inviteToken,
+    String ownerInviteToken,
     String turnstileToken) {}
