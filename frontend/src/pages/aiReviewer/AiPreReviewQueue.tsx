@@ -626,7 +626,13 @@ function JobDetailPanel({
             {result?.comment && (
               <Card size="small" title="AI 评语" bordered={false} className="ai-queue-card">
                 {decision && (
-                  <div className="ai-queue-verdict">
+                  <div
+                    className={`ai-queue-verdict is-${
+                      job.decision === 'PASS' ? 'pass' :
+                      job.decision === 'REJECT' ? 'reject' :
+                      'manual'
+                    }`}
+                  >
                     <ThunderboltFilled style={{ color: decision.color }} />
                     <Text strong style={{ color: decision.color }}>
                       {decision.label}

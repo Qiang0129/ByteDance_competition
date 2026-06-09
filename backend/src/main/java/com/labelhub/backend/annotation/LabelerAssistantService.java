@@ -232,7 +232,7 @@ public class LabelerAssistantService {
     if (assignment.mediaUrl() != null && !assignment.mediaUrl().isBlank()) {
       node.put("media_url", "[masked media url]");
     }
-    return writeJson(node);
+    return writeJson(LabelerRawPayloadSanitizer.sanitize(node));
   }
 
   private String buildFieldsSummary(AssignmentItemRecord assignment) {

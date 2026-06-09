@@ -50,8 +50,7 @@ import { AiAssistantIcon } from '../components/icons';
 
 const { Header, Sider, Content } = Layout;
 
-/** 系统版本号:优先取构建时注入的 VITE_APP_VERSION,缺省回落到默认值 */
-const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.6';
+const SIDER_COPYRIGHT_TEXT = 'Copyright © SCU-肖强 | 蜀ICP备2026020302号-1';
 const SIDER_OPENING_ANIMATION_MS = 520;
 
 /** 角色顶层路径前缀,用于推断当前在哪个角色端 */
@@ -516,12 +515,19 @@ export default function AppLayout() {
             onClick={({ key }) => navigate(key)}
           />
           <div className="app-sider-footer">
-            <span className="app-sider-footer-full" aria-hidden={collapsed}>
-              <span className="app-sider-version">LabelHub v{APP_VERSION}</span>
-              <span className="app-sider-build">Phase 2 · MVP</span>
+            <span
+              className="app-sider-footer-full"
+              aria-hidden={collapsed}
+              title={SIDER_COPYRIGHT_TEXT}
+            >
+              <span className="app-sider-copyright">{SIDER_COPYRIGHT_TEXT}</span>
             </span>
-            <span className="app-sider-version-mark" aria-hidden={!collapsed}>
-              v{APP_VERSION}
+            <span
+              className="app-sider-version-mark app-sider-copyright-mark"
+              aria-hidden={!collapsed}
+              title={SIDER_COPYRIGHT_TEXT}
+            >
+              © SCU
             </span>
           </div>
         </div>
@@ -551,7 +557,7 @@ export default function AppLayout() {
 
           {/* 右侧:色彩模式切换 + 用户下拉 */}
           <div className="app-header-right">
-            <ColorModeSwitcher />
+            {!isMobile ? <ColorModeSwitcher /> : null}
             <Dropdown
               menu={{ items: userMenu, onClick: handleUserMenuClick }}
               placement="bottomRight"

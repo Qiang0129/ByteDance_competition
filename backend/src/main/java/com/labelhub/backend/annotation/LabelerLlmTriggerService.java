@@ -729,7 +729,7 @@ public class LabelerLlmTriggerService {
     if (assignment.mediaUrl() != null && !assignment.mediaUrl().isBlank()) {
       node.put("media_url", "[masked media url]");
     }
-    return node;
+    return LabelerRawPayloadSanitizer.sanitize(node);
   }
 
   private ArrayNode fieldsNode(JsonNode schema) {

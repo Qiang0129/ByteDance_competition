@@ -652,6 +652,23 @@ public class OwnerReviewRepository {
         .findFirst();
   }
 
+  public List<AuditLogRecord> listTaskAuditLogForExport(long ownerId, long taskId, boolean humanOnly) {
+    List<Object> args = new ArrayList<>();
+    args.add(ownerId);
+    args.add(taskId);
+    String roleFilter = humanOnly ? "AND COALESCE(al.operator_role, '') = 'reviewer'" : "";
+    return jdbcTemplate.query(
+        AUDIT_LOG_SELECT_FROM + """
+        WHERE t.owner_id = ?
+          AND t.deleted_at IS NULL
+          AND t.id = ?
+        """ + roleFilter + """
+        ORDER BY al.created_at DESC, al.id DESC
+        """,
+        this::mapAuditLog,
+        args.toArray());
+  }
+
   public List<AuditLogRecord> listAuditLogItemTimeline(long ownerId, long assignmentId) {
     return jdbcTemplate.query(
         AUDIT_LOG_SELECT_FROM + """

@@ -2,6 +2,8 @@ package com.labelhub.backend.ownerreview;
 
 import com.labelhub.backend.task.PageResponse;
 import java.util.List;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,6 +41,14 @@ public class OwnerReviewController {
   @GetMapping("/reviewers")
   public List<OwnerReviewReviewerResponse> listReviewers(Authentication authentication) {
     return ownerReviewService.listReviewers(authentication);
+  }
+
+  @GetMapping("/tasks/{taskId}/audit-log/export")
+  public ResponseEntity<Resource> downloadTaskAuditLog(
+      Authentication authentication,
+      @PathVariable long taskId,
+      @RequestParam(required = false) String scope) {
+    return ownerReviewService.downloadTaskAuditLog(authentication, taskId, scope);
   }
 
   @GetMapping("/tasks/{taskId}/annotations")

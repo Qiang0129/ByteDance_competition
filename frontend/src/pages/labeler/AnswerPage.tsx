@@ -67,6 +67,23 @@ const DRAFT_TYPING_DEBOUNCE_MS = 400;
 /** 分栏左侧宽度持久化:键名与默认值 */
 const SPLIT_STORAGE_KEY = 'labelhub:answer:split-left-percent';
 const DEFAULT_SPLIT_PERCENT = 42;
+const LABELER_RAW_PAYLOAD_HIDDEN_KEYS = new Set([
+  'preferred',
+  'annotatornote',
+  'answerkey',
+  'correctanswer',
+  'expectedanswer',
+  'referenceanswer',
+  'goldanswer',
+  'goldlabel',
+  'groundtruth',
+  'targetlabel',
+  'labelanswer',
+  'rationale',
+  'explanation',
+  'margin',
+  'safetyflag',
+]);
 
 /** 读取上次保存的左侧分栏占比,非法或越界时回退默认值 */
 function loadSplitPercent(): number {
@@ -91,6 +108,32 @@ function saveSplitPercent(percent: number) {
   } catch {
     /* localStorage 不可用时静默失败 */
   }
+}
+
+function sanitizeLabelerRawPayload(payload: AssignmentItem['rawPayload']): AssignmentItem['rawPayload'] {
+  return sanitizeRawPayloadValue(payload) as AssignmentItem['rawPayload'];
+}
+
+function sanitizeRawPayloadValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeRawPayloadValue(item));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !shouldHideRawPayloadKey(key))
+        .map(([key, nestedValue]) => [key, sanitizeRawPayloadValue(nestedValue)]),
+    );
+  }
+  return value;
+}
+
+function shouldHideRawPayloadKey(key: string) {
+  return LABELER_RAW_PAYLOAD_HIDDEN_KEYS.has(normalizeRawPayloadKey(key));
+}
+
+function normalizeRawPayloadKey(key: string) {
+  return key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 export default function AnswerPage() {
@@ -168,6 +211,10 @@ export default function AnswerPage() {
     : undefined;
   const isReturnedAssignment = item?.status === 'returned' && !!item.resubmitDeadline;
   const showReworkSubmit = isReturnedAssignment && canEdit;
+  const safeRawPayload = useMemo(
+    () => (item ? sanitizeLabelerRawPayload(item.rawPayload) : null),
+    [item],
+  );
   const rawAnswerFallback = useMemo(() => {
     const submittedAnswer = item?.latestAnnotation?.answerJson;
     if (!item || !submittedAnswer || typeof submittedAnswer !== 'object') {
@@ -815,10 +862,10 @@ export default function AnswerPage() {
         <div className="answer-split-pane answer-split-pane-raw" style={{ width: `${leftPercent}%` }}>
           <div className="answer-raw-stack">
             <Card
-              title={<RawPayloadTitle payload={item.rawPayload} />}
+              title={<RawPayloadTitle payload={safeRawPayload ?? item.rawPayload} />}
               className="answer-section answer-raw-card"
             >
-              <RawPayloadView payload={item.rawPayload} />
+              <RawPayloadView payload={safeRawPayload ?? item.rawPayload} />
             </Card>
             <LabelerAnswerInsights item={item} />
           </div>
@@ -850,7 +897,7 @@ export default function AnswerPage() {
                 <LabelHubFormRenderer
                   schema={renderFields}
                   tabs={item.tabs}
-                  rawPayload={item.rawPayload}
+                  rawPayload={safeRawPayload ?? item.rawPayload}
                   value={answer}
                   readonly={renderReadonly}
                   assignmentId={item.assignmentId}

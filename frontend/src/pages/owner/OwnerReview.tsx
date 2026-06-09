@@ -5,6 +5,7 @@ import {
   CheckCircleFilled,
   ClockCircleOutlined,
   CloseCircleFilled,
+  DownloadOutlined,
   ExclamationCircleFilled,
   EyeOutlined,
   FileSearchOutlined,
@@ -20,6 +21,7 @@ import {
   Card,
   Col,
   Drawer,
+  Dropdown,
   Empty,
   Input,
   Pagination,
@@ -36,12 +38,13 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import type { PaginationProps } from 'antd';
+import type { MenuProps, PaginationProps } from 'antd';
 
 import { ownerReviewApi } from '../../api/ownerReview';
 import { getApiErrorMessage } from '../../api/client';
 import type {
   OwnerReviewAnnotation,
+  OwnerReviewAuditLogExportScope,
   OwnerReviewOverview,
   OwnerReviewReviewer,
   OwnerReviewTaskRow,
@@ -92,6 +95,7 @@ export default function OwnerReview() {
   const [reviewers, setReviewers] = useState<OwnerReviewReviewer[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [auditExportingTaskId, setAuditExportingTaskId] = useState<string | null>(null);
 
   /** 任务表筛选 */
   const [keyword, setKeyword] = useState('');
@@ -243,6 +247,21 @@ export default function OwnerReview() {
       setDetailLoading(false);
     }
   };
+
+  const downloadTaskAuditLog = useCallback(
+    async (task: OwnerReviewTaskRow, scope: OwnerReviewAuditLogExportScope) => {
+      setAuditExportingTaskId(task.taskId);
+      try {
+        await ownerReviewApi.downloadTaskAuditLog(task.taskId, scope);
+        message.success(scope === 'human' ? '人工审核日志已开始下载' : '完整链路日志已开始下载');
+      } catch (error) {
+        message.error(getApiErrorMessage(error, '导出日志失败'));
+      } finally {
+        setAuditExportingTaskId((current) => (current === task.taskId ? null : current));
+      }
+    },
+    [message],
+  );
 
   const auditReviewerName = useMemo(() => {
     if (auditReviewerId === 'all') return '全部审核员';
@@ -489,19 +508,44 @@ export default function OwnerReview() {
     },
     {
       title: '操作',
-      width: 90,
+      width: 112,
       align: 'center',
-      render: (_, row) => (
-        <Tooltip title="查看条目明细与审核时间线">
-          <Button
-            type="text"
-            size="small"
-            icon={<EyeOutlined />}
-            aria-label="查看任务详情"
-            onClick={() => void openTaskDetail(row)}
-          />
-        </Tooltip>
-      ),
+      render: (_, row) => {
+        const exportLoading = auditExportingTaskId === row.taskId;
+        const exportMenu: MenuProps = {
+          items: [
+            { key: 'human', label: '导出人工审核日志' },
+            { key: 'full', label: '导出完整链路日志' },
+          ],
+          onClick: ({ key }) => {
+            void downloadTaskAuditLog(row, key as OwnerReviewAuditLogExportScope);
+          },
+        };
+        return (
+          <Space size={2} className="owner-review-task-actions">
+            <Tooltip title="查看">
+              <Button
+                type="text"
+                size="small"
+                icon={<EyeOutlined />}
+                aria-label="查看"
+                onClick={() => void openTaskDetail(row)}
+              />
+            </Tooltip>
+            <Tooltip title="导出日志">
+              <Dropdown trigger={['click']} menu={exportMenu} disabled={exportLoading}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  aria-label="导出日志"
+                  loading={exportLoading}
+                />
+              </Dropdown>
+            </Tooltip>
+          </Space>
+        );
+      },
     },
   ];
 

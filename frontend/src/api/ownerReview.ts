@@ -8,6 +8,7 @@
  *   - GET    /reviews/overview                Owner 审核总览 KPI
  *   - GET    /reviews/tasks                   按任务聚合的审核进度列表
  *   - GET    /reviews/tasks/{taskId}/annotations 任务下条目明细(只读)
+ *   - GET    /reviews/tasks/{taskId}/audit-log/export 任务日志导出
  *   - GET    /reviews/audit-log               审计日志
  *   - POST   /reviews/batch-decision          预留兼容方法,当前 Owner 页不接入后端裁决
  *
@@ -16,9 +17,10 @@
  *   - Reviewer 端是纵向看「我领取的批次」做逐条裁决。
  */
 
-import { apiRequest } from './client';
+import { ApiError, apiRequest, buildApiUrl, getAuthToken } from './client';
 import type {
   OwnerReviewAnnotation,
+  OwnerReviewAuditLogExportScope,
   OwnerReviewAuditQuery,
   OwnerReviewBatchDecisionRequest,
   OwnerReviewBatchDecisionResponse,
@@ -42,6 +44,41 @@ function buildQuery(params: Record<string, unknown>): string {
   return qs ? `?${qs}` : '';
 }
 
+function parseFilename(contentDisposition: string | null) {
+  if (!contentDisposition) return null;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ''));
+    } catch {
+      return utf8Match[1].replace(/"/g, '');
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ?? null;
+}
+
+async function throwDownloadError(response: Response): Promise<never> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const payload = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
+  throw new ApiError(response.status, response.statusText, payload);
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const ownerReviewApi = {
   /** Owner 审核总览 KPI */
   getOverview(rangeDays = 30): Promise<OwnerReviewOverview> {
@@ -60,6 +97,33 @@ export const ownerReviewApi = {
   /** 系统内所有人工审核员 */
   listReviewers(): Promise<OwnerReviewReviewer[]> {
     return apiRequest<OwnerReviewReviewer[]>('/reviews/reviewers');
+  },
+
+  async downloadTaskAuditLog(
+    taskId: string,
+    scope: OwnerReviewAuditLogExportScope,
+  ): Promise<void> {
+    const headers = new Headers();
+    const token = getAuthToken();
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    const response = await fetch(
+      buildApiUrl(
+        `/reviews/tasks/${encodeURIComponent(taskId)}/audit-log/export?scope=${encodeURIComponent(scope)}`,
+      ),
+      { headers },
+    );
+    if (!response.ok) {
+      await throwDownloadError(response);
+    }
+
+    const blob = await response.blob();
+    const filename =
+      parseFilename(response.headers.get('content-disposition')) ??
+      `review-task-${taskId}-${scope}-audit-log.csv`;
+    triggerBrowserDownload(blob, filename);
   },
 
   /** 单任务下的条目明细(只读) */

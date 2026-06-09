@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircleFilled,
   ClockCircleOutlined,
@@ -41,6 +41,7 @@ const aiDecisionMeta: Record<AiReviewResult['decision'], { color: string; label:
   REJECT: { color: 'error', label: '建议打回' },
   NEED_HUMAN_REVIEW: { color: 'warning', label: '人工复核' },
 };
+const DISPUTE_DESKTOP_BREAKPOINT = 1280;
 
 function humanDecisionMeta(
   decision: AnnotationToReview['decision'],
@@ -73,6 +74,10 @@ export default function ReviewerDisputes() {
   const [resolving, setResolving] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
   const [opinion, setOpinion] = useState('');
+  const detailColRef = useRef<HTMLDivElement | null>(null);
+  const sideTopRef = useRef<HTMLDivElement | null>(null);
+  const finalCardRef = useRef<HTMLDivElement | null>(null);
+  const [finalCardMinHeight, setFinalCardMinHeight] = useState<number | undefined>();
 
   useEffect(() => {
     let cancelled = false;
@@ -238,6 +243,56 @@ export default function ReviewerDisputes() {
   };
 
   const canResolve = detail?.dispute.canResolve !== false && detail?.dispute.status === 'open';
+  const updateFinalCardHeight = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    if (window.innerWidth <= DISPUTE_DESKTOP_BREAKPOINT) {
+      setFinalCardMinHeight(undefined);
+      return;
+    }
+    const detailRect = detailColRef.current?.getBoundingClientRect();
+    const finalCardRect = finalCardRef.current?.getBoundingClientRect();
+    if (!detailRect || !finalCardRect) {
+      setFinalCardMinHeight(undefined);
+      return;
+    }
+    const measuredHeight = Math.ceil(detailRect.bottom - finalCardRect.top);
+    const nextHeight = measuredHeight > 0 ? measuredHeight : undefined;
+    setFinalCardMinHeight((previous) => (previous === nextHeight ? previous : nextHeight));
+  }, []);
+
+  useEffect(() => {
+    updateFinalCardHeight();
+  }, [detail, detailLoading, filter, keyword, updateFinalCardHeight]);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') {
+      updateFinalCardHeight();
+      return undefined;
+    }
+    let frameId: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (frameId != null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updateFinalCardHeight();
+      });
+    });
+    const detailNode = detailColRef.current;
+    const sideTopNode = sideTopRef.current;
+    if (detailNode) observer.observe(detailNode);
+    if (sideTopNode) observer.observe(sideTopNode);
+    window.addEventListener('resize', updateFinalCardHeight);
+    updateFinalCardHeight();
+    return () => {
+      if (frameId != null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      observer.disconnect();
+      window.removeEventListener('resize', updateFinalCardHeight);
+    };
+  }, [detail, updateFinalCardHeight]);
   const tabItems: Array<{
     key: typeof filter;
     label: string;
@@ -339,7 +394,7 @@ export default function ReviewerDisputes() {
             </div>
           </div>
 
-          <div className="ai-wb-detail-col">
+          <div className="ai-wb-detail-col" ref={detailColRef}>
             <Spin spinning={detailLoading}>
               {detail ? (
                 <DisputeAnnotationDetail annotation={detail.annotation} dispute={detail.dispute} />
@@ -355,30 +410,36 @@ export default function ReviewerDisputes() {
             <Spin spinning={detailLoading}>
               {detail ? (
                 <>
-                  <div className="dispute-wb-side-card">
-                    <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                      <div className="dispute-wb-side-title">争议信息</div>
-                      <Tag color="orange">{detail.dispute.escalationStageLabel ?? '争议升级'}</Tag>
-                      <div className="dispute-wb-side-reason">{detail.dispute.reason}</div>
-                      <Typography.Text type="secondary">
-                        由 {detail.dispute.raisedBy} 升级 · {detail.dispute.raisedAt}
-                      </Typography.Text>
-                      {detail.dispute.canResolve === false && detail.dispute.status === 'open' && (
-                        <div className="dispute-wb-lock-tip">
-                          该争议由你升级,需交由其他 Reviewer 终审。
-                        </div>
-                      )}
-                    </Space>
-                  </div>
-
-                  <div className="ai-wb-timeline-card">
-                    <div className="ai-wb-timeline-title">
-                      审核时间线（第 {displayItemIndex(detail.annotation)} 题）
+                  <div className="dispute-wb-side-top" ref={sideTopRef}>
+                    <div className="dispute-wb-side-card">
+                      <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                        <div className="dispute-wb-side-title">争议信息</div>
+                        <Tag color="orange">{detail.dispute.escalationStageLabel ?? '争议升级'}</Tag>
+                        <div className="dispute-wb-side-reason">{detail.dispute.reason}</div>
+                        <Typography.Text type="secondary">
+                          由 {detail.dispute.raisedBy} 升级 · {detail.dispute.raisedAt}
+                        </Typography.Text>
+                        {detail.dispute.canResolve === false && detail.dispute.status === 'open' && (
+                          <div className="dispute-wb-lock-tip">
+                            该争议由你升级,需交由其他 Reviewer 终审。
+                          </div>
+                        )}
+                      </Space>
                     </div>
-                    <ReviewTimeline item={detail.annotation} dispute={detail.dispute} />
+
+                    <div className="ai-wb-timeline-card">
+                      <div className="ai-wb-timeline-title">
+                        审核时间线（第 {displayItemIndex(detail.annotation)} 题）
+                      </div>
+                      <ReviewTimeline item={detail.annotation} dispute={detail.dispute} />
+                    </div>
                   </div>
 
-                  <div className="dispute-wb-side-card">
+                  <div
+                    ref={finalCardRef}
+                    className="dispute-wb-side-card dispute-wb-final-card"
+                    style={finalCardMinHeight ? { minHeight: finalCardMinHeight } : undefined}
+                  >
                     <Space direction="vertical" size={12} style={{ width: '100%' }}>
                       <div className="dispute-wb-side-title">终审操作</div>
                       {detail.dispute.status === 'resolved' ? (

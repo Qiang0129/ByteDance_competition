@@ -179,6 +179,8 @@ export interface OwnerReviewReviewer {
   reviewerName: string;
 }
 
+export type OwnerReviewAuditLogExportScope = 'human' | 'full';
+
 /** 批量审核动作请求 */
 export interface OwnerReviewBatchDecisionRequest {
   annotationIds: string[];

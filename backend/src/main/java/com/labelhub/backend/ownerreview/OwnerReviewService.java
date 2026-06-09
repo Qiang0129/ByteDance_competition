@@ -4,12 +4,19 @@ import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.task.PageResponse;
 import com.labelhub.backend.task.TaskDeadlineSettlementService;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -109,6 +116,24 @@ public class OwnerReviewService {
             Long.toString(record.reviewerId()),
             blankToDefault(record.reviewerName(), "Reviewer")))
         .toList();
+  }
+
+  public ResponseEntity<Resource> downloadTaskAuditLog(
+      Authentication authentication,
+      long taskId,
+      String scope) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    settleExpiredTasks();
+    if (!repository.taskBelongsToOwner(owner.id(), taskId)) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "REVIEW_TASK_NOT_FOUND", "review task not found");
+    }
+    String normalizedScope = normalizeAuditExportScope(scope);
+    boolean humanOnly = "human".equals(normalizedScope);
+    List<OwnerReviewRepository.AuditLogRecord> logs =
+        repository.listTaskAuditLogForExport(owner.id(), taskId, humanOnly);
+    String csv = buildTaskAuditLogCsv(logs);
+    String filename = "review-task-" + taskId + "-" + normalizedScope + "-audit-log.csv";
+    return csvDownloadResponse(csv, filename);
   }
 
   public PageResponse<OwnerReviewAnnotationResponse> listTaskAnnotations(
@@ -391,6 +416,93 @@ public class OwnerReviewService {
 
   private int normalizePageSize(Integer pageSize) {
     return pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
+  }
+
+  private String normalizeAuditExportScope(String scope) {
+    if (scope == null || scope.isBlank()) {
+      return "human";
+    }
+    String normalized = scope.trim().toLowerCase(Locale.ROOT);
+    if (!List.of("human", "full").contains(normalized)) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "INVALID_REVIEW_AUDIT_EXPORT_SCOPE",
+          "unsupported audit log export scope");
+    }
+    return normalized;
+  }
+
+  private String buildTaskAuditLogCsv(List<OwnerReviewRepository.AuditLogRecord> logs) {
+    StringBuilder csv = new StringBuilder("\uFEFF");
+    csv.append(csvRow(
+        "日志ID",
+        "任务ID",
+        "任务标题",
+        "题号",
+        "Assignment ID",
+        "Annotation ID",
+        "Item ID",
+        "标注员",
+        "操作者",
+        "操作者角色",
+        "动作",
+        "原状态",
+        "新状态",
+        "原因",
+        "发生时间"));
+    for (OwnerReviewRepository.AuditLogRecord log : logs) {
+      csv.append(csvRow(
+          Long.toString(log.logId()),
+          Long.toString(log.taskId()),
+          blankToDefault(log.taskTitle(), "标注任务"),
+          log.itemIndex() == null ? "" : Integer.toString(log.itemIndex()),
+          log.assignmentId() == null ? "" : Long.toString(log.assignmentId()),
+          log.annotationId() == null ? "" : Long.toString(log.annotationId()),
+          log.itemId() == null ? "" : Long.toString(log.itemId()),
+          blankToDefault(log.labelerName(), "Labeler"),
+          blankToDefault(log.operatorName(), "system"),
+          normalizeRoleForUi(log.operatorRole()),
+          blankToDefault(log.action(), ""),
+          blankToDefault(log.fromState(), ""),
+          blankToDefault(log.toState(), ""),
+          blankToDefault(log.reason(), ""),
+          formatDateTime(log.occurredAt())));
+    }
+    return csv.toString();
+  }
+
+  private ResponseEntity<Resource> csvDownloadResponse(String csv, String filename) {
+    byte[] bytes = csv.getBytes(StandardCharsets.UTF_8);
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+        .contentLength(bytes.length)
+        .header(
+            HttpHeaders.CONTENT_DISPOSITION,
+            ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build()
+                .toString())
+        .body(new ByteArrayResource(bytes));
+  }
+
+  private String csvRow(String... cells) {
+    StringBuilder row = new StringBuilder();
+    for (int i = 0; i < cells.length; i++) {
+      if (i > 0) {
+        row.append(',');
+      }
+      row.append(csvCell(cells[i]));
+    }
+    row.append('\n');
+    return row.toString();
+  }
+
+  private String csvCell(String value) {
+    String safe = value == null ? "" : value;
+    if (safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\r")) {
+      return "\"" + safe.replace("\"", "\"\"") + "\"";
+    }
+    return safe;
   }
 
   private String formatDateTime(LocalDateTime dateTime) {

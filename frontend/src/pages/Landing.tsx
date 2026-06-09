@@ -28,19 +28,15 @@ import {
   PictureOutlined,
   ReadOutlined,
 } from '@ant-design/icons';
-import { App, Button } from 'antd';
+import { App, Button, Dropdown, type MenuProps } from 'antd';
 import { parseAsync, renderDocument } from 'docx-preview';
+import JSZip from 'jszip';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
-import architectureSource from '../../../docs/architecture.md?raw';
-import apiDocsSource from '../../../docs/api-docs.md?raw';
-import demoScriptSource from '../../../docs/demo-script.md?raw';
-import stateMachineSource from '../../../docs/state-machine.md?raw';
-import submissionDemoSource from '../../../submission/demo-video.md?raw';
+import deliveryGuideSource from '../../../docs/delivery-guide.md?raw';
 import readmeSource from '../../../README.md?raw';
 import courseRequirementDocxUrl from '../../../LabelHub 数据标注平台 · AI全栈课题实现要求.docx?url';
-import englishImplementationPlanDocxUrl from '../../../LabelHub_Project_Implementation_Plan_EN.docx?url';
 import implementationPlanDocxUrl from '../../../项目实施计划书.docx?url';
 import basicTechDocxUrl from '../../../submission/Related_documents/基础技术文档.docx?url';
 import architectureDiagramUrl from '../../../submission/screenshots/系统架构图.png?url';
@@ -72,7 +68,7 @@ type LandingRouteTransition = {
   y: number;
 };
 
-type DocsCategoryKey = 'project' | 'technical' | 'demo' | 'coding' | 'external';
+type DocsCategoryKey = 'project' | 'technical' | 'delivery' | 'records';
 type DocsResourceKind = 'markdown' | 'docx' | 'image' | 'external' | 'missing';
 type DocsPanelMode = 'categories' | 'resources' | 'document-toc';
 type DocsPanelTransition = 'forward' | 'back';
@@ -353,19 +349,30 @@ const README_PARENT_HEADING_ID_BY_ID = createReadmeParentHeadingIdMap(README_TOC
 const SWAGGER_URL = 'http://127.0.0.1:8080/swagger-ui/index.html';
 
 const docsCategories: Array<{ key: DocsCategoryKey; label: string; description: string }> = [
-  { key: 'project', label: '项目资料', description: '计划书、课题要求与项目总览' },
-  { key: 'technical', label: '技术文档', description: '架构、状态机与关键技术点' },
-  { key: 'demo', label: '演示素材', description: '演示脚本、Demo 截图与视频记录' },
-  { key: 'coding', label: 'AI Coding 记录', description: '阶段计划、实现和接口记录' },
-  { key: 'external', label: '外部接口', description: 'Swagger 与外部调试入口' },
+  { key: 'project', label: '项目资料', description: 'README、计划书与课题要求' },
+  { key: 'technical', label: '技术文档', description: '基础技术文档与系统架构图' },
+  { key: 'delivery', label: '演示说明', description: '演示路线、资料说明与环境信息' },
+  { key: 'records', label: '过程记录', description: '阶段记录、接口文档与 Swagger' },
 ];
 
 const docsResources: DocsResource[] = [
   {
+    id: 'readme',
+    category: 'project',
+    title: 'README.md',
+    description: '仓库根目录说明文档，包含项目状态、环境要求和启动方式。',
+    kind: 'markdown',
+    status: 'available',
+    badge: 'MD',
+    source: readmeSource,
+    downloadName: 'README.md',
+    meta: '根目录',
+  },
+  {
     id: 'implementation-plan-docx',
     category: 'project',
     title: '项目实施计划书.docx',
-    description: '项目实施计划、阶段目标和交付范围的 Word 原文档。',
+    description: '项目实施计划、阶段目标和范围的 Word 原文档。',
     kind: 'docx',
     status: 'available',
     badge: 'DOCX',
@@ -386,52 +393,16 @@ const docsResources: DocsResource[] = [
     meta: '根目录',
   },
   {
-    id: 'implementation-plan-en-docx',
-    category: 'project',
-    title: 'Implementation Plan EN',
-    description: '英文版项目实施计划文档，便于对外交付和说明。',
-    kind: 'docx',
-    status: 'available',
-    badge: 'DOCX',
-    fileUrl: englishImplementationPlanDocxUrl,
-    downloadName: 'LabelHub_Project_Implementation_Plan_EN.docx',
-    meta: '根目录',
-  },
-  {
     id: 'basic-tech-docx',
-    category: 'project',
+    category: 'technical',
     title: '基础技术文档.docx',
-    description: '基础技术文档原始 Word 文档，包含项目基础技术说明和交付材料。',
+    description: '技术说明主文档，覆盖架构、流程、数据模型、前后端设计和 Agent 设计。',
     kind: 'docx',
     status: 'available',
     badge: 'DOCX',
     fileUrl: basicTechDocxUrl,
     downloadName: '基础技术文档.docx',
     meta: 'submission/Related_documents',
-  },
-  {
-    id: 'readme',
-    category: 'project',
-    title: 'README.md',
-    description: '仓库根目录说明文档，包含项目状态、环境要求和启动方式。',
-    kind: 'markdown',
-    status: 'available',
-    badge: 'MD',
-    source: readmeSource,
-    downloadName: 'README.md',
-    meta: '根目录',
-  },
-  {
-    id: 'architecture',
-    category: 'technical',
-    title: '架构说明',
-    description: '系统架构说明入口，后续可继续补充架构图和模块边界。',
-    kind: 'markdown',
-    status: 'available',
-    badge: 'MD',
-    source: architectureSource,
-    downloadName: 'architecture.md',
-    meta: 'docs/architecture.md',
   },
   {
     id: 'architecture-diagram',
@@ -446,66 +417,20 @@ const docsResources: DocsResource[] = [
     meta: 'submission/screenshots',
   },
   {
-    id: 'state-machine',
-    category: 'technical',
-    title: '状态机与核心流程',
-    description: '任务状态、审核流转和协作流程说明。',
+    id: 'delivery-guide',
+    category: 'delivery',
+    title: '演示与资料说明.md',
+    description: '集中说明演示路线、资料覆盖关系、可访问环境和推荐阅读顺序。',
     kind: 'markdown',
     status: 'available',
     badge: 'MD',
-    source: stateMachineSource,
-    downloadName: 'state-machine.md',
-    meta: 'docs/state-machine.md',
-  },
-  {
-    id: 'api-docs-local',
-    category: 'technical',
-    title: 'API 文档说明',
-    description: '本地 API 文档说明 Markdown，Swagger 入口在外部接口分类中打开。',
-    kind: 'markdown',
-    status: 'available',
-    badge: 'MD',
-    source: apiDocsSource,
-    downloadName: 'api-docs.md',
-    meta: 'docs/api-docs.md',
-  },
-  {
-    id: 'demo-script',
-    category: 'demo',
-    title: 'Demo 演示脚本',
-    description: '演示路径、讲解顺序和录制说明。',
-    kind: 'markdown',
-    status: 'available',
-    badge: 'MD',
-    source: demoScriptSource,
-    downloadName: 'demo-script.md',
-    meta: 'docs/demo-script.md',
-  },
-  {
-    id: 'demo-video-record',
-    category: 'demo',
-    title: 'Demo 视频记录',
-    description: 'Demo 视频与提交材料记录入口。',
-    kind: 'markdown',
-    status: 'available',
-    badge: 'MD',
-    source: submissionDemoSource,
-    downloadName: 'demo-video.md',
-    meta: 'submission/demo-video.md',
-  },
-  {
-    id: 'demo-screenshots',
-    category: 'demo',
-    title: 'Demo 截图',
-    description: 'Demo 截图资源尚未放入仓库，保留截图集预览入口。',
-    kind: 'missing',
-    status: 'missing',
-    badge: '待补充',
-    meta: '图片资源',
+    source: deliveryGuideSource,
+    downloadName: '演示与资料说明.md',
+    meta: 'docs/delivery-guide.md',
   },
   {
     id: 'phase-plan',
-    category: 'coding',
+    category: 'records',
     title: '阶段计划.md',
     description: 'AI Coding 过程中的阶段计划与实施前记录。',
     kind: 'markdown',
@@ -517,7 +442,7 @@ const docsResources: DocsResource[] = [
   },
   {
     id: 'phase-implementation',
-    category: 'coding',
+    category: 'records',
     title: '阶段实现.md',
     description: 'AI Coding 过程中的阶段实现记录。',
     kind: 'markdown',
@@ -529,7 +454,7 @@ const docsResources: DocsResource[] = [
   },
   {
     id: 'interface-docs',
-    category: 'coding',
+    category: 'records',
     title: '接口文档.md',
     description: '前后端接口记录，同时提供 Swagger 外部入口。',
     kind: 'markdown',
@@ -542,7 +467,7 @@ const docsResources: DocsResource[] = [
   },
   {
     id: 'swagger',
-    category: 'external',
+    category: 'records',
     title: 'Swagger UI',
     description: '后端 OpenAPI 调试和接口浏览入口。',
     kind: 'external',
@@ -1119,6 +1044,11 @@ export function DocsPlaceholder() {
   const activeResource = docsResources.find((resource) => resource.id === activeResourceId) ?? docsResources[0];
   const visibleResources = docsResources.filter((resource) => resource.category === activeCategory);
   const activeCategoryMeta = docsCategories.find((category) => category.key === activeCategory) ?? docsCategories[0];
+  const downloadableResources = useMemo(() => docsResources.filter(isDownloadableDocsResource), []);
+  const currentCategoryDownloadableResources = useMemo(
+    () => docsResources.filter((resource) => resource.category === activeCategory && isDownloadableDocsResource(resource)),
+    [activeCategory],
+  );
   const activePreviewState = docsPreviewStates[activeResource.id] ?? docsPreviewIdleState;
   const activePreviewCache = docsPreviewCacheRef.current[activeResource.id];
   const activeMarkdownOutline = useMemo(
@@ -1466,8 +1396,8 @@ export function DocsPlaceholder() {
   useEffect(() => {
     if (
       !pendingDocsQuickScroll ||
-      activeCategory !== 'technical' ||
-      activeResourceId !== 'api-docs-local' ||
+      activeCategory !== 'records' ||
+      activeResourceId !== 'interface-docs' ||
       docsPanelMode !== 'resources'
     ) {
       return;
@@ -1616,21 +1546,122 @@ export function DocsPlaceholder() {
     }
   };
 
-  const handleDownload = () => {
-    if (!activeResource.fileUrl && !activeResource.source && !activeResource.loadSource) {
+  const cacheDownloadedMarkdown = (resource: DocsResource, markdownSource?: string) => {
+    if (markdownSource && resource.kind === 'markdown') {
+      docsPreviewCacheRef.current[resource.id] = createMarkdownPreviewCache(markdownSource);
+    }
+  };
+
+  const handleDownloadResource = (resource: DocsResource) => {
+    if (!isDownloadableDocsResource(resource)) {
       return;
     }
 
     message.loading('正在下载', 1.2);
-    downloadDocsResource(activeResource, activePreviewCache)
+    downloadDocsResource(resource, docsPreviewCacheRef.current[resource.id])
       .then((markdownSource) => {
-        if (markdownSource && activeResource.kind === 'markdown') {
-          docsPreviewCacheRef.current[activeResource.id] = createMarkdownPreviewCache(markdownSource);
-        }
+        cacheDownloadedMarkdown(resource, markdownSource);
       })
       .catch((reason: unknown) => {
         message.error(reason instanceof Error ? reason.message : '下载失败');
       });
+  };
+
+  const handleDownloadZip = (resources: DocsResource[], filename: string) => {
+    if (resources.length === 0) {
+      message.warning('当前没有可下载文件');
+      return;
+    }
+
+    const messageKey = `docs-zip-${Date.now()}`;
+    message.loading({ content: '正在打包文件', key: messageKey, duration: 0 });
+    downloadDocsResourcesZip(resources, docsPreviewCacheRef.current, filename)
+      .then((markdownSourcesByResourceId) => {
+        Object.entries(markdownSourcesByResourceId).forEach(([resourceId, markdownSource]) => {
+          const resource = docsResources.find((item) => item.id === resourceId);
+          if (resource) {
+            cacheDownloadedMarkdown(resource, markdownSource);
+          }
+        });
+        message.success({ content: 'ZIP 已开始下载', key: messageKey, duration: 2 });
+      })
+      .catch((reason: unknown) => {
+        message.error({
+          content: reason instanceof Error ? reason.message : '打包下载失败',
+          key: messageKey,
+          duration: 3,
+        });
+      });
+  };
+
+  const docsDownloadMenuItems = useMemo<MenuProps['items']>(() => {
+    const items: NonNullable<MenuProps['items']> = [
+      {
+        key: 'download-current',
+        icon: <DownloadOutlined />,
+        label: isDownloadableDocsResource(activeResource) ? `下载当前文件：${activeResource.title}` : '当前文件不可下载',
+        disabled: !isDownloadableDocsResource(activeResource),
+      },
+      { key: 'download-divider-actions', type: 'divider' },
+      {
+        key: 'zip-current-category',
+        icon: <DownloadOutlined />,
+        label: `打包当前分类：${activeCategoryMeta.label}（${currentCategoryDownloadableResources.length} 个文件）`,
+        disabled: currentCategoryDownloadableResources.length === 0,
+      },
+      {
+        key: 'zip-all-docs',
+        icon: <DownloadOutlined />,
+        label: `打包全部资料（${downloadableResources.length} 个文件）`,
+        disabled: downloadableResources.length === 0,
+      },
+      { key: 'download-divider-files', type: 'divider' },
+    ];
+
+    docsCategories.forEach((category) => {
+      const categoryResources = downloadableResources.filter((resource) => resource.category === category.key);
+      if (categoryResources.length === 0) {
+        return;
+      }
+
+      items.push({
+        key: `download-group-${category.key}`,
+        type: 'group',
+        label: category.label,
+        children: categoryResources.map((resource) => ({
+          key: `file:${resource.id}`,
+          icon: getDocsResourceIcon(resource.kind),
+          label: resource.title,
+        })),
+      });
+    });
+
+    return items;
+  }, [activeCategoryMeta.label, activeResource, currentCategoryDownloadableResources.length, downloadableResources]);
+
+  const handleDownloadMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key === 'download-current') {
+      handleDownloadResource(activeResource);
+      return;
+    }
+
+    if (key === 'zip-current-category') {
+      handleDownloadZip(currentCategoryDownloadableResources, `LabelHub-${sanitizeFilename(activeCategoryMeta.label)}-资料.zip`);
+      return;
+    }
+
+    if (key === 'zip-all-docs') {
+      handleDownloadZip(downloadableResources, 'LabelHub-文档中心资料.zip');
+      return;
+    }
+
+    if (typeof key === 'string' && key.startsWith('file:')) {
+      const resourceId = key.slice('file:'.length);
+      const resource = docsResources.find((item) => item.id === resourceId);
+      if (resource) {
+        handleDownloadResource(resource);
+      }
+    }
   };
 
   const handleQuickStart = () => {
@@ -1639,8 +1670,8 @@ export function DocsPlaceholder() {
     }
 
     setPendingDocsQuickScroll(true);
-    setActiveCategory('technical');
-    setActiveResourceId('api-docs-local');
+    setActiveCategory('records');
+    setActiveResourceId('interface-docs');
     setDocsPanelTransition('forward');
     setDocsPanelMode('resources');
   };
@@ -1896,20 +1927,29 @@ export function DocsPlaceholder() {
                       打开外部链接
                     </a>
                   ) : null}
-                  {activeResource.status !== 'missing' && (activeResource.fileUrl || activeResource.source || activeResource.loadSource) ? (
-                    <button
-                      type="button"
-                      className="landing-docs-action-link"
-                      onClick={handleDownload}
+                  {downloadableResources.length > 0 ? (
+                    <Dropdown
+                      menu={{ items: docsDownloadMenuItems, onClick: handleDownloadMenuClick }}
+                      trigger={['click']}
+                      placement="bottomRight"
+                      overlayClassName="landing-docs-download-menu"
                     >
-                      <DownloadOutlined />
-                      下载
-                    </button>
+                      <button
+                        type="button"
+                        className="landing-docs-action-link"
+                      >
+                        <DownloadOutlined />
+                        下载
+                      </button>
+                    </Dropdown>
                   ) : null}
                 </div>
               </header>
 
-              <div className="landing-docs-preview-body">
+              <div className={`landing-docs-preview-body${
+                activeResource.kind === 'image' && activePreviewState.status === 'success' ? ' is-image-preview' : ''
+              }`}
+              >
                 <DocsPreview
                   resource={activeResource}
                   previewState={activePreviewState}
@@ -2201,6 +2241,7 @@ function ZoomableDocsImagePreview({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRef = useRef<{ left: number; top: number } | null>(null);
+  const resizeFrameRef = useRef<number | null>(null);
   const [zoom, setZoom] = useState(DOCS_IMAGE_ZOOM_DEFAULT);
   const [naturalSize, setNaturalSize] = useState<DocsImageSize | null>(null);
   const [viewportSize, setViewportSize] = useState<DocsImageSize>({ width: 0, height: 0 });
@@ -2248,18 +2289,42 @@ function ZoomableDocsImagePreview({
     }
 
     const measureContainer = () => {
-      setViewportSize({
-        width: container.clientWidth,
-        height: container.clientHeight,
+      const nextWidth = container.clientWidth;
+      const nextHeight = container.clientHeight;
+      setViewportSize((previousSize) => {
+        if (previousSize.width === nextWidth && previousSize.height === nextHeight) {
+          return previousSize;
+        }
+
+        return {
+          width: nextWidth,
+          height: nextHeight,
+        };
+      });
+    };
+    const scheduleMeasure = () => {
+      if (resizeFrameRef.current !== null) {
+        return;
+      }
+
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        measureContainer();
       });
     };
 
     measureContainer();
 
-    const observer = new ResizeObserver(measureContainer);
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(container);
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+    };
   }, [fileUrl, resourceId]);
 
   useLayoutEffect(() => {
@@ -3518,33 +3583,121 @@ function loadMarkdownPreviewSource(resource: DocsResource) {
   return Promise.reject(new Error('Markdown 资源未配置加载入口'));
 }
 
-async function downloadDocsResource(resource: DocsResource, previewCache?: DocsPreviewCache) {
+function isDownloadableDocsResource(resource: DocsResource) {
+  return (
+    resource.status !== 'missing'
+    && resource.kind !== 'external'
+    && Boolean(resource.fileUrl || resource.source !== undefined || resource.loadSource)
+  );
+}
+
+function sanitizeFilename(value: string) {
+  return value
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim() || 'download';
+}
+
+function getDocsCategoryLabel(categoryKey: DocsCategoryKey) {
+  return docsCategories.find((category) => category.key === categoryKey)?.label ?? '资料';
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
   const link = document.createElement('a');
-  const filename = resource.downloadName ?? resource.title;
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = sanitizeFilename(filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function createUniqueZipPath(pathname: string, usedPaths: Set<string>) {
+  const normalizedPath = pathname.replace(/\\/g, '/');
+  const extensionIndex = normalizedPath.lastIndexOf('.');
+  const slashIndex = normalizedPath.lastIndexOf('/');
+  const hasExtension = extensionIndex > slashIndex;
+  const prefix = hasExtension ? normalizedPath.slice(0, extensionIndex) : normalizedPath;
+  const extension = hasExtension ? normalizedPath.slice(extensionIndex) : '';
+  let candidate = normalizedPath;
+  let index = 2;
+
+  while (usedPaths.has(candidate)) {
+    candidate = `${prefix}-${index}${extension}`;
+    index += 1;
+  }
+
+  usedPaths.add(candidate);
+  return candidate;
+}
+
+async function readDocsResourceBlob(resource: DocsResource, previewCache?: DocsPreviewCache) {
+  const filename = sanitizeFilename(resource.downloadName ?? resource.title);
 
   if (resource.fileUrl) {
-    link.href = resource.fileUrl;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    return undefined;
+    const response = await fetch(resource.fileUrl);
+    if (!response.ok) {
+      throw new Error(`${resource.title} 下载失败`);
+    }
+    return {
+      filename,
+      blob: await response.blob(),
+    };
   }
 
   if (resource.kind === 'markdown') {
     const source = previewCache?.kind === 'markdown' ? previewCache.source : await loadMarkdownPreviewSource(resource);
-    const blob = new Blob([source], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    return source;
+    return {
+      filename,
+      blob: new Blob([source], { type: 'text/markdown;charset=utf-8' }),
+      markdownSource: source,
+    };
   }
 
-  return undefined;
+  throw new Error(`${resource.title} 暂不支持下载`);
+}
+
+async function downloadDocsResource(resource: DocsResource, previewCache?: DocsPreviewCache) {
+  const { blob, filename, markdownSource } = await readDocsResourceBlob(resource, previewCache);
+  triggerBlobDownload(blob, filename);
+  return markdownSource;
+}
+
+async function downloadDocsResourcesZip(
+  resources: DocsResource[],
+  previewCaches: Record<string, DocsPreviewCache>,
+  filename: string,
+) {
+  const zip = new JSZip();
+  const usedPaths = new Set<string>();
+  const markdownSourcesByResourceId: Record<string, string> = {};
+
+  for (const resource of resources) {
+    if (!isDownloadableDocsResource(resource)) {
+      continue;
+    }
+
+    const { blob, filename: resourceFilename, markdownSource } = await readDocsResourceBlob(
+      resource,
+      previewCaches[resource.id],
+    );
+    const categoryFolder = sanitizeFilename(getDocsCategoryLabel(resource.category));
+    const zipPath = createUniqueZipPath(`${categoryFolder}/${resourceFilename}`, usedPaths);
+    zip.file(zipPath, blob);
+
+    if (markdownSource && resource.kind === 'markdown') {
+      markdownSourcesByResourceId[resource.id] = markdownSource;
+    }
+  }
+
+  if (usedPaths.size === 0) {
+    throw new Error('当前没有可下载文件');
+  }
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  triggerBlobDownload(zipBlob, filename);
+  return markdownSourcesByResourceId;
 }
 
 function splitMarkdownVirtualBlocks(source: string, headings: MarkdownHeading[] = createMarkdownHeadings(source)): MarkdownVirtualBlock[] {

@@ -787,7 +787,7 @@ public class AnnotationService {
     raw.put("media_type", blankToDefault(assignment.mediaType(), text(raw, "media_type", "text")));
     putIfPresent(raw, "media_url", assignment.mediaUrl());
     putIfPresent(raw, "content_markdown", assignment.contentMarkdown());
-    return raw;
+    return LabelerRawPayloadSanitizer.sanitize(raw);
   }
 
   private AssignmentPositionResponse resolvePosition(AssignmentItemRecord assignment, SchemaContext schema) {
