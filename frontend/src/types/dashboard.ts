@@ -79,6 +79,11 @@ export interface LabelerPerformance {
   avatar?: string;
   /** 综合得分,由后端按标注质量和通过率口径计算 */
   score: number;
+  submittedCount?: number;
+  approvedCount?: number;
+  returnedCount?: number;
+  avgDurationSec?: number;
+  passRate?: number;
 }
 
 /** 提交时段堆叠(每月 OnTime / Late / Absent) */

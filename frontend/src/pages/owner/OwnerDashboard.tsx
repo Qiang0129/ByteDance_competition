@@ -90,6 +90,27 @@ interface DashboardData {
   disputes30: DisputeStats;
 }
 
+type DashboardMobileChartKey =
+  | 'taskProgress'
+  | 'reviewDistribution'
+  | 'roleDonut'
+  | 'disputeStats'
+  | 'taskTimeline'
+  | 'deadlineAlerts'
+  | 'performance'
+  | 'submissionTimeline';
+
+const DASHBOARD_MOBILE_CHART_OPTIONS: Array<{ label: string; value: DashboardMobileChartKey }> = [
+  { label: '任务进度', value: 'taskProgress' },
+  { label: '审核分布', value: 'reviewDistribution' },
+  { label: '标注员任务类型分布', value: 'roleDonut' },
+  { label: '争议样本 & 抽检', value: 'disputeStats' },
+  { label: '任务关键节点', value: 'taskTimeline' },
+  { label: '临近截止预警', value: 'deadlineAlerts' },
+  { label: '标注员表现', value: 'performance' },
+  { label: '月度提交时段', value: 'submissionTimeline' },
+];
+
 const reviewLabels: Array<{ key: keyof ReviewDistribution; label: string; color: string }> = [
   { key: 'aiPass', label: 'AI 通过', color: '#2f7bff' },
   { key: 'aiNeedHuman', label: '需人工复核', color: '#a855f7' },
@@ -146,7 +167,8 @@ export default function OwnerDashboard() {
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [range, setRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [reviewYear, setReviewYear] = useState(currentYear);
-  const [reviewReportDownloading, setReviewReportDownloading] = useState(false);
+  const [mobileChartKey, setMobileChartKey] = useState<DashboardMobileChartKey>('taskProgress');
+  const [dashboardExportDownloading, setDashboardExportDownloading] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [issueFeedback, setIssueFeedback] = useState<IssueFeedback[]>([]);
   const [issueTotal, setIssueTotal] = useState(0);
@@ -351,17 +373,52 @@ export default function OwnerDashboard() {
     }
   }, [message, reviewerInvite.link]);
 
-  const downloadReviewReport = useCallback(async () => {
-    setReviewReportDownloading(true);
+  const downloadDashboardExport = useCallback(async () => {
+    setDashboardExportDownloading(true);
     try {
-      await dashboardApi.downloadReviewDistributionReport(reviewYear);
-      message.success(`${reviewYear} 年审核分布报告已开始下载`);
+      await dashboardApi.downloadDashboardExport({ range, reviewYear });
+      message.success('数据看板导出已开始下载');
     } catch (error) {
-      message.error(getApiErrorMessage(error, '审核分布报告下载失败'));
+      message.error(getApiErrorMessage(error, '数据看板导出失败'));
     } finally {
-      setReviewReportDownloading(false);
+      setDashboardExportDownloading(false);
     }
-  }, [message, reviewYear]);
+  }, [message, range, reviewYear]);
+
+  function renderDashboardChartCard(chartKey: DashboardMobileChartKey, dashboardData: DashboardData) {
+    switch (chartKey) {
+      case 'reviewDistribution':
+        return (
+          <ReviewDistributionCard
+            distribution={dashboardData.review}
+            year={reviewYear}
+            yearOptions={reviewYearOptions}
+            onYearChange={setReviewYear}
+          />
+        );
+      case 'roleDonut':
+        return <RoleDonutCard roles={dashboardData.roles} />;
+      case 'disputeStats':
+        return (
+          <DisputeStatsCard
+            disputes7={dashboardData.disputes7}
+            disputes14={dashboardData.disputes14}
+            disputes30={dashboardData.disputes30}
+          />
+        );
+      case 'taskTimeline':
+        return <TaskTimelineCard items={dashboardData.taskMilestones} />;
+      case 'deadlineAlerts':
+        return <DeadlineAlertCard items={dashboardData.deadlineAlerts} onFollow={handleFollowDeadline} />;
+      case 'performance':
+        return <PerformanceCard performance={dashboardData.performance} />;
+      case 'submissionTimeline':
+        return <SubmissionTimelineCard items={dashboardData.timeline} />;
+      case 'taskProgress':
+      default:
+        return <TaskProgressCard items={dashboardData.taskProgressChart} />;
+    }
+  }
 
   return (
     <>
@@ -372,6 +429,8 @@ export default function OwnerDashboard() {
           onRangeChange={setRange}
           issueTotal={issueTotal}
           onOpenFeedback={openIssueFeedback}
+          onExport={downloadDashboardExport}
+          exporting={dashboardExportDownloading}
         />
 
         {dashboardError ? (
@@ -404,49 +463,61 @@ export default function OwnerDashboard() {
               onCopyReviewerInvite={copyReviewerInvite}
             />
 
-            <Row gutter={[16, 16]}>
-              <Col xs={24} xl={15}>
-                <TaskProgressCard items={data.taskProgressChart} />
-              </Col>
-              <Col xs={24} xl={9}>
-                <ReviewDistributionCard
-                  distribution={data.review}
-                  year={reviewYear}
-                  yearOptions={reviewYearOptions}
-                  onYearChange={setReviewYear}
-                  onDownload={downloadReviewReport}
-                  downloading={reviewReportDownloading}
+            <div className="dashboard-mobile-chart-panel">
+              <div className="dashboard-mobile-chart-switcher">
+                <Typography.Text strong>统计图表</Typography.Text>
+                <Select
+                  value={mobileChartKey}
+                  options={DASHBOARD_MOBILE_CHART_OPTIONS}
+                  onChange={(value) => setMobileChartKey(value as DashboardMobileChartKey)}
                 />
-              </Col>
-            </Row>
+              </div>
+              {renderDashboardChartCard(mobileChartKey, data)}
+            </div>
 
-            <Row gutter={[16, 16]}>
-              <Col xs={24} md={12} xl={6}>
-                <RoleDonutCard roles={data.roles} />
-              </Col>
-              <Col xs={24} md={12} xl={6}>
-                <DisputeStatsCard
-                  disputes7={data.disputes7}
-                  disputes14={data.disputes14}
-                  disputes30={data.disputes30}
-                />
-              </Col>
-              <Col xs={24} md={12} xl={6}>
-                <TaskTimelineCard items={data.taskMilestones} />
-              </Col>
-              <Col xs={24} md={12} xl={6}>
-                <DeadlineAlertCard items={data.deadlineAlerts} onFollow={handleFollowDeadline} />
-              </Col>
-            </Row>
+            <div className="dashboard-desktop-chart-stack">
+              <Row gutter={[16, 16]}>
+                <Col xs={24} xl={15}>
+                  <TaskProgressCard items={data.taskProgressChart} />
+                </Col>
+                <Col xs={24} xl={9}>
+                  <ReviewDistributionCard
+                    distribution={data.review}
+                    year={reviewYear}
+                    yearOptions={reviewYearOptions}
+                    onYearChange={setReviewYear}
+                  />
+                </Col>
+              </Row>
 
-            <Row gutter={[16, 16]}>
-              <Col xs={24} xl={10}>
-                <PerformanceCard performance={data.performance} />
-              </Col>
-              <Col xs={24} xl={14}>
-                <SubmissionTimelineCard items={data.timeline} />
-              </Col>
-            </Row>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} md={12} xl={6}>
+                  <RoleDonutCard roles={data.roles} />
+                </Col>
+                <Col xs={24} md={12} xl={6}>
+                  <DisputeStatsCard
+                    disputes7={data.disputes7}
+                    disputes14={data.disputes14}
+                    disputes30={data.disputes30}
+                  />
+                </Col>
+                <Col xs={24} md={12} xl={6}>
+                  <TaskTimelineCard items={data.taskMilestones} />
+                </Col>
+                <Col xs={24} md={12} xl={6}>
+                  <DeadlineAlertCard items={data.deadlineAlerts} onFollow={handleFollowDeadline} />
+                </Col>
+              </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24} xl={10}>
+                  <PerformanceCard performance={data.performance} />
+                </Col>
+                <Col xs={24} xl={14}>
+                  <SubmissionTimelineCard items={data.timeline} />
+                </Col>
+              </Row>
+            </div>
           </>
         ) : null}
       </Space>
@@ -470,12 +541,16 @@ function DashboardHeader({
   onRangeChange,
   issueTotal,
   onOpenFeedback,
+  onExport,
+  exporting,
 }: {
   overview?: DashboardOverview;
   range: '7d' | '30d' | '90d';
   onRangeChange: (v: '7d' | '30d' | '90d') => void;
   issueTotal: number;
   onOpenFeedback: () => void;
+  onExport: () => void;
+  exporting: boolean;
 }) {
   return (
     <div className="page-title-row">
@@ -485,7 +560,7 @@ function DashboardHeader({
           {overview ? `统计周期:${overview.rangeStart} ~ ${overview.rangeEnd}` : '正在加载真实数据'}
         </Typography.Text>
       </Space>
-      <Space>
+      <Space className="dashboard-header-actions">
         <Segmented
           options={[
             { label: '近 7 日', value: '7d' },
@@ -495,6 +570,9 @@ function DashboardHeader({
           value={range}
           onChange={(v) => onRangeChange(v as '7d' | '30d' | '90d')}
         />
+        <Button icon={<DownloadOutlined />} onClick={onExport} loading={exporting}>
+          导出数据
+        </Button>
         <Button type="primary" icon={<FlagOutlined />} onClick={onOpenFeedback}>
           题目反馈{issueTotal > 0 ? `(${issueTotal})` : ''}
         </Button>
@@ -946,9 +1024,6 @@ function TaskProgressCard({ items }: { items: TaskProgress[] }) {
               { label: '柱状图', value: 'bar', icon: <BarChartOutlined /> },
             ]}
           />
-          <Button size="small" icon={<DownloadOutlined />}>
-            下载报告
-          </Button>
         </Space>
       }
     >
@@ -1006,15 +1081,11 @@ function ReviewDistributionCard({
   year,
   yearOptions,
   onYearChange,
-  onDownload,
-  downloading,
 }: {
   distribution: ReviewDistribution;
   year: number;
   yearOptions: Array<{ label: string; value: number }>;
   onYearChange: (year: number) => void;
-  onDownload: () => void;
-  downloading: boolean;
 }) {
   const total = reviewLabels.reduce((sum, item) => sum + (distribution[item.key] ?? 0), 0);
   // 整理成 recharts Pie 数据
@@ -1091,15 +1162,6 @@ function ReviewDistributionCard({
         <Typography.Text type="secondary" className="dashboard-foot-tip">
           周期内合计 {total} 条审核结果
         </Typography.Text>
-        <Button
-          type="primary"
-          size="small"
-          icon={<DownloadOutlined />}
-          onClick={onDownload}
-          loading={downloading}
-        >
-          下载报告
-        </Button>
       </div>
     </Card>
   );
@@ -1341,12 +1403,83 @@ function PerformanceCard({ performance }: { performance: LabelerPerformance[] })
               <div className="perf-role">{p.role}</div>
             </div>
             <ScoreRing score={p.score} />
-            <Button type="text" icon={<MoreOutlined />} />
+            <Popover
+              trigger="click"
+              placement="left"
+              arrow={false}
+              overlayClassName="dashboard-performance-popover"
+              title={`${p.name} 绩效详情`}
+              content={<PerformanceDetailContent performance={p} />}
+            >
+              <Button
+                type="text"
+                className="perf-more-btn"
+                icon={<MoreOutlined />}
+                aria-label={`查看${p.name}绩效详情`}
+                title="查看绩效详情"
+              />
+            </Popover>
           </div>
         ))}
       </Space>
     </Card>
   );
+}
+
+function PerformanceDetailContent({ performance }: { performance: LabelerPerformance }) {
+  const submittedCount = safeMetricCount(performance.submittedCount);
+  const approvedCount = safeMetricCount(performance.approvedCount);
+  const returnedCount = safeMetricCount(performance.returnedCount);
+  const passRate = performance.passRate ?? performance.score;
+  return (
+    <div className="perf-detail-content">
+      <div className="perf-detail-grid">
+        <PerformanceMetric label="提交数" value={submittedCount.toLocaleString()} />
+        <PerformanceMetric label="通过数" value={approvedCount.toLocaleString()} />
+        <PerformanceMetric label="打回数" value={returnedCount.toLocaleString()} />
+        <PerformanceMetric label="通过率" value={formatPerformanceRate(passRate)} />
+        <PerformanceMetric label="平均耗时" value={formatPerformanceDuration(performance.avgDurationSec)} />
+        <PerformanceMetric label="综合得分" value={formatPerformanceScore(performance.score)} />
+      </div>
+    </div>
+  );
+}
+
+function PerformanceMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="perf-detail-metric">
+      <span className="perf-detail-label">{label}</span>
+      <strong className="perf-detail-value">{value}</strong>
+    </div>
+  );
+}
+
+function safeMetricCount(value?: number) {
+  return Math.max(0, Math.round(value ?? 0));
+}
+
+function formatPerformanceRate(value?: number) {
+  const safeValue = Math.max(0, Math.min(1, value ?? 0));
+  return `${(safeValue * 100).toFixed(1)}%`;
+}
+
+function formatPerformanceScore(value?: number) {
+  const safeValue = Math.max(0, Math.min(1, value ?? 0));
+  return `${(safeValue * 100).toFixed(1)} 分`;
+}
+
+function formatPerformanceDuration(value?: number) {
+  const seconds = Math.max(0, Math.round(value ?? 0));
+  if (seconds === 0) return '-';
+  if (seconds < 60) return `${seconds} 秒`;
+  if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60);
+    const restSeconds = seconds % 60;
+    return restSeconds > 0 ? `${minutes} 分 ${restSeconds} 秒` : `${minutes} 分`;
+  }
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return minutes > 0 ? `${hours} 时 ${minutes} 分` : `${hours} 时`;
 }
 
 function ScoreRing({ score }: { score: number }) {
@@ -1357,7 +1490,15 @@ function ScoreRing({ score }: { score: number }) {
   return (
     <div className="score-ring">
       <svg viewBox="0 0 60 60">
-        <circle cx="30" cy="30" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="6" />
+        <circle
+          className="score-ring-track"
+          cx="30"
+          cy="30"
+          r={radius}
+          fill="none"
+          stroke="#f1f5f9"
+          strokeWidth="6"
+        />
         <circle
           cx="30"
           cy="30"
@@ -1393,11 +1534,6 @@ function SubmissionTimelineCard({ items }: { items: SubmissionTimelineMonth[] })
     <Card
       className="dashboard-card"
       title="月度准时提交率"
-      extra={
-        <Button size="small" icon={<DownloadOutlined />}>
-          下载报告
-        </Button>
-      }
     >
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={chartData} margin={{ top: 10, right: 12, left: -12, bottom: 0 }} barCategoryGap="28%">

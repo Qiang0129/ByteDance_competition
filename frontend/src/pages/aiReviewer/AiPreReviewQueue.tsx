@@ -15,6 +15,7 @@ import {
   Card,
   Col,
   Collapse,
+  Drawer,
   Empty,
   Input,
   Progress,
@@ -76,6 +77,7 @@ const evidenceKindMeta: Record<EvidenceKind, { label: string; color: string }> =
   safety: { label: '安全', color: 'green' },
   evidence: { label: '依据', color: 'default' },
 };
+const MOBILE_PRE_REVIEW_QUEUE_PAGE_SIZE = 5;
 
 export default function AiPreReviewQueue() {
   const { message } = AntdApp.useApp();
@@ -85,6 +87,13 @@ export default function AiPreReviewQueue() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [selectedJob, setSelectedJob] = useState<AiReviewJob | null>(null);
+  const [mobileVisibleJobCount, setMobileVisibleJobCount] = useState(
+    MOBILE_PRE_REVIEW_QUEUE_PAGE_SIZE,
+  );
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [isMobileQueue, setIsMobileQueue] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
   const [result, setResult] = useState<AiReviewResult | null>(null);
   const [resultLoading, setResultLoading] = useState(false);
   const [timelineItems, setTimelineItems] = useState<AiReviewJobTimelineItem[]>([]);
@@ -96,9 +105,33 @@ export default function AiPreReviewQueue() {
   const rightPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const rightEl = rightPanelRef.current;
+    if (typeof window === 'undefined') return;
+    const mql = window.matchMedia('(max-width: 768px)');
+    const syncMobileQueue = () => {
+      setIsMobileQueue(mql.matches);
+    };
+    syncMobileQueue();
+    mql.addEventListener('change', syncMobileQueue);
+    return () => {
+      mql.removeEventListener('change', syncMobileQueue);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileQueue) {
+      setMobileDetailOpen(false);
+    }
+  }, [isMobileQueue]);
+
+  useEffect(() => {
     const leftEl = leftPanelRef.current;
-    if (!rightEl || !leftEl) return;
+    if (!leftEl) return;
+    if (isMobileQueue) {
+      leftEl.style.height = '';
+      return;
+    }
+    const rightEl = rightPanelRef.current;
+    if (!rightEl) return;
     const observer = new ResizeObserver(() => {
       const h = rightEl.offsetHeight;
       if (h > 0) {
@@ -192,6 +225,27 @@ export default function AiPreReviewQueue() {
     });
   }, [jobs, statusFilter, keyword]);
 
+  useEffect(() => {
+    setMobileVisibleJobCount(MOBILE_PRE_REVIEW_QUEUE_PAGE_SIZE);
+    if (isMobileQueue) {
+      setMobileDetailOpen(false);
+    }
+  }, [statusFilter, keyword, isMobileQueue]);
+
+  const visibleMobileJobs = useMemo(
+    () => visibleJobs.slice(0, mobileVisibleJobCount),
+    [visibleJobs, mobileVisibleJobCount],
+  );
+  const shownMobileJobCount = Math.min(mobileVisibleJobCount, visibleJobs.length);
+  const hasMoreMobileJobs = shownMobileJobCount < visibleJobs.length;
+
+  const handleSelectJob = useCallback((job: AiReviewJob) => {
+    setSelectedJob(job);
+    if (isMobileQueue) {
+      setMobileDetailOpen(true);
+    }
+  }, [isMobileQueue]);
+
   /** KPI 统计 */
   const stats = useMemo(() => {
     const total = jobs.length;
@@ -202,7 +256,7 @@ export default function AiPreReviewQueue() {
   }, [jobs]);
 
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack ai-pre-review-queue-page">
       {/* 标题 */}
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
@@ -217,7 +271,7 @@ export default function AiPreReviewQueue() {
       </div>
 
       {/* KPI 4 张 */}
-      <Row gutter={16} className="row-equal">
+      <Row gutter={16} className="row-equal ai-pre-review-kpi-row">
         <Col xs={12} md={6}>
           <Card className="owner-stat-card" loading={loading}>
             <div className="owner-stat-label">作业总数</div>
@@ -255,11 +309,16 @@ export default function AiPreReviewQueue() {
       </Row>
 
       {/* 筛选条 */}
-      <Card className="owner-toolbar">
-        <Space size={12} wrap>
+      <Card className="owner-toolbar ai-pre-review-toolbar">
+        <Space size={12} wrap className="ai-pre-review-toolbar-inner">
           <Segmented
+            className="ai-pre-review-status-filter"
             value={statusFilter}
-            onChange={(v) => { setStatusFilter(v as StatusFilter); setSelectedJob(null); }}
+            onChange={(v) => {
+              setStatusFilter(v as StatusFilter);
+              setSelectedJob(null);
+              setMobileDetailOpen(false);
+            }}
             options={[
               { label: '全部', value: 'all' },
               { label: '排队中', value: 'pending' },
@@ -270,13 +329,14 @@ export default function AiPreReviewQueue() {
           />
           <Input
             allowClear
+            className="ai-pre-review-search"
             prefix={<SearchOutlined />}
             placeholder="搜索 Job ID / 任务名"
             style={{ width: 240 }}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
-          <Button icon={<ReloadOutlined />} onClick={() => void loadJobs()}>
+          <Button className="ai-pre-review-refresh" icon={<ReloadOutlined />} onClick={() => void loadJobs()}>
             刷新
           </Button>
         </Space>
@@ -293,9 +353,9 @@ export default function AiPreReviewQueue() {
       )}
 
       {/* 三栏主体 */}
-      <div className="ai-queue-layout">
+      <div className="ai-queue-layout ai-pre-review-layout">
         {/* 左栏:Job 列表,高度动态跟随右栏 */}
-        <div className="ai-queue-left" ref={leftPanelRef}>
+        <div className="ai-queue-left ai-pre-review-list-panel" ref={leftPanelRef}>
           <div className="ai-queue-left-header">
             <Text strong>
               待审核 ({visibleJobs.length})
@@ -311,21 +371,41 @@ export default function AiPreReviewQueue() {
               {visibleJobs.length === 0 ? (
                 <Empty description="暂无作业" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               ) : (
-                visibleJobs.map((job) => (
+                (isMobileQueue ? visibleMobileJobs : visibleJobs).map((job) => (
                   <JobListItem
                     key={job.jobId}
                     job={job}
                     active={selectedJob?.jobId === job.jobId}
-                    onClick={() => setSelectedJob(job)}
+                    onClick={() => handleSelectJob(job)}
                   />
                 ))
               )}
             </Spin>
+            {isMobileQueue && visibleJobs.length > 0 && (
+              <div className="ai-pre-review-mobile-list-footer">
+                {hasMoreMobileJobs ? (
+                  <Button
+                    block
+                    className="ai-pre-review-mobile-load-more"
+                    disabled={loading}
+                    onClick={() =>
+                      setMobileVisibleJobCount((count) =>
+                        Math.min(count + MOBILE_PRE_REVIEW_QUEUE_PAGE_SIZE, visibleJobs.length),
+                      )
+                    }
+                  >
+                    加载更多（已显示 {shownMobileJobCount} / {visibleJobs.length}）
+                  </Button>
+                ) : (
+                  <Text type="secondary">已显示全部（共 {visibleJobs.length} 条）</Text>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
         {/* 中栏 + 右栏:选中 Job 的详情 */}
-        {selectedJob ? (
+        {!isMobileQueue && selectedJob ? (
           <JobDetailPanel
             job={selectedJob}
             result={result}
@@ -335,12 +415,44 @@ export default function AiPreReviewQueue() {
             timelineError={timelineError}
             rightRef={rightPanelRef}
           />
-        ) : (
+        ) : !isMobileQueue ? (
           <div className="ai-queue-empty-detail" ref={rightPanelRef}>
             <Empty description="点击左侧列表选择一条作业查看详情" />
           </div>
-        )}
+        ) : null}
       </div>
+
+      <Drawer
+        title={
+          selectedJob ? (
+            <Space direction="vertical" size={0}>
+              <span>{selectedJob.taskTitle || `任务 ${selectedJob.taskId}`}</span>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {selectedJob.itemIndex ? `第 ${selectedJob.itemIndex} 题` : `Annotation ${selectedJob.annotationId}`}
+              </Text>
+            </Space>
+          ) : 'AI 预审详情'
+        }
+        open={mobileDetailOpen}
+        onClose={() => setMobileDetailOpen(false)}
+        placement="bottom"
+        height="88vh"
+        rootClassName="ai-pre-review-detail-drawer"
+        className="ai-pre-review-detail-drawer-panel"
+      >
+        {selectedJob ? (
+          <JobDetailPanel
+            job={selectedJob}
+            result={result}
+            loading={resultLoading}
+            timelineItems={timelineItems}
+            timelineLoading={timelineLoading}
+            timelineError={timelineError}
+          />
+        ) : (
+          <Empty description="请选择一条作业" />
+        )}
+      </Drawer>
     </Space>
   );
 }
@@ -373,10 +485,10 @@ function JobListItem({
       onKeyDown={(e) => { if (e.key === 'Enter') onClick(); }}
     >
       <div className="ai-queue-item-top">
-        <Text strong style={{ fontSize: 13 }}>
+        <Text strong className="ai-queue-item-title" style={{ fontSize: 13 }}>
           {titleText}
         </Text>
-        <Tag color={meta.color} style={{ borderRadius: 999, fontSize: 11 }}>
+        <Tag color={meta.color} className="ai-queue-item-status" style={{ borderRadius: 999, fontSize: 11 }}>
           {meta.label}
         </Tag>
       </div>
@@ -390,10 +502,10 @@ function JobListItem({
         {roundTag}
       </div>
       <div className="ai-queue-item-bottom">
-        <Text type="secondary" style={{ fontSize: 11 }}>
+        <Text type="secondary" className="ai-queue-item-score" style={{ fontSize: 11 }}>
           {job.totalScore != null ? `分数 ${job.totalScore.toFixed(2)}` : ''}
         </Text>
-        <Text type="secondary" style={{ fontSize: 11 }}>
+        <Text type="secondary" className="ai-queue-item-time" style={{ fontSize: 11 }}>
           {job.createdAt}
         </Text>
       </div>
@@ -524,7 +636,7 @@ function JobDetailPanel({
                     </Text>
                   </div>
                 )}
-                <Paragraph style={{ marginTop: 8, marginBottom: 0, fontSize: 13 }}>
+                <Paragraph className="ai-queue-comment" style={{ marginTop: 8, marginBottom: 0, fontSize: 13 }}>
                   {result.comment}
                 </Paragraph>
                 {result.risk_flags && result.risk_flags.length > 0 && (

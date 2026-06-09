@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useLocation } from 'react-router-dom';
 import { App as AntdApp, ConfigProvider, theme as antdTheme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import 'antd/dist/reset.css';
@@ -10,6 +10,13 @@ import '@fontsource/noto-sans-sc/600.css';
 import App from './App';
 import './styles/global.css';
 import { ThemeProvider, useTheme } from './theme/ThemeProvider';
+import { DEFAULT_STYLE_VERSION, DEFAULT_THEME_KEY } from './theme/themePresets';
+
+const publicRoutePaths = new Set(['/', '/login', '/docs', '/about']);
+
+function isPublicRoute(pathname: string) {
+  return publicRoutePaths.has(pathname);
+}
 
 /**
  * antd ConfigProvider 包装层:
@@ -18,8 +25,8 @@ import { ThemeProvider, useTheme } from './theme/ThemeProvider';
  * 组件的主色和背景层级会跟随主题切换.
  */
 function ThemedApp() {
-  const { preset, resolvedColorMode } = useTheme();
-  const isDark = resolvedColorMode === 'dark';
+  const { preset, effectiveColorMode } = useTheme();
+  const isDark = effectiveColorMode === 'dark';
   return (
     <ConfigProvider
       locale={zhCN}
@@ -68,18 +75,43 @@ function ThemedApp() {
       }}
     >
       <AntdApp>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
+        <App />
       </AntdApp>
     </ConfigProvider>
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ThemeProvider>
+function RouteAwareThemeBoundary() {
+  const location = useLocation();
+  const isPublic = isPublicRoute(location.pathname);
+
+  React.useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (isPublic) {
+      root.classList.add('lh-public-page');
+    } else {
+      root.classList.remove('lh-public-page');
+    }
+    return () => {
+      root.classList.remove('lh-public-page');
+    };
+  }, [isPublic]);
+
+  return (
+    <ThemeProvider
+      forcedThemeKey={isPublic ? DEFAULT_THEME_KEY : undefined}
+      forcedStyleVersion={isPublic ? DEFAULT_STYLE_VERSION : undefined}
+      forcedColorMode={isPublic ? 'light' : undefined}
+    >
       <ThemedApp />
     </ThemeProvider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <RouteAwareThemeBoundary />
+    </BrowserRouter>
   </React.StrictMode>,
 );

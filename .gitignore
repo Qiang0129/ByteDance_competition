@@ -17,6 +17,7 @@ backend/data
 .playwright-cli
 output/
 backend/target/
+agent/target/
 frontend/.vite/
 labelhub.sql
 

@@ -10,6 +10,8 @@ public class AuthProperties {
   private long tokenTtlSeconds = 7200;
 
   private DemoUsers demoUsers = new DemoUsers();
+  private Turnstile turnstile = new Turnstile();
+  private String serviceLoginToken = "labelhub-local-service-login-token";
 
   public long getTokenTtlSeconds() {
     return tokenTtlSeconds;
@@ -25,6 +27,52 @@ public class AuthProperties {
 
   public void setDemoUsers(DemoUsers demoUsers) {
     this.demoUsers = demoUsers;
+  }
+
+  public Turnstile getTurnstile() {
+    return turnstile;
+  }
+
+  public void setTurnstile(Turnstile turnstile) {
+    this.turnstile = turnstile;
+  }
+
+  public String getServiceLoginToken() {
+    return serviceLoginToken;
+  }
+
+  public void setServiceLoginToken(String serviceLoginToken) {
+    this.serviceLoginToken = serviceLoginToken;
+  }
+
+  public static class Turnstile {
+    private String secretKey = "1x0000000000000000000000000000000AA";
+    private String siteverifyUrl = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+    private int timeoutMs = 5000;
+
+    public String getSecretKey() {
+      return secretKey;
+    }
+
+    public void setSecretKey(String secretKey) {
+      this.secretKey = secretKey;
+    }
+
+    public String getSiteverifyUrl() {
+      return siteverifyUrl;
+    }
+
+    public void setSiteverifyUrl(String siteverifyUrl) {
+      this.siteverifyUrl = siteverifyUrl;
+    }
+
+    public int getTimeoutMs() {
+      return timeoutMs;
+    }
+
+    public void setTimeoutMs(int timeoutMs) {
+      this.timeoutMs = timeoutMs;
+    }
   }
 
   public static class DemoUsers {

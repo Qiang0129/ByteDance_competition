@@ -17,6 +17,7 @@ import {
   Col,
   Row,
   Segmented,
+  Select,
   Space,
   Spin,
   Tag,
@@ -82,6 +83,16 @@ const DECISION_COLORS: Record<string, string> = {
   REJECT: '#ef4444',
 };
 
+type AiOverviewChartKey = 'trend' | 'decisions' | 'passRate' | 'efficiency' | 'tasks';
+
+const AI_OVERVIEW_CHART_OPTIONS: { label: string; value: AiOverviewChartKey }[] = [
+  { label: '每日审核量趋势', value: 'trend' },
+  { label: '决策分布', value: 'decisions' },
+  { label: 'AI 通过率', value: 'passRate' },
+  { label: '处理效率', value: 'efficiency' },
+  { label: '任务审核量对比', value: 'tasks' },
+];
+
 export default function AiReviewerDashboard() {
   const location = useLocation();
 
@@ -98,14 +109,20 @@ export default function AiReviewerDashboard() {
 function AiReviewerShell({
   title,
   description,
+  className,
   children,
 }: {
   title: string;
   description: string;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <Space direction="vertical" size="large" className="page-stack ai-review-page">
+    <Space
+      direction="vertical"
+      size="large"
+      className={`page-stack ai-review-page${className ? ` ${className}` : ''}`}
+    >
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
           <Title level={3}>{title}</Title>
@@ -134,6 +151,8 @@ function AiReviewerOverview() {
   const [trendDays, setTrendDays] = useState<7 | 30>(7);
   /** 每日趋势图表类型:折线图 / 柱状图 */
   const [trendChartType, setTrendChartType] = useState<'line' | 'bar'>('line');
+  /** 手机端图表区仅展示当前选中的一张图表 */
+  const [mobileChartKey, setMobileChartKey] = useState<AiOverviewChartKey>('trend');
 
   // 数据
   const [kpi, setKpi] = useState<AiDashboardKpi | null>(null);
@@ -221,10 +240,238 @@ function AiReviewerOverview() {
     ];
   }, [kpi]);
 
+  const renderTrendChartCard = () => (
+    <Card
+      title="每日审核量趋势"
+      extra={
+        <Space size={8} wrap>
+          <Segmented
+            size="small"
+            value={trendDays}
+            onChange={(v) => handleTrendDaysChange(v as 7 | 30)}
+            options={[
+              { label: '近 7 天', value: 7 },
+              { label: '近 30 天', value: 30 },
+            ]}
+          />
+          <Segmented
+            size="small"
+            value={trendChartType}
+            onChange={(v) => setTrendChartType(v as 'line' | 'bar')}
+            options={[
+              { label: '折线图', value: 'line', icon: <LineChartOutlined /> },
+              { label: '柱状图', value: 'bar', icon: <BarChartOutlined /> },
+            ]}
+          />
+        </Space>
+      }
+      className="ai-overview-chart-card"
+    >
+      <Spin spinning={trendLoading}>
+        <ResponsiveContainer width="100%" height={280}>
+          {trendChartType === 'line' ? (
+            <LineChart data={trend} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" />
+              <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="pass" name="PASS" stroke="#22c55e" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="needHuman" name="人工复核" stroke="#f59e0b" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="reject" name="REJECT" stroke="#ef4444" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="total" name="总量" stroke="var(--lh-primary)" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+            </LineChart>
+          ) : (
+            <BarChart
+              data={trend}
+              margin={{ top: 10, right: 12, left: -12, bottom: 0 }}
+              barGap={2}
+              barCategoryGap="24%"
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+              <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip
+                cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
+                contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+              />
+              <Bar dataKey="pass" name="PASS" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={14} />
+              <Bar dataKey="needHuman" name="人工复核" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={14} />
+              <Bar dataKey="reject" name="REJECT" fill="#ef4444" radius={[3, 3, 0, 0]} maxBarSize={14} />
+              <Bar dataKey="total" name="总量" fill="#94a3b8" radius={[3, 3, 0, 0]} maxBarSize={14} />
+            </BarChart>
+          )}
+        </ResponsiveContainer>
+        {trendChartType === 'bar' && (
+          <div className="bar-legend">
+            <span><i className="dot" style={{ background: '#22c55e' }} />PASS</span>
+            <span><i className="dot" style={{ background: '#f59e0b' }} />人工复核</span>
+            <span><i className="dot" style={{ background: '#ef4444' }} />REJECT</span>
+            <span><i className="dot" style={{ background: '#94a3b8' }} />总量</span>
+          </div>
+        )}
+      </Spin>
+    </Card>
+  );
+
+  const renderDecisionChartCard = () => (
+    <Card title="决策分布" loading={loading} className="ai-overview-chart-card">
+      <Row gutter={[8, 8]} align="middle" style={{ paddingTop: 8 }}>
+        <Col xs={24} md={13}>
+          <div style={{ position: 'relative', width: '100%', height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={decisions}
+                  dataKey="count"
+                  nameKey="decision"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={58}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  stroke="none"
+                >
+                  {decisions.map((entry) => (
+                    <Cell key={entry.decision} fill={DECISION_COLORS[entry.decision] ?? '#94a3b8'} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+                  formatter={(value, name) => [value as number, decisionLabel(String(name))]}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="donut-center-text">
+              <div className="donut-center-total">
+                {decisions.reduce((s, d) => s + d.count, 0)}
+              </div>
+              <div className="donut-center-sub">Total</div>
+            </div>
+          </div>
+        </Col>
+        <Col xs={24} md={11}>
+          <ul className="donut-legend">
+            {decisions.map((d) => {
+              const total = decisions.reduce((s, x) => s + x.count, 0);
+              const ratio = total === 0 ? 0 : (d.count / total) * 100;
+              return (
+                <li key={d.decision}>
+                  <span
+                    className="donut-dot"
+                    style={{ background: DECISION_COLORS[d.decision] ?? '#94a3b8' }}
+                  />
+                  <span className="donut-percent">{ratio.toFixed(0)}%</span>
+                  <span className="donut-label">{decisionLabel(d.decision)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Col>
+      </Row>
+    </Card>
+  );
+
+  const renderPassRateChartCard = () => (
+    <Card title="AI 通过率" loading={loading} className="ai-overview-chart-card">
+      <div style={{ position: 'relative', width: '100%', height: 200 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RadialBarChart
+            cx="50%"
+            cy="50%"
+            innerRadius="68%"
+            outerRadius="92%"
+            data={passRateData}
+            startAngle={90}
+            endAngle={-270}
+          >
+            <RadialBar dataKey="value" cornerRadius={12} background={{ fill: '#f1f5f9' }} />
+          </RadialBarChart>
+        </ResponsiveContainer>
+        <div className="donut-center-text">
+          <div className="ai-overview-pass-rate">
+            {Math.round((kpi?.passRate ?? 0) * 100)}%
+          </div>
+          <div className="donut-center-sub">PASS 占比</div>
+        </div>
+      </div>
+      <div className="ai-overview-pass-foot">
+        <span>
+          成功 <strong>{kpi?.succeededJobs ?? 0}</strong>
+        </span>
+        <span style={{ color: '#cbd5e1' }}>·</span>
+        <span>
+          总数 <strong>{kpi?.totalJobs ?? 0}</strong>
+        </span>
+      </div>
+    </Card>
+  );
+
+  const renderEfficiencyChartCard = () => (
+    <Card title="处理效率" loading={loading} className="ai-overview-chart-card">
+      <div className="ai-overview-eff-grid">
+        <div className="ai-overview-eff-cell">
+          <ClockCircleOutlined className="ai-overview-eff-icon is-clock" />
+          <div className="ai-overview-eff-value">
+            {kpi?.avgDurationSec ? `${Math.round(kpi.avgDurationSec)}s` : '-'}
+          </div>
+          <div className="ai-overview-eff-label">平均处理时长</div>
+        </div>
+        <div className="ai-overview-eff-cell">
+          <CheckCircleFilled className="ai-overview-eff-icon is-success" />
+          <div className="ai-overview-eff-value">{kpi?.succeededJobs ?? 0}</div>
+          <div className="ai-overview-eff-label">已完成审核</div>
+        </div>
+      </div>
+    </Card>
+  );
+
+  const renderTaskVolumeChartCard = () => (
+    <Card title="任务审核量对比" loading={loading} className="ai-overview-chart-card">
+      <ResponsiveContainer width="100%" height={300}>
+        <BarChart data={taskVolumes} margin={{ top: 10, right: 30, left: 0, bottom: 0 }} barCategoryGap="32%">
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f7" vertical={false} />
+          <XAxis
+            dataKey="taskTitle"
+            tick={{ fontSize: 11, fill: '#94a3b8' }}
+            axisLine={{ stroke: '#e2e8f0' }}
+            tickLine={false}
+          />
+          <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+          <Tooltip
+            cursor={{ fill: 'rgba(47, 123, 255, 0.04)' }}
+            contentStyle={{ borderRadius: 10, border: '1px solid #eef0f5', fontSize: 12 }}
+          />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="pass" name="通过" stackId="a" fill="#22c55e" maxBarSize={32} />
+          <Bar dataKey="needHuman" name="人工复核" stackId="a" fill="#a855f7" maxBarSize={32} />
+          <Bar dataKey="reject" name="打回" stackId="a" fill="#ef4444" maxBarSize={32} radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </Card>
+  );
+
+  const renderOverviewChartCard = (chartKey: AiOverviewChartKey) => {
+    switch (chartKey) {
+      case 'decisions':
+        return renderDecisionChartCard();
+      case 'passRate':
+        return renderPassRateChartCard();
+      case 'efficiency':
+        return renderEfficiencyChartCard();
+      case 'tasks':
+        return renderTaskVolumeChartCard();
+      case 'trend':
+      default:
+        return renderTrendChartCard();
+    }
+  };
+
   return (
     <AiReviewerShell
       title="AI 审核后台"
       description="AI Agent 作业运行统计、决策分布、趋势分析与任务维度对比。"
+      className="ai-reviewer-overview-page"
     >
       {/* 顶部操作 */}
       <Space wrap>
@@ -238,7 +485,7 @@ function AiReviewerOverview() {
       </Space>
 
       {/* KPI 行 */}
-      <Row gutter={16} className="row-equal">
+      <Row gutter={16} className="row-equal ai-reviewer-overview-kpi-row">
         <Col xs={12} md={4}>
           <Card className="owner-stat-card" loading={loading}>
             <div className="owner-stat-label"><DashboardOutlined /> 总作业</div>
@@ -277,6 +524,19 @@ function AiReviewerOverview() {
         </Col>
       </Row>
 
+      <div className="ai-reviewer-mobile-chart-panel">
+        <div className="ai-reviewer-mobile-chart-switcher">
+          <Text strong>统计图表</Text>
+          <Select
+            value={mobileChartKey}
+            onChange={(value) => setMobileChartKey(value as AiOverviewChartKey)}
+            options={AI_OVERVIEW_CHART_OPTIONS}
+          />
+        </div>
+        {renderOverviewChartCard(mobileChartKey)}
+      </div>
+
+      <div className="ai-reviewer-desktop-chart-stack">
       {/* 图表行 1:每日审核量趋势(支持折线图/柱状图切换) */}
       <Card
         title="每日审核量趋势"
@@ -490,6 +750,7 @@ function AiReviewerOverview() {
           </BarChart>
         </ResponsiveContainer>
       </Card>
+      </div>
     </AiReviewerShell>
   );
 }

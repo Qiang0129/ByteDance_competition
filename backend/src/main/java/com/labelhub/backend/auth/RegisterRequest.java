@@ -11,4 +11,5 @@ public record RegisterRequest(
     @Size(min = 6, max = 72, message = "password length must be 6-72")
     String password,
     String role,
-    String inviteToken) {}
+    String inviteToken,
+    String turnstileToken) {}

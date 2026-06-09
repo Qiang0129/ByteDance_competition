@@ -134,6 +134,33 @@ export const dashboardApi = {
     triggerBrowserDownload(blob, filename);
   },
 
+  async downloadDashboardExport(params: { range?: string; reviewYear?: number } = {}): Promise<void> {
+    const headers = new Headers();
+    const token = getAuthToken();
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    const searchParams = new URLSearchParams();
+    if (params.range) searchParams.set('range', params.range);
+    if (params.reviewYear) searchParams.set('reviewYear', String(params.reviewYear));
+    const query = searchParams.toString();
+    const response = await fetch(buildApiUrl(`/dashboard/export${query ? `?${query}` : ''}`), {
+      headers,
+    });
+    if (!response.ok) {
+      await throwDownloadError(response);
+    }
+
+    const blob = await response.blob();
+    const fallbackRange = params.range ?? '30d';
+    const fallbackYear = params.reviewYear ?? new Date().getFullYear();
+    const filename =
+      parseFilename(response.headers.get('content-disposition')) ??
+      `dashboard-export-${fallbackRange}-${fallbackYear}.csv`;
+    triggerBrowserDownload(blob, filename);
+  },
+
   getLabelerPerformance(range = '30d'): Promise<{ items: LabelerPerformance[] }> {
     return apiRequest(
       `/dashboard/labeler-performance?range=${encodeURIComponent(range)}`,

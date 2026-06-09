@@ -25,6 +25,11 @@ labelhub:
     dir: ${LABELHUB_PROMPTS_DIR:agent/prompts}
   auth:
     token-ttl-seconds: ${LABELHUB_AUTH_TOKEN_TTL_SECONDS:7200}
+    service-login-token: ${LABELHUB_AUTH_SERVICE_LOGIN_TOKEN:labelhub-local-service-login-token}
+    turnstile:
+      secret-key: ${LABELHUB_AUTH_TURNSTILE_SECRET_KEY:1x0000000000000000000000000000000AA}
+      siteverify-url: ${LABELHUB_AUTH_TURNSTILE_SITEVERIFY_URL:https://challenges.cloudflare.com/turnstile/v0/siteverify}
+      timeout-ms: ${LABELHUB_AUTH_TURNSTILE_TIMEOUT_MS:5000}
     demo-users:
       enabled: ${LABELHUB_DEMO_USERS_ENABLED:true}
       owner-password: ${LABELHUB_DEMO_OWNER_PASSWORD:owner123}

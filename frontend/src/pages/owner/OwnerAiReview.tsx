@@ -889,9 +889,11 @@ export function JobsPanel() {
           />
           <div className="ai-review-job-mobile-main">
             <div className="ai-review-job-mobile-title-line">
-              <Text code className="ai-review-job-mobile-id">
-                {job.jobId}
-              </Text>
+              <div className="ai-review-job-mobile-id-wrap">
+                <Text code className="ai-review-job-mobile-id">
+                  {job.jobId}
+                </Text>
+              </div>
               <div className="ai-review-job-mobile-status">
                 <Tag color={statusMeta.color}>{statusMeta.label}</Tag>
                 {stuck ? <Tag color="warning">疑似卡住</Tag> : null}
@@ -924,18 +926,35 @@ export function JobsPanel() {
         </div>
 
         <div className="ai-review-job-mobile-meta">
-          <span>创建：{job.createdAt}</span>
-          {job.finishedAt ? <span>结束：{job.finishedAt}</span> : null}
+          <span>
+            <span className="ai-review-job-mobile-meta-label">创建</span>
+            {job.createdAt}
+          </span>
+          {job.finishedAt ? (
+            <span>
+              <span className="ai-review-job-mobile-meta-label">结束</span>
+              {job.finishedAt}
+            </span>
+          ) : null}
         </div>
 
         {lastError ? <div className="ai-review-job-mobile-error">{lastError}</div> : null}
 
         <div className="ai-review-job-mobile-actions">
-          <Button type="primary" icon={<EyeOutlined />} onClick={() => void openResult(job)}>
+          <Button
+            type="primary"
+            className="ai-review-job-mobile-primary-action"
+            icon={<EyeOutlined />}
+            onClick={() => void openResult(job)}
+          >
             查看结果
           </Button>
           {job.status === 'failed' && (
-            <Button icon={<RedoOutlined />} onClick={() => void handleRetry(job)}>
+            <Button
+              className="ai-review-job-mobile-secondary-action"
+              icon={<RedoOutlined />}
+              onClick={() => void handleRetry(job)}
+            >
               重新执行
             </Button>
           )}
@@ -947,7 +966,11 @@ export function JobsPanel() {
               cancelText="再等等"
               onConfirm={() => void handleCancel(job)}
             >
-              <Button danger={stuck} icon={<StopOutlined />}>
+              <Button
+                danger={stuck}
+                className="ai-review-job-mobile-secondary-action"
+                icon={<StopOutlined />}
+              >
                 取消并重新排队
               </Button>
             </Popconfirm>
@@ -1307,6 +1330,7 @@ function JobResultDrawer({
       open={open}
       onClose={onClose}
       width={520}
+      rootClassName="ai-review-result-drawer-root"
       className="ai-review-result-drawer"
     >
       {!result || loading ? (

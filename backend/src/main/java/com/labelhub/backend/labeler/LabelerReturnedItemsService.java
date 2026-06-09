@@ -26,6 +26,7 @@ public class LabelerReturnedItemsService {
   private static final String REWORK_STATUS_RETURNED = "RETURNED";
   private static final String REWORK_STATUS_SUBMITTED = "REWORK_SUBMITTED";
   private static final String REWORK_STATUS_AI_PRE_REJECT = "AI_PRE_REJECT";
+  private static final String LABELER_REVIEWER_ACTOR = "Reviewer";
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
   private final LabelerReturnedItemsRepository repository;
@@ -41,15 +42,17 @@ public class LabelerReturnedItemsService {
   public PageResponse<LabelerReturnedItemResponse> listReturnedItems(
       Authentication authentication,
       String source,
+      String keyword,
       Integer page,
       Integer pageSize) {
     AuthenticatedUser labeler = requireLabeler(authentication);
     String normalizedSource = normalizeSource(source);
+    String normalizedKeyword = normalizeKeyword(keyword);
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
-    long total = repository.countReturnedItems(labeler.id(), normalizedSource);
+    long total = repository.countReturnedItems(labeler.id(), normalizedSource, normalizedKeyword);
     List<LabelerReturnedItemResponse> items = repository
-        .listReturnedItems(labeler.id(), normalizedSource, safePageSize, (safePage - 1) * safePageSize)
+        .listReturnedItems(labeler.id(), normalizedSource, normalizedKeyword, safePageSize, (safePage - 1) * safePageSize)
         .stream()
         .map(this::toResponse)
         .toList();
@@ -64,8 +67,9 @@ public class LabelerReturnedItemsService {
     boolean returned = REWORK_STATUS_RETURNED.equals(reworkStatus);
     boolean reworkOpen = returned
         && record.resubmitDeadline() != null
-        && record.resubmitDeadline().isAfter(LocalDateTime.now());
-    String expiredReason = returned && !reworkOpen ? "RETURN_REWORK_EXPIRED" : "";
+        && record.resubmitDeadline().isAfter(LocalDateTime.now())
+        && !isTaskDeadlineExpired(record.taskDeadline());
+    String expiredReason = resolveExpiredReason(returned, reworkOpen, record.taskDeadline());
     String taskTitle = blankToDefault(record.taskTitle(), "标注任务");
     String taskType = blankToDefault(record.taskType(), "Annotation Task");
     int itemIndex = Math.max(record.itemIndex(), 1);
@@ -86,7 +90,7 @@ public class LabelerReturnedItemsService {
         Long.toString(record.schemaVersionId()),
         record.revisionNo(),
         formatDateTime(record.updatedAt()),
-        nullToEmpty(record.reviewerName()),
+        humanReturn ? LABELER_REVIEWER_ACTOR : "",
         record.reviewRoundNo(),
         reviewStageNo,
         reviewStageLabel,
@@ -100,7 +104,7 @@ public class LabelerReturnedItemsService {
         reworkOpen,
         expiredReason,
         resolveActionable(humanReturn, reworkStatus, reworkOpen),
-        resolveActionText(humanReturn, reworkStatus, reworkOpen),
+        resolveActionText(humanReturn, reworkStatus, reworkOpen, expiredReason),
         reworkStatus,
         resolveReworkStatusLabel(reworkStatus, record.returnCount()),
         nullToEmpty(record.reviewDecision()),
@@ -121,12 +125,19 @@ public class LabelerReturnedItemsService {
     return true;
   }
 
-  private String resolveActionText(boolean humanReturn, String reworkStatus, boolean reworkOpen) {
+  private String resolveActionText(
+      boolean humanReturn,
+      String reworkStatus,
+      boolean reworkOpen,
+      String expiredReason) {
     if (!humanReturn) {
       return "等待人工审核";
     }
     if (REWORK_STATUS_RETURNED.equals(reworkStatus)) {
-      return reworkOpen ? "立即修改" : "返修已过期";
+      if (reworkOpen) {
+        return "立即修改";
+      }
+      return "TASK_EXPIRED".equals(expiredReason) ? "任务已截止" : "返修已过期";
     }
     if (REWORK_STATUS_SUBMITTED.equals(reworkStatus)) {
       return "查看修改";
@@ -205,7 +216,7 @@ public class LabelerReturnedItemsService {
         timeline.add(new LabelerReturnedItemTimelineResponse(
             "ai-" + record.annotationId(),
             "ai_review",
-            "AI预审（Revision " + record.revisionNo() + "）",
+            "第 " + record.revisionNo() + " 轮 AI预审",
             "AI Agent",
             decision,
             null,
@@ -223,7 +234,7 @@ public class LabelerReturnedItemsService {
             "human-" + record.annotationId() + "-" + timeline.size(),
             "human_review",
             resolveHumanTimelineTitle(record.revisionNo(), decision, finalReview),
-            blankToDefault(record.humanReviewerName(), "Reviewer"),
+            LABELER_REVIEWER_ACTOR,
             decision,
             record.humanReason(),
             null,
@@ -308,6 +319,21 @@ public class LabelerReturnedItemsService {
           "INVALID_RETURNED_ITEM_SOURCE",
           "unsupported returned item source");
     };
+  }
+
+  private String normalizeKeyword(String keyword) {
+    return keyword == null ? "" : keyword.trim();
+  }
+
+  private String resolveExpiredReason(boolean returned, boolean reworkOpen, LocalDateTime taskDeadline) {
+    if (!returned || reworkOpen) {
+      return "";
+    }
+    return isTaskDeadlineExpired(taskDeadline) ? "TASK_EXPIRED" : "RETURN_REWORK_EXPIRED";
+  }
+
+  private boolean isTaskDeadlineExpired(LocalDateTime taskDeadline) {
+    return taskDeadline != null && taskDeadline.isBefore(LocalDateTime.now());
   }
 
   private List<String> readStringArray(String json) {

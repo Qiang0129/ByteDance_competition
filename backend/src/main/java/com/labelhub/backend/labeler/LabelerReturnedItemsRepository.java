@@ -7,6 +7,7 @@ import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -19,12 +20,12 @@ public class LabelerReturnedItemsRepository {
     this.jdbcTemplate = jdbcTemplate;
   }
 
-  public long countReturnedItems(long labelerId, String source) {
+  public long countReturnedItems(long labelerId, String source, String keyword) {
     List<Object> args = new ArrayList<>();
     String sql = switch (source) {
-      case "human_return", "reworked", "reviewed" -> humanReworkCountSql(labelerId, source, args);
-      case "ai_pre_reject" -> aiPreRejectCountSql(labelerId, args);
-      default -> allReturnedCountSql(labelerId, args);
+      case "human_return", "reworked", "reviewed" -> humanReworkCountSql(labelerId, source, keyword, args);
+      case "ai_pre_reject" -> aiPreRejectCountSql(labelerId, keyword, args);
+      default -> allReturnedCountSql(labelerId, keyword, args);
     };
     Long count = jdbcTemplate.queryForObject(sql, Long.class, args.toArray());
     return count == null ? 0 : count;
@@ -33,9 +34,10 @@ public class LabelerReturnedItemsRepository {
   public List<ReturnedItemRecord> listReturnedItems(
       long labelerId,
       String source,
+      String keyword,
       int limit,
       int offset) {
-    return queryRecords(labelerId, source, limit, offset);
+    return queryRecords(labelerId, source, keyword, limit, offset);
   }
 
   public List<ReturnedItemTimelineRecord> listReviewTimeline(long assignmentId) {
@@ -161,20 +163,21 @@ public class LabelerReturnedItemsRepository {
   private List<ReturnedItemRecord> queryRecords(
       long labelerId,
       String source,
+      String keyword,
       int limit,
       int offset) {
     List<Object> args = new ArrayList<>();
     String sql = switch (source) {
-      case "human_return", "reworked", "reviewed" -> humanReworkSql(labelerId, source, args);
-      case "ai_pre_reject" -> aiPreRejectSql(labelerId, args);
-      default -> allReturnedSql(labelerId, args);
+      case "human_return", "reworked", "reviewed" -> humanReworkSql(labelerId, source, keyword, args);
+      case "ai_pre_reject" -> aiPreRejectSql(labelerId, keyword, args);
+      default -> allReturnedSql(labelerId, keyword, args);
     };
     args.add(limit);
     args.add(offset);
     return jdbcTemplate.query(sql, this::mapRecord, args.toArray());
   }
 
-  private String allReturnedSql(long labelerId, List<Object> args) {
+  private String allReturnedSql(long labelerId, String keyword, List<Object> args) {
     args.add(labelerId);
     args.add(labelerId);
     return """
@@ -184,37 +187,39 @@ public class LabelerReturnedItemsRepository {
           UNION ALL
         """ + baseAiPreRejectSelect() + """
         ) returned_items
+        """ + returnedItemsFilter("", keyword, args) + """
         ORDER BY updated_at DESC, annotation_id DESC
         LIMIT ? OFFSET ?
         """;
   }
 
-  private String humanReworkSql(long labelerId, String source, List<Object> args) {
+  private String humanReworkSql(long labelerId, String source, String keyword, List<Object> args) {
     args.add(labelerId);
     return """
         SELECT *
         FROM (
         """ + baseHumanReworkSelect() + """
         ) returned_items
-        """ + humanReworkFilter(source) + """
+        """ + returnedItemsFilter(source, keyword, args) + """
         ORDER BY updated_at DESC, annotation_id DESC
         LIMIT ? OFFSET ?
         """;
   }
 
-  private String aiPreRejectSql(long labelerId, List<Object> args) {
+  private String aiPreRejectSql(long labelerId, String keyword, List<Object> args) {
     args.add(labelerId);
     return """
         SELECT *
         FROM (
         """ + baseAiPreRejectSelect() + """
         ) returned_items
+        """ + returnedItemsFilter("", keyword, args) + """
         ORDER BY updated_at DESC, annotation_id DESC
         LIMIT ? OFFSET ?
         """;
   }
 
-  private String allReturnedCountSql(long labelerId, List<Object> args) {
+  private String allReturnedCountSql(long labelerId, String keyword, List<Object> args) {
     args.add(labelerId);
     args.add(labelerId);
     return """
@@ -224,37 +229,61 @@ public class LabelerReturnedItemsRepository {
           UNION ALL
         """ + baseAiPreRejectSelect() + """
         ) returned_items
+        """ + returnedItemsFilter("", keyword, args) + """
         """;
   }
 
-  private String humanReworkCountSql(long labelerId, String source, List<Object> args) {
+  private String humanReworkCountSql(long labelerId, String source, String keyword, List<Object> args) {
     args.add(labelerId);
     return """
         SELECT COUNT(*)
         FROM (
         """ + baseHumanReworkSelect() + """
         ) returned_items
-        """ + humanReworkFilter(source) + """
+        """ + returnedItemsFilter(source, keyword, args) + """
         """;
   }
 
-  private String aiPreRejectCountSql(long labelerId, List<Object> args) {
+  private String aiPreRejectCountSql(long labelerId, String keyword, List<Object> args) {
     args.add(labelerId);
     return """
         SELECT COUNT(*)
         FROM (
         """ + baseAiPreRejectSelect() + """
         ) returned_items
+        """ + returnedItemsFilter("", keyword, args) + """
         """;
   }
 
-  private String humanReworkFilter(String source) {
-    return switch (source) {
-      case "human_return" -> "WHERE rework_status = 'RETURNED'\n";
-      case "reworked" -> "WHERE rework_status = 'REWORK_SUBMITTED'\n";
-      case "reviewed" -> "WHERE rework_status IN ('REVIEW_APPROVED', 'REVIEW_REVISED', 'REVIEW_ESCALATED')\n";
-      default -> "";
-    };
+  private String returnedItemsFilter(String source, String keyword, List<Object> args) {
+    List<String> conditions = new ArrayList<>();
+    switch (source) {
+      case "human_return" -> conditions.add("rework_status = 'RETURNED'");
+      case "reworked" -> conditions.add("rework_status = 'REWORK_SUBMITTED'");
+      case "reviewed" -> conditions.add("rework_status IN ('REVIEW_APPROVED', 'REVIEW_REVISED', 'REVIEW_ESCALATED')");
+      default -> {
+      }
+    }
+    String normalizedKeyword = keyword == null ? "" : keyword.trim();
+    if (!normalizedKeyword.isBlank()) {
+      conditions.add("""
+          (
+            LOWER(COALESCE(task_title, '')) LIKE ?
+            OR CAST(task_id AS CHAR) LIKE ?
+            OR CAST(item_id AS CHAR) LIKE ?
+            OR CAST(assignment_id AS CHAR) LIKE ?
+          )
+          """);
+      String likeKeyword = "%" + normalizedKeyword.toLowerCase(Locale.ROOT) + "%";
+      args.add(likeKeyword);
+      args.add(likeKeyword);
+      args.add(likeKeyword);
+      args.add(likeKeyword);
+    }
+    if (conditions.isEmpty()) {
+      return "";
+    }
+    return "WHERE " + String.join("\n          AND ", conditions) + "\n";
   }
 
   private String baseHumanReworkSelect() {
@@ -266,6 +295,7 @@ public class LabelerReturnedItemsRepository {
             a.task_id,
             a.item_id,
             a.resubmit_deadline,
+            t.deadline AS task_deadline,
             t.title AS task_title,
             JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
             COALESCE(rework_an.schema_version_id, returned_an.schema_version_id) AS schema_version_id,
@@ -402,6 +432,7 @@ public class LabelerReturnedItemsRepository {
             a.task_id,
             a.item_id,
             NULL AS resubmit_deadline,
+            t.deadline AS task_deadline,
             t.title AS task_title,
             JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.taskType')) AS task_type,
             an.schema_version_id,
@@ -476,6 +507,7 @@ public class LabelerReturnedItemsRepository {
         rs.getLong("task_id"),
         rs.getLong("item_id"),
         toLocalDateTime(rs.getTimestamp("resubmit_deadline")),
+        toLocalDateTime(rs.getTimestamp("task_deadline")),
         rs.getString("task_title"),
         rs.getString("task_type"),
         rs.getLong("schema_version_id"),
@@ -524,6 +556,7 @@ public class LabelerReturnedItemsRepository {
       long taskId,
       long itemId,
       LocalDateTime resubmitDeadline,
+      LocalDateTime taskDeadline,
       String taskTitle,
       String taskType,
       long schemaVersionId,

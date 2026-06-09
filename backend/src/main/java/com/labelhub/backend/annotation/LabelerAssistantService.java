@@ -120,7 +120,10 @@ public class LabelerAssistantService {
   private boolean isEditableAssignment(AssignmentItemRecord assignment) {
     String status = normalize(assignment.assignmentStatus());
     if ("returned".equals(status)) {
-      return assignment.resubmitDeadline() != null && assignment.resubmitDeadline().isAfter(LocalDateTime.now());
+      return "published".equals(normalize(assignment.taskStatus()))
+          && !isDeadlineExpired(assignment.taskDeadline())
+          && assignment.resubmitDeadline() != null
+          && assignment.resubmitDeadline().isAfter(LocalDateTime.now());
     }
     return List.of("claimed", "submitted").contains(status)
         && "published".equals(normalize(assignment.taskStatus()))

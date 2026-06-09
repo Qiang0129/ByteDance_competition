@@ -112,7 +112,10 @@ public class LabelerLlmTriggerService {
     }
     String status = normalize(assignment.assignmentStatus());
     boolean editable = "returned".equals(status)
-        ? assignment.resubmitDeadline() != null && assignment.resubmitDeadline().isAfter(LocalDateTime.now())
+        ? "published".equals(normalize(assignment.taskStatus()))
+            && !isDeadlineExpired(assignment.taskDeadline())
+            && assignment.resubmitDeadline() != null
+            && assignment.resubmitDeadline().isAfter(LocalDateTime.now())
         : List.of("claimed", "submitted").contains(status)
             && "published".equals(normalize(assignment.taskStatus()))
             && !isDeadlineExpired(assignment.taskDeadline());

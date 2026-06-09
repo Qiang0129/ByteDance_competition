@@ -93,12 +93,14 @@ function toPageQueryString(query?: { page?: number; pageSize?: number }): string
 
 function toReturnedItemsQueryString(query?: {
   source?: ReturnedItemSource;
+  keyword?: string;
   page?: number;
   pageSize?: number;
 }): string {
   if (!query) return '';
   const search = new URLSearchParams();
   if (query.source) search.set('source', query.source);
+  if (query.keyword) search.set('keyword', query.keyword);
   if (query.page) search.set('page', String(query.page));
   if (query.pageSize) search.set('pageSize', String(query.pageSize));
   const qs = search.toString();
@@ -166,6 +168,7 @@ export const labelerApi = {
   /** 打回项:区分人工审核正式打回与 AI 预打回建议 */
   listReturnedItems(query?: {
     source?: ReturnedItemSource;
+    keyword?: string;
     page?: number;
     pageSize?: number;
   }): Promise<PageResult<LabelerReturnedItem>> {

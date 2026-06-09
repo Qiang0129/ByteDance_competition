@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -42,6 +43,8 @@ interface ThemeContextValue {
   colorMode: ColorMode;
   /** 实际渲染时落到 :root 上的色彩模式(把 system 解析成具体 light/dark) */
   resolvedColorMode: 'light' | 'paper' | 'dark';
+  /** 当前页面实际应用的色彩模式,公开页会强制为 light,但不改用户偏好 */
+  effectiveColorMode: 'light' | 'paper' | 'dark';
   preset: ThemePreset;
   setThemeKey: (key: ThemeKey) => void;
   setStyleVersion: (version: StyleVersion) => void;
@@ -149,14 +152,24 @@ function applyThemeVars(
 
 interface ThemeProviderProps {
   children: ReactNode;
+  forcedThemeKey?: ThemeKey;
+  forcedStyleVersion?: StyleVersion;
+  forcedColorMode?: 'light' | 'paper' | 'dark';
 }
 
-export function ThemeProvider({ children }: ThemeProviderProps) {
+export function ThemeProvider({
+  children,
+  forcedThemeKey,
+  forcedStyleVersion,
+  forcedColorMode,
+}: ThemeProviderProps) {
   const [themeKey, setThemeKeyState] = useState<ThemeKey>(() => readPersistedTheme());
   const [styleVersion, setStyleVersionState] = useState<StyleVersion>(() => readPersistedStyle());
   const [colorMode, setColorModeState] = useState<ColorMode>(() => readPersistedColorMode());
 
-  const preset = useMemo(() => findPreset(themeKey), [themeKey]);
+  const effectiveThemeKey = forcedThemeKey ?? themeKey;
+  const effectiveStyleVersion = forcedStyleVersion ?? styleVersion;
+  const preset = useMemo(() => findPreset(effectiveThemeKey), [effectiveThemeKey]);
 
   // system 模式下读取 prefers-color-scheme,只在 system 时跟随系统变化
   const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => {
@@ -189,18 +202,23 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     if (colorMode === 'system') return systemPrefersDark ? 'dark' : 'light';
     return colorMode;
   }, [colorMode, systemPrefersDark]);
+  const effectiveColorMode = forcedColorMode ?? resolvedColorMode;
 
-  // 主题或样式或色彩模式变化:写入 CSS 变量 + localStorage 持久化
+  // 主题或样式或页面强制色彩模式变化:先同步写入 CSS 变量,避免路由切换时公开页闪暗色
+  useLayoutEffect(() => {
+    applyThemeVars(preset, effectiveStyleVersion, effectiveColorMode);
+  }, [preset, effectiveStyleVersion, effectiveColorMode]);
+
+  // 用户偏好继续持久化原始选择,公开页的强制亮色不写回 localStorage
   useEffect(() => {
-    applyThemeVars(preset, styleVersion, resolvedColorMode);
     try {
-      window.localStorage.setItem(STORAGE_KEY_THEME, preset.key);
+      window.localStorage.setItem(STORAGE_KEY_THEME, themeKey);
       window.localStorage.setItem(STORAGE_KEY_STYLE, styleVersion);
       window.localStorage.setItem(STORAGE_KEY_COLOR_MODE, colorMode);
     } catch {
       // 隐私模式 / 容量爆满时忽略,主题仍在内存中生效
     }
-  }, [preset, styleVersion, colorMode, resolvedColorMode]);
+  }, [themeKey, styleVersion, colorMode]);
 
   const setThemeKey = useCallback((key: ThemeKey) => {
     setThemeKeyState(key);
@@ -220,6 +238,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       styleVersion,
       colorMode,
       resolvedColorMode,
+      effectiveColorMode,
       preset,
       setThemeKey,
       setStyleVersion,
@@ -230,6 +249,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       styleVersion,
       colorMode,
       resolvedColorMode,
+      effectiveColorMode,
       preset,
       setThemeKey,
       setStyleVersion,

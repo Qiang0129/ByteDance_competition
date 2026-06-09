@@ -42,6 +42,7 @@ import readmeSource from '../../../README.md?raw';
 import courseRequirementDocxUrl from '../../../LabelHub 数据标注平台 · AI全栈课题实现要求.docx?url';
 import englishImplementationPlanDocxUrl from '../../../LabelHub_Project_Implementation_Plan_EN.docx?url';
 import implementationPlanDocxUrl from '../../../项目实施计划书.docx?url';
+import basicTechDocxUrl from '../../../submission/Related_documents/基础技术文档.docx?url';
 import architectureDiagramUrl from '../../../submission/screenshots/系统架构图.png?url';
 import docsCenterPreviewUrl from '../../images/文档中心.png';
 import imageIconUrl from '../../images/图片.svg';
@@ -400,11 +401,13 @@ const docsResources: DocsResource[] = [
     id: 'basic-tech-docx',
     category: 'project',
     title: '基础技术文档.docx',
-    description: '基础技术文档资源尚未放入仓库，保留预览与下载接入位置。',
-    kind: 'missing',
-    status: 'missing',
-    badge: '待补充',
-    meta: '待补充',
+    description: '基础技术文档原始 Word 文档，包含项目基础技术说明和交付材料。',
+    kind: 'docx',
+    status: 'available',
+    badge: 'DOCX',
+    fileUrl: basicTechDocxUrl,
+    downloadName: '基础技术文档.docx',
+    meta: 'submission/Related_documents',
   },
   {
     id: 'readme',
@@ -752,15 +755,6 @@ function isPlainLeftClick(event: MouseEvent<HTMLAnchorElement>) {
   );
 }
 
-function usePublicPageClass() {
-  useEffect(() => {
-    document.documentElement.classList.add('lh-public-page');
-    return () => {
-      document.documentElement.classList.remove('lh-public-page');
-    };
-  }, []);
-}
-
 function PublicHeader({ activeKey }: { activeKey: PublicNavKey }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -877,7 +871,6 @@ function LandingFooter() {
 }
 
 export default function Landing() {
-  usePublicPageClass();
   const navigate = useNavigate();
   const { message } = App.useApp();
   const resetFrameRef = useRef<number | null>(null);
@@ -1080,7 +1073,6 @@ function PublicPlaceholderPage({
   title: string;
   description: string;
 }) {
-  usePublicPageClass();
   const location = useLocation();
 
   return (
@@ -1142,8 +1134,6 @@ export function DocsPlaceholder() {
     () => new Set(expandedMarkdownHeadingIdsByResourceId[activeResource.id] ?? []),
     [activeResource.id, expandedMarkdownHeadingIdsByResourceId],
   );
-
-  usePublicPageClass();
 
   const clearDocsQuickPreviewTimer = (resourceId: string) => {
     const timer = docsQuickPreviewTimersRef.current[resourceId];
@@ -1930,7 +1920,6 @@ export function DocsPlaceholder() {
                   onActiveMarkdownHeadingChange={setActiveMarkdownHeadingFromScroll}
                   onStartPreview={startDocsPreview}
                   onCancelPreview={() => cancelDocsPreview(activeResource.id)}
-                  onDownload={handleDownload}
                   onStageChange={setDocsPreviewStage}
                   onPreviewSuccess={completeDocsPreview}
                   onPreviewError={failDocsPreview}
@@ -2059,7 +2048,6 @@ function DocsPreview({
   onActiveMarkdownHeadingChange,
   onStartPreview,
   onCancelPreview,
-  onDownload,
   onStageChange,
   onPreviewSuccess,
   onPreviewError,
@@ -2073,7 +2061,6 @@ function DocsPreview({
   onActiveMarkdownHeadingChange?: (headingId: string) => void;
   onStartPreview: (resource: DocsResource) => void;
   onCancelPreview: () => void;
-  onDownload: () => void;
   onStageChange: (resourceId: string, runId: number, stage: DocsPreviewStage) => void;
   onPreviewSuccess: (resourceId: string, runId: number, cache: DocsPreviewCache) => void;
   onPreviewError: (resourceId: string, runId: number, error: string) => void;
@@ -2103,7 +2090,6 @@ function DocsPreview({
         previewCache={previewCache}
         onStartPreview={onStartPreview}
         onCancelPreview={onCancelPreview}
-        onDownload={onDownload}
         onStageChange={onStageChange}
         onPreviewSuccess={onPreviewSuccess}
         onPreviewError={onPreviewError}
@@ -2125,7 +2111,6 @@ function DocsPreview({
         previewState={previewState}
         previewCache={previewCache}
         onCancelPreview={onCancelPreview}
-        onDownload={onDownload}
         onPreviewSuccess={onPreviewSuccess}
       />
     );
@@ -2138,7 +2123,6 @@ function DocsPreview({
         previewState={previewState}
         onStartPreview={() => onStartPreview(resource)}
         onCancelPreview={onCancelPreview}
-        onDownload={onDownload}
       />
     );
   }
@@ -2174,14 +2158,12 @@ function MarkdownLayoutGate({
   previewState,
   previewCache,
   onCancelPreview,
-  onDownload,
   onPreviewSuccess,
 }: {
   resource: DocsResource;
   previewState: DocsPreviewState;
   previewCache: Extract<DocsPreviewCache, { kind: 'markdown' }>;
   onCancelPreview: () => void;
-  onDownload: () => void;
   onPreviewSuccess: (resourceId: string, runId: number, cache: DocsPreviewCache) => void;
 }) {
   const runId = previewState.runId;
@@ -2193,7 +2175,6 @@ function MarkdownLayoutGate({
         previewState={previewState}
         onStartPreview={() => undefined}
         onCancelPreview={onCancelPreview}
-        onDownload={onDownload}
       />
       {runId ? (
         <div className="landing-docs-markdown-layout-probe" aria-hidden="true">
@@ -2993,15 +2974,12 @@ function ManualDocsPreviewState({
   previewState,
   onStartPreview,
   onCancelPreview,
-  onDownload,
 }: {
   resource: DocsResource;
   previewState: DocsPreviewState;
   onStartPreview: () => void;
   onCancelPreview: () => void;
-  onDownload: () => void;
 }) {
-  const canDownload = Boolean(resource.fileUrl || resource.source || resource.loadSource);
   const isLoading = previewState.status === 'loading';
   const isError = previewState.status === 'error';
 
@@ -3024,12 +3002,6 @@ function ManualDocsPreviewState({
             {isError ? '重新预览' : '预览'}
           </button>
         )}
-        {canDownload && !isLoading ? (
-          <button type="button" className="landing-docs-preview-secondary-action" onClick={onDownload}>
-            <DownloadOutlined />
-            下载
-          </button>
-        ) : null}
       </div>
     </div>
   );
@@ -3073,7 +3045,6 @@ function DocxPreviewPane({
   previewCache,
   onStartPreview,
   onCancelPreview,
-  onDownload,
   onStageChange,
   onPreviewSuccess,
   onPreviewError,
@@ -3083,7 +3054,6 @@ function DocxPreviewPane({
   previewCache?: DocsPreviewCache;
   onStartPreview: (resource: DocsResource) => void;
   onCancelPreview: () => void;
-  onDownload: () => void;
   onStageChange: (resourceId: string, runId: number, stage: DocsPreviewStage) => void;
   onPreviewSuccess: (resourceId: string, runId: number, cache: DocsPreviewCache) => void;
   onPreviewError: (resourceId: string, runId: number, error: string) => void;
@@ -3184,7 +3154,6 @@ function DocxPreviewPane({
           previewState={previewState}
           onStartPreview={() => onStartPreview(resource)}
           onCancelPreview={onCancelPreview}
-          onDownload={onDownload}
         />
       ) : null}
       <div
@@ -3970,8 +3939,6 @@ export function AboutPlaceholder() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isAboutReadmeFullscreen]);
-
-  usePublicPageClass();
 
   return (
     <main className={`landing-page landing-about-page${isAboutReadmeFullscreen ? ' is-about-readme-fullscreen' : ''}`}>

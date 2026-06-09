@@ -240,6 +240,27 @@ LABELHUB_MODEL_CONFIG_SECRET=固定且足够随机的本地模型配置加密密
 LABELHUB_EXPORT_STORAGE_DIR=data/exports
 ```
 
+认证与人机验证配置：
+
+```text
+# 后端启动时读取，生产环境必须使用 Cloudflare Turnstile 真实 secret key。
+LABELHUB_AUTH_TURNSTILE_SECRET_KEY=你的 Cloudflare Turnstile secret key
+LABELHUB_AUTH_TURNSTILE_SITEVERIFY_URL=https://challenges.cloudflare.com/turnstile/v0/siteverify
+LABELHUB_AUTH_TURNSTILE_TIMEOUT_MS=5000
+
+# 后端启动时读取，用于允许 system_agent 机器登录绕过浏览器 Turnstile。
+# 生产环境必须替换为强随机值。
+LABELHUB_AUTH_SERVICE_LOGIN_TOKEN=同一个强随机服务令牌
+```
+
+前端构建配置：
+
+```text
+# 前端构建时读取，必须在 npm run build 前设置。
+# 这是公开 site key，可以出现在浏览器静态资源中。
+VITE_TURNSTILE_SITE_KEY=你的 Cloudflare Turnstile site key
+```
+
 后端演示账号密码可通过以下变量覆盖：
 
 ```text
@@ -259,6 +280,7 @@ LABELHUB_BACKEND_BASE_URL=http://localhost:8080
 LABELHUB_AGENT_USERNAME=system_agent
 LABELHUB_AGENT_PASSWORD=agent123
 LABELHUB_AGENT_ROLE=system_agent
+LABELHUB_AGENT_SERVICE_LOGIN_TOKEN=同一个强随机服务令牌
 LABELHUB_AGENT_WORKER_ENABLED=true
 LABELHUB_AGENT_CONCURRENCY=3
 LABELHUB_AGENT_POLL_INTERVAL_MS=5000
@@ -275,7 +297,18 @@ LABELHUB_LLM_TIMEOUT_MS=120000
 
 - `LABELHUB_MODEL_CONFIG_SECRET` 首次保存模型配置前必须设置，保存后不能随意更换。
 - `LABELHUB_LLM_API_KEY` 不要写入仓库文件，也不要提交到 Git。
+- `VITE_TURNSTILE_SITE_KEY` 是前端构建期变量，修改后需要重新执行 `npm run build`。
+- `LABELHUB_AUTH_TURNSTILE_SECRET_KEY` 只给后端使用，不要暴露到前端或提交到 Git。
+- `LABELHUB_AUTH_SERVICE_LOGIN_TOKEN` 与 `LABELHUB_AGENT_SERVICE_LOGIN_TOKEN` 必须完全一致，否则 Agent 无法登录后端领取 AI 审核任务。
 - 生产环境应关闭或重新配置演示账号，不要沿用 README 中的默认密码。
+
+生成强随机服务令牌的 PowerShell 示例：
+
+```powershell
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+[Convert]::ToBase64String($bytes)
+```
 
 ### 4.3 初始化数据库
 
@@ -321,6 +354,8 @@ PowerShell：
 cd backend
 $env:LABELHUB_DB_PASSWORD='数据库密码'
 $env:LABELHUB_MODEL_CONFIG_SECRET='labelhub-local-dev-secret-2026'
+$env:LABELHUB_AUTH_TURNSTILE_SECRET_KEY='你的 Cloudflare Turnstile secret key'
+$env:LABELHUB_AUTH_SERVICE_LOGIN_TOKEN='同一个强随机服务令牌'
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -330,6 +365,8 @@ cmd：
 cd backend
 set LABELHUB_DB_PASSWORD=123456
 set LABELHUB_MODEL_CONFIG_SECRET=labelhub-local-dev-secret-2026
+set LABELHUB_AUTH_TURNSTILE_SECRET_KEY=你的 Cloudflare Turnstile secret key
+set LABELHUB_AUTH_SERVICE_LOGIN_TOKEN=同一个强随机服务令牌
 mvnw.cmd spring-boot:run
 ```
 
@@ -342,6 +379,12 @@ Started LabelHubBackendApplication
 
 如果 `8080` 被占用，可以设置 `LABELHUB_BACKEND_PORT` 使用其它端口；同时需要同步调整前端 Vite proxy 的 `/api` target。
 
+说明：
+
+- 本地开发如果不配置 Turnstile 变量，会使用代码中的 Cloudflare 官方测试 key；生产环境必须覆盖为真实 key。
+- `LABELHUB_AUTH_TURNSTILE_SECRET_KEY` 是后端私密配置，只在后端启动时设置。
+- `LABELHUB_AUTH_SERVICE_LOGIN_TOKEN` 是后端校验 Agent 机器登录的共享令牌，必须和 Agent 侧 `LABELHUB_AGENT_SERVICE_LOGIN_TOKEN` 一致。
+
 ### 4.6 启动 Agent
 
 已有 Web 端 active 模型配置时：
@@ -352,6 +395,7 @@ $env:LABELHUB_BACKEND_BASE_URL='http://localhost:8080'
 $env:LABELHUB_AGENT_USERNAME='system_agent'
 $env:LABELHUB_AGENT_PASSWORD='agent123'
 $env:LABELHUB_AGENT_ROLE='system_agent'
+$env:LABELHUB_AGENT_SERVICE_LOGIN_TOKEN='同一个强随机服务令牌'
 $env:LABELHUB_AGENT_CONCURRENCY='3'
 .\mvnw.cmd spring-boot:run
 ```
@@ -364,6 +408,7 @@ $env:LABELHUB_BACKEND_BASE_URL='http://localhost:8080'
 $env:LABELHUB_AGENT_USERNAME='system_agent'
 $env:LABELHUB_AGENT_PASSWORD='agent123'
 $env:LABELHUB_AGENT_ROLE='system_agent'
+$env:LABELHUB_AGENT_SERVICE_LOGIN_TOKEN='同一个强随机服务令牌'
 $env:LABELHUB_LLM_BASE_URL='https://www.pqapi.store/v1'
 $env:LABELHUB_LLM_API_KEY='你的 API Key'
 $env:LABELHUB_LLM_MODEL='gpt-5.5'
@@ -371,6 +416,12 @@ $env:LABELHUB_LLM_MODEL='gpt-5.5'
 ```
 
 启动成功后可在后端日志和 AI Reviewer 页面观察 Job claim / complete / fail 状态变化。
+
+Agent 说明：
+
+- `LABELHUB_AGENT_SERVICE_LOGIN_TOKEN` 在 Agent 启动时读取。
+- 该值必须和后端启动时的 `LABELHUB_AUTH_SERVICE_LOGIN_TOKEN` 完全一致。
+- 该令牌只用于 `system_agent` 机器登录绕过浏览器 Turnstile；普通 Web 登录、注册和演示账号登录仍需要 Turnstile。
 
 ### 4.7 启动前端
 
@@ -385,6 +436,7 @@ npm install
 
 ```powershell
 cd frontend
+$env:VITE_TURNSTILE_SITE_KEY='你的 Cloudflare Turnstile site key'
 npm run dev
 ```
 
@@ -392,11 +444,19 @@ npm run dev
 
 ```powershell
 cd frontend
+$env:VITE_TURNSTILE_SITE_KEY='你的 Cloudflare Turnstile site key'
 npm run build
 npm run preview
 ```
 
 Vite 开发服务默认把 `/api` 代理到后端 `http://127.0.0.1:8080`。
+
+前端 Turnstile 说明：
+
+- `VITE_TURNSTILE_SITE_KEY` 在 Vite dev server 启动或 `npm run build` 构建时读取。
+- 构建产物生成后再修改服务器环境变量不会改变已打包进静态资源的 site key。
+- 生产环境更换 Cloudflare Turnstile site key 后，需要重新构建并重新发布前端静态资源。
+- site key 是公开值；真正的 secret key 只能配置在后端 `LABELHUB_AUTH_TURNSTILE_SECRET_KEY`。
 
 ### 4.8 演示账号
 
@@ -540,6 +600,9 @@ README 不再内联完整 API 清单，避免和代码重复维护。当前主�
 
 - 禁用或重置全部演示账号默认密码。
 - 使用足够随机且稳定的 `LABELHUB_MODEL_CONFIG_SECRET`。
+- 使用真实 `VITE_TURNSTILE_SITE_KEY` 重新构建前端静态资源。
+- 使用真实 `LABELHUB_AUTH_TURNSTILE_SECRET_KEY` 启动后端。
+- 使用一致的强随机 `LABELHUB_AUTH_SERVICE_LOGIN_TOKEN` 和 `LABELHUB_AGENT_SERVICE_LOGIN_TOKEN` 启动后端与 Agent。
 - 不把数据库密码、Redis 密码和 LLM API Key 写入仓库。
 - 给 MySQL、Redis、导出文件和 Nginx 证书配置持久化备份。
 - 限制服务器安全组和防火墙，只暴露必要端口。

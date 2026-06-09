@@ -1073,6 +1073,7 @@ export default function OwnerDatasets() {
         open={!!activeItem}
         onClose={() => setActiveItem(null)}
         closeIcon={<CloseOutlined />}
+        rootClassName="dataset-item-detail-drawer"
       >
         {activeItem && activeDataset ? (
           <ItemDetail item={activeItem} kind={normalizeDatasetKind(activeDataset.kind)} />

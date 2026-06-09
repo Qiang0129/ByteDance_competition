@@ -535,7 +535,7 @@ public class ReviewService {
       escalate(reviewer, state, autoDisputeReason(reason), roundNo);
       return;
     }
-    LocalDateTime resubmitDeadline = LocalDateTime.now().plusHours(RETURN_REWORK_WINDOW_HOURS);
+    LocalDateTime resubmitDeadline = resolveResubmitDeadline(LocalDateTime.now(), state.taskDeadline());
     transitionAnnotationToReviewingIfNeeded(reviewer, state);
     reviewRepository.updateAnnotationStatus(state.annotationId(), "returned");
     reviewRepository.returnAssignmentForRework(state.assignmentId(), resubmitDeadline);
@@ -568,6 +568,14 @@ public class ReviewService {
             "status", "returned",
             "resubmitDeadline", resubmitDeadline),
         Map.of("resubmitDeadline", resubmitDeadline));
+  }
+
+  LocalDateTime resolveResubmitDeadline(LocalDateTime now, LocalDateTime taskDeadline) {
+    LocalDateTime defaultDeadline = now.plusHours(RETURN_REWORK_WINDOW_HOURS);
+    if (taskDeadline == null || taskDeadline.isAfter(defaultDeadline)) {
+      return defaultDeadline;
+    }
+    return taskDeadline;
   }
 
   private void escalate(

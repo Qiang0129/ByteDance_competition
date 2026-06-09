@@ -29,32 +29,39 @@ public class DashboardService {
   };
 
   private final DashboardRepository repository;
+  private final DashboardIssueFeedbackRepository issueFeedbackRepository;
   private final TaskDeadlineSettlementService settlementService;
 
   public DashboardService(
       DashboardRepository repository,
+      DashboardIssueFeedbackRepository issueFeedbackRepository,
       TaskDeadlineSettlementService settlementService) {
     this.repository = repository;
+    this.issueFeedbackRepository = issueFeedbackRepository;
     this.settlementService = settlementService;
   }
 
   public DashboardOverviewResponse getOverview(Authentication authentication, String range) {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
+    return buildOverview(owner.id(), range);
+  }
+
+  private DashboardOverviewResponse buildOverview(long ownerId, String range) {
     DateRange dateRange = dashboardRange(range);
     DateRange previous = previousRange(dateRange);
-    long activeTasks = repository.countActiveTasks(owner.id());
+    long activeTasks = repository.countActiveTasks(ownerId);
     long labelerCount = repository.countActiveUsersByRole("labeler");
-    long pendingReview = repository.countPendingReview(owner.id());
+    long pendingReview = repository.countPendingReview(ownerId);
     long reviewerCount = repository.countActiveUsersByRole("reviewer");
     DashboardRepository.AiDecisionCounts ai = safeAiCounts(
-        repository.countAiDecisions(owner.id(), dateRange.start(), dateRange.end()));
+        repository.countAiDecisions(ownerId, dateRange.start(), dateRange.end()));
     DashboardRepository.AiDecisionCounts previousAi = safeAiCounts(
-        repository.countAiDecisions(owner.id(), previous.start(), previous.end()));
+        repository.countAiDecisions(ownerId, previous.start(), previous.end()));
     double aiPassRate = ai.total() == 0 ? 0D : (double) ai.aiPass() / ai.total();
     double previousAiPassRate = previousAi.total() == 0 ? 0D : (double) previousAi.aiPass() / previousAi.total();
-    long avgDurationSec = repository.averageDurationSec(owner.id(), dateRange.start(), dateRange.end());
-    long previousAvgDurationSec = repository.averageDurationSec(owner.id(), previous.start(), previous.end());
+    long avgDurationSec = repository.averageDurationSec(ownerId, dateRange.start(), dateRange.end());
+    long previousAvgDurationSec = repository.averageDurationSec(ownerId, previous.start(), previous.end());
 
     return new DashboardOverviewResponse(
         DATE.format(dateRange.start().toLocalDate()),
@@ -91,7 +98,11 @@ public class DashboardService {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
     int safeLimit = normalizeLimit(limit, 4, 12);
-    List<TaskMilestoneResponse> items = repository.listTaskMilestones(owner.id(), safeLimit).stream()
+    return buildTaskMilestonesResponse(owner.id(), safeLimit);
+  }
+
+  private DashboardItemsResponse<TaskMilestoneResponse> buildTaskMilestonesResponse(long ownerId, int limit) {
+    List<TaskMilestoneResponse> items = repository.listTaskMilestones(ownerId, limit).stream()
         .map(record -> {
           long total = Math.max(record.total(), 0);
           long approved = Math.max(record.approved(), 0);
@@ -118,7 +129,11 @@ public class DashboardService {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
     int safeLimit = normalizeLimit(limit, 4, 12);
-    List<DeadlineAlertResponse> items = repository.listDeadlineAlerts(owner.id(), safeLimit).stream()
+    return buildDeadlineAlertsResponse(owner.id(), safeLimit);
+  }
+
+  private DashboardItemsResponse<DeadlineAlertResponse> buildDeadlineAlertsResponse(long ownerId, int limit) {
+    List<DeadlineAlertResponse> items = repository.listDeadlineAlerts(ownerId, limit).stream()
         .map(record -> new DeadlineAlertResponse(
             Long.toString(record.taskId()),
             blankToDefault(record.title(), "标注任务"),
@@ -146,6 +161,140 @@ public class DashboardService {
         })
         .toList();
     return new DashboardItemsResponse<>(items);
+  }
+
+  private String buildDashboardExportCsv(
+      String range,
+      int reviewYear,
+      int submissionYear,
+      DashboardOverviewResponse overview,
+      List<TaskProgressResponse> taskProgress,
+      ReviewDistributionResponse reviewDistribution,
+      List<RoleBreakdownResponse> roleBreakdown,
+      DisputeStatsResponse disputes7,
+      DisputeStatsResponse disputes14,
+      DisputeStatsResponse disputes30,
+      List<TaskMilestoneResponse> taskMilestones,
+      List<DeadlineAlertResponse> deadlineAlerts,
+      List<LabelerPerformanceResponse> performance,
+      List<SubmissionTimelineMonthResponse> submissionTimeline,
+      long openIssueFeedback) {
+    long reviewTotal = reviewDistribution.aiPass()
+        + reviewDistribution.aiNeedHuman()
+        + reviewDistribution.aiReject()
+        + reviewDistribution.humanPass()
+        + reviewDistribution.humanReturned()
+        + reviewDistribution.humanDisputed();
+    StringBuilder csv = new StringBuilder("\uFEFF");
+    csv.append(csvRow("LabelHub 数据看板导出"));
+    csv.append(csvRow("导出范围", rangeLabel(range), "审核分布年份", Integer.toString(reviewYear),
+        "月度提交率年份", Integer.toString(submissionYear)));
+    csv.append(csvRow());
+
+    csv.append(csvRow("概览 KPI"));
+    csv.append(csvRow("指标", "值", "环比"));
+    csv.append(csvRow("活跃任务", Long.toString(overview.kpis().activeTasks()),
+        percentDeltaText(overview.kpis().deltas().activeTasks())));
+    csv.append(csvRow("标注员数量", Long.toString(overview.kpis().labelerCount()), ""));
+    csv.append(csvRow("待人工审核", Long.toString(overview.kpis().pendingReview()),
+        percentDeltaText(overview.kpis().deltas().pendingReview())));
+    csv.append(csvRow("审核员数量", Long.toString(overview.kpis().reviewerCount()), ""));
+    csv.append(csvRow("AI 通过率", rateText(overview.kpis().aiPassRate()),
+        percentDeltaText(overview.kpis().deltas().aiPassRate())));
+    csv.append(csvRow("平均耗时(秒)", Long.toString(overview.kpis().avgDurationSec()),
+        percentDeltaText(overview.kpis().deltas().avgDurationSec())));
+    csv.append(csvRow("题目反馈待查看", Long.toString(openIssueFeedback), ""));
+    csv.append(csvRow());
+
+    csv.append(csvRow("任务进度"));
+    csv.append(csvRow("任务 ID", "任务标题", "总量", "通过", "打回", "待处理"));
+    for (TaskProgressResponse item : taskProgress) {
+      csv.append(csvRow(
+          item.taskId(),
+          item.title(),
+          Long.toString(item.total()),
+          Long.toString(item.approved()),
+          Long.toString(item.returned()),
+          Long.toString(item.pending())));
+    }
+    csv.append(csvRow());
+
+    csv.append(csvRow("审核分布"));
+    csv.append(csvRow("年份", "分类", "数量", "占比"));
+    appendReviewDistributionRows(csv, reviewYear, reviewDistribution, reviewTotal);
+    csv.append(csvRow());
+
+    csv.append(csvRow("角色分布"));
+    csv.append(csvRow("角色", "人数"));
+    for (RoleBreakdownResponse item : roleBreakdown) {
+      csv.append(csvRow(item.role(), Long.toString(item.memberCount())));
+    }
+    csv.append(csvRow());
+
+    csv.append(csvRow("争议统计"));
+    csv.append(csvRow("范围", "争议数", "已解决", "待处理", "抽检比例", "双审一致率"));
+    appendDisputeRow(csv, disputes7);
+    appendDisputeRow(csv, disputes14);
+    appendDisputeRow(csv, disputes30);
+    csv.append(csvRow());
+
+    csv.append(csvRow("任务关键节点"));
+    csv.append(csvRow("任务 ID", "任务标题", "总量", "通过", "打回", "待处理", "任务状态", "审核状态", "当前阶段"));
+    for (TaskMilestoneResponse item : taskMilestones) {
+      csv.append(csvRow(
+          item.taskId(),
+          item.title(),
+          Long.toString(item.total()),
+          Long.toString(item.approved()),
+          Long.toString(item.returned()),
+          Long.toString(item.pending()),
+          item.status(),
+          item.reviewStatus(),
+          taskPhaseLabel(item.currentPhase())));
+    }
+    csv.append(csvRow());
+
+    csv.append(csvRow("临近截止预警"));
+    csv.append(csvRow("任务 ID", "任务标题", "待处理", "截止时间", "剩余小时", "风险等级"));
+    for (DeadlineAlertResponse item : deadlineAlerts) {
+      csv.append(csvRow(
+          item.taskId(),
+          item.title(),
+          Long.toString(item.pending()),
+          item.deadline(),
+          Long.toString(item.hoursLeft()),
+          riskLevelLabel(item.riskLevel())));
+    }
+    csv.append(csvRow());
+
+    csv.append(csvRow("标注员绩效"));
+    csv.append(csvRow("标注员 ID", "姓名", "角色", "提交数", "通过数", "打回数", "通过率", "平均耗时(秒)", "综合得分"));
+    for (LabelerPerformanceResponse item : performance) {
+      csv.append(csvRow(
+          item.labelerId(),
+          item.name(),
+          item.role(),
+          Long.toString(item.submittedCount()),
+          Long.toString(item.approvedCount()),
+          Long.toString(item.returnedCount()),
+          rateText(item.passRate()),
+          Long.toString(item.avgDurationSec()),
+          rateText(item.score())));
+    }
+    csv.append(csvRow());
+
+    csv.append(csvRow("月度提交率"));
+    csv.append(csvRow("月份", "准时", "延迟", "缺席", "合计"));
+    for (SubmissionTimelineMonthResponse item : submissionTimeline) {
+      long total = item.onTime() + item.late() + item.absent();
+      csv.append(csvRow(
+          item.month(),
+          Long.toString(item.onTime()),
+          Long.toString(item.late()),
+          Long.toString(item.absent()),
+          Long.toString(total)));
+    }
+    return csv.toString();
   }
 
   public DashboardItemsResponse<DashboardRoleUserResponse> getRoleUsers(
@@ -184,19 +333,53 @@ public class DashboardService {
         + distribution.humanReturned()
         + distribution.humanDisputed();
     String csv = buildReviewDistributionCsv(safeYear, distribution, total);
-    byte[] bytes = csv.getBytes(StandardCharsets.UTF_8);
     String filename = "review-distribution-" + safeYear + ".csv";
 
-    return ResponseEntity.ok()
-        .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
-        .contentLength(bytes.length)
-        .header(
-            HttpHeaders.CONTENT_DISPOSITION,
-            ContentDisposition.attachment()
-                .filename(filename, StandardCharsets.UTF_8)
-                .build()
-                .toString())
-        .body(new ByteArrayResource(bytes));
+    return csvDownloadResponse(csv, filename);
+  }
+
+  public ResponseEntity<Resource> downloadDashboardExport(
+      Authentication authentication,
+      String range,
+      Integer reviewYear) {
+    AuthenticatedUser owner = requireOwner(authentication);
+    settleExpiredTasks();
+    String safeRange = normalizeRangeCode(range);
+    int safeReviewYear = normalizeYear(reviewYear);
+    int submissionYear = LocalDate.now().getYear();
+
+    DashboardOverviewResponse overview = buildOverview(owner.id(), safeRange);
+    List<TaskProgressResponse> taskProgress = buildTaskProgressResponse(owner.id(), 12).items();
+    List<TaskMilestoneResponse> taskMilestones = buildTaskMilestonesResponse(owner.id(), 4).items();
+    List<DeadlineAlertResponse> deadlineAlerts = buildDeadlineAlertsResponse(owner.id(), 4).items();
+    ReviewDistributionResponse reviewDistribution = buildReviewDistribution(owner.id(), yearRange(safeReviewYear));
+    List<LabelerPerformanceResponse> performance = buildLabelerPerformanceResponse(owner.id(), safeRange).items();
+    List<SubmissionTimelineMonthResponse> submissionTimeline =
+        buildSubmissionTimelineResponse(owner.id(), submissionYear).items();
+    List<RoleBreakdownResponse> roleBreakdown = buildRoleBreakdownResponse(owner.id()).items();
+    DisputeStatsResponse disputes7 = buildDisputesResponse(owner.id(), 7);
+    DisputeStatsResponse disputes14 = buildDisputesResponse(owner.id(), 14);
+    DisputeStatsResponse disputes30 = buildDisputesResponse(owner.id(), 30);
+    long openIssueFeedback = issueFeedbackRepository.countIssueFeedback(owner.id(), "open");
+
+    String csv = buildDashboardExportCsv(
+        safeRange,
+        safeReviewYear,
+        submissionYear,
+        overview,
+        taskProgress,
+        reviewDistribution,
+        roleBreakdown,
+        disputes7,
+        disputes14,
+        disputes30,
+        taskMilestones,
+        deadlineAlerts,
+        performance,
+        submissionTimeline,
+        openIssueFeedback);
+    String filename = "dashboard-export-" + safeRange + "-" + safeReviewYear + ".csv";
+    return csvDownloadResponse(csv, filename);
   }
 
   private ReviewDistributionResponse buildReviewDistribution(long ownerId, DateRange dateRange) {
@@ -222,16 +405,30 @@ public class DashboardService {
       String range) {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
+    return buildLabelerPerformanceResponse(owner.id(), range);
+  }
+
+  private DashboardItemsResponse<LabelerPerformanceResponse> buildLabelerPerformanceResponse(
+      long ownerId,
+      String range) {
     DateRange dateRange = dashboardRange(range);
     List<LabelerPerformanceResponse> items = repository
-        .listLabelerPerformance(owner.id(), dateRange.start(), dateRange.end(), 10)
+        .listLabelerPerformance(ownerId, dateRange.start(), dateRange.end(), 10)
         .stream()
-        .map(record -> new LabelerPerformanceResponse(
-            Long.toString(record.labelerId()),
-            blankToDefault(record.labelerName(), "Labeler"),
-            blankToDefault(record.role(), "通用标注"),
-            null,
-            record.submitted() == 0 ? 0D : roundRate((double) record.approved() / record.submitted())))
+        .map(record -> {
+          double passRate = record.submitted() == 0 ? 0D : roundRate((double) record.approved() / record.submitted());
+          return new LabelerPerformanceResponse(
+              Long.toString(record.labelerId()),
+              blankToDefault(record.labelerName(), "Labeler"),
+              blankToDefault(record.role(), "通用标注"),
+              null,
+              passRate,
+              Math.max(record.submitted(), 0),
+              Math.max(record.approved(), 0),
+              Math.max(record.returned(), 0),
+              Math.max(record.avgDurationSec(), 0),
+              passRate);
+        })
         .toList();
     return new DashboardItemsResponse<>(items);
   }
@@ -242,7 +439,13 @@ public class DashboardService {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
     int safeYear = normalizeYear(year);
-    List<SubmissionTimelineMonthResponse> items = repository.listSubmissionTimeline(owner.id(), safeYear).stream()
+    return buildSubmissionTimelineResponse(owner.id(), safeYear);
+  }
+
+  private DashboardItemsResponse<SubmissionTimelineMonthResponse> buildSubmissionTimelineResponse(
+      long ownerId,
+      int year) {
+    List<SubmissionTimelineMonthResponse> items = repository.listSubmissionTimeline(ownerId, year).stream()
         .map(record -> new SubmissionTimelineMonthResponse(
             monthLabel(record.monthNo()),
             record.onTime(),
@@ -255,7 +458,11 @@ public class DashboardService {
   public DashboardItemsResponse<RoleBreakdownResponse> getRoleBreakdown(Authentication authentication) {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
-    List<RoleBreakdownResponse> items = repository.listRoleBreakdown(owner.id()).stream()
+    return buildRoleBreakdownResponse(owner.id());
+  }
+
+  private DashboardItemsResponse<RoleBreakdownResponse> buildRoleBreakdownResponse(long ownerId) {
+    List<RoleBreakdownResponse> items = repository.listRoleBreakdown(ownerId).stream()
         .map(record -> new RoleBreakdownResponse(
             blankToDefault(record.role(), "通用标注"),
             record.memberCount()))
@@ -266,10 +473,17 @@ public class DashboardService {
   public DisputeStatsResponse getDisputes(Authentication authentication, Integer days) {
     AuthenticatedUser owner = requireOwner(authentication);
     settleExpiredTasks();
+    return buildDisputesResponse(owner.id(), days);
+  }
+
+  private DisputeStatsResponse buildDisputesResponse(long ownerId, Integer days) {
     int safeDays = normalizeDays(days);
     LocalDateTime end = LocalDate.now().plusDays(1).atStartOfDay();
     LocalDateTime start = end.minusDays(safeDays);
-    DashboardRepository.DisputeStatsRecord record = repository.getDisputeStats(owner.id(), start, end);
+    DashboardRepository.DisputeStatsRecord record = repository.getDisputeStats(ownerId, start, end);
+    if (record == null) {
+      record = new DashboardRepository.DisputeStatsRecord(0, 0, 0D, 0D);
+    }
     long resolved = Math.min(record.resolved(), record.disputed());
     long pending = Math.max(record.disputed() - resolved, 0);
     return new DisputeStatsResponse(
@@ -282,23 +496,28 @@ public class DashboardService {
   }
 
   private DateRange dashboardRange(String range) {
-    int days;
-    if (range == null || range.isBlank()) {
-      days = 30;
-    } else {
-      String normalized = range.trim().toLowerCase(Locale.ROOT);
-      days = switch (normalized) {
-        case "7d" -> 7;
-        case "30d" -> 30;
-        case "90d" -> 90;
-        default -> throw new ApiException(
-            HttpStatus.BAD_REQUEST,
-            "INVALID_DASHBOARD_RANGE",
-            "dashboard range must be one of 7d, 30d, 90d");
-      };
-    }
+    String normalized = normalizeRangeCode(range);
+    int days = switch (normalized) {
+      case "7d" -> 7;
+      case "90d" -> 90;
+      default -> 30;
+    };
     LocalDateTime end = LocalDate.now().plusDays(1).atStartOfDay();
     return new DateRange(end.minusDays(days), end);
+  }
+
+  private String normalizeRangeCode(String range) {
+    if (range == null || range.isBlank()) {
+      return "30d";
+    }
+    String normalized = range.trim().toLowerCase(Locale.ROOT);
+    if (List.of("7d", "30d", "90d").contains(normalized)) {
+      return normalized;
+    }
+    throw new ApiException(
+        HttpStatus.BAD_REQUEST,
+        "INVALID_DASHBOARD_RANGE",
+        "dashboard range must be one of 7d, 30d, 90d");
   }
 
   private String normalizeRoleUserQuery(String role) {
@@ -414,6 +633,16 @@ public class DashboardService {
     String period = year + " 年";
     StringBuilder csv = new StringBuilder("\uFEFF");
     csv.append(csvRow("统计周期", "分类", "数量", "占比"));
+    appendReviewDistributionRows(csv, year, distribution, total);
+    return csv.toString();
+  }
+
+  private void appendReviewDistributionRows(
+      StringBuilder csv,
+      int year,
+      ReviewDistributionResponse distribution,
+      long total) {
+    String period = year + " 年";
     csv.append(csvRow(period, "AI 通过", Long.toString(distribution.aiPass()), percentText(distribution.aiPass(), total)));
     csv.append(csvRow(
         period,
@@ -433,12 +662,70 @@ public class DashboardService {
         Long.toString(distribution.humanDisputed()),
         percentText(distribution.humanDisputed(), total)));
     csv.append(csvRow(period, "合计", Long.toString(total), total == 0 ? "0.00%" : "100.00%"));
-    return csv.toString();
+  }
+
+  private void appendDisputeRow(StringBuilder csv, DisputeStatsResponse disputes) {
+    csv.append(csvRow(
+        "近 " + disputes.rangeDays() + " 日",
+        Long.toString(disputes.disputed()),
+        Long.toString(disputes.resolved()),
+        Long.toString(disputes.pending()),
+        rateText(disputes.samplingRatio()),
+        rateText(disputes.consistencyRate())));
+  }
+
+  private String rangeLabel(String range) {
+    return switch (range) {
+      case "7d" -> "近 7 日";
+      case "90d" -> "近 90 日";
+      default -> "近 30 日";
+    };
+  }
+
+  private String rateText(double value) {
+    return String.format(Locale.ROOT, "%.2f%%", value * 100D);
+  }
+
+  private String percentDeltaText(double value) {
+    return String.format(Locale.ROOT, "%+.1f%%", value);
+  }
+
+  private String taskPhaseLabel(String phase) {
+    return switch (phase == null ? "" : phase) {
+      case "published" -> "已发布";
+      case "ai_review" -> "AI 预审";
+      case "human_review" -> "人工审核";
+      case "delivered" -> "已交付";
+      default -> blankToDefault(phase, "-");
+    };
+  }
+
+  private String riskLevelLabel(String riskLevel) {
+    return switch (riskLevel == null ? "" : riskLevel) {
+      case "critical" -> "高风险";
+      case "warn" -> "预警";
+      case "normal" -> "正常";
+      default -> blankToDefault(riskLevel, "-");
+    };
   }
 
   private String percentText(long value, long total) {
     double percent = total == 0 ? 0D : (double) value * 100D / total;
     return String.format(Locale.ROOT, "%.2f%%", percent);
+  }
+
+  private ResponseEntity<Resource> csvDownloadResponse(String csv, String filename) {
+    byte[] bytes = csv.getBytes(StandardCharsets.UTF_8);
+    return ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+        .contentLength(bytes.length)
+        .header(
+            HttpHeaders.CONTENT_DISPOSITION,
+            ContentDisposition.attachment()
+                .filename(filename, StandardCharsets.UTF_8)
+                .build()
+                .toString())
+        .body(new ByteArrayResource(bytes));
   }
 
   private String csvRow(String... cells) {

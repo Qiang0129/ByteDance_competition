@@ -22,6 +22,7 @@ import org.springframework.web.client.RestClient;
 public class BackendClient {
 
   private static final Logger log = LoggerFactory.getLogger(BackendClient.class);
+  private static final String SERVICE_LOGIN_TOKEN_HEADER = "X-LabelHub-Service-Login-Token";
 
   private final RestClient restClient;
   private final AgentProperties properties;
@@ -113,8 +114,13 @@ public class BackendClient {
       if (accessToken != null && !accessToken.isBlank()) {
         return;
       }
-      LoginResponse response = restClient.post()
-          .uri("/api/auth/login")
+      RestClient.RequestBodySpec loginRequest = restClient.post()
+          .uri("/api/auth/login");
+      String serviceLoginToken = properties.getBackend().getServiceLoginToken();
+      if (serviceLoginToken != null && !serviceLoginToken.isBlank()) {
+        loginRequest.header(SERVICE_LOGIN_TOKEN_HEADER, serviceLoginToken);
+      }
+      LoginResponse response = loginRequest
           .body(Map.of(
               "username", properties.getBackend().getUsername(),
               "password", properties.getBackend().getPassword(),

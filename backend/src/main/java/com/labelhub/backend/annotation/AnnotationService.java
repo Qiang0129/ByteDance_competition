@@ -45,6 +45,7 @@ public class AnnotationService {
 
   private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
   private static final String DEFAULT_SCHEMA_TAB_ID = "annotation";
+  private static final String LABELER_REVIEWER_ACTOR = "Reviewer";
   private static final String DEFAULT_SCHEMA_TAB_LABEL = "标注";
   private static final Set<String> ISSUE_CATEGORIES = Set.of(
       "data_error",
@@ -472,6 +473,18 @@ public class AnnotationService {
           "assignment is not editable");
     }
     if ("returned".equals(status)) {
+      if (!"published".equals(normalize(assignment.taskStatus()))) {
+        throw new ApiException(
+            HttpStatus.CONFLICT,
+            "TASK_NOT_PUBLISHED",
+            "task is not published");
+      }
+      if (isDeadlineExpired(assignment.taskDeadline())) {
+        throw new ApiException(
+            HttpStatus.CONFLICT,
+            "TASK_EXPIRED",
+            "task deadline has passed");
+      }
       throw new ApiException(
           HttpStatus.CONFLICT,
           "RETURN_REWORK_EXPIRED",
@@ -507,7 +520,10 @@ public class AnnotationService {
     }
     String status = normalize(draft.assignmentStatus());
     if ("returned".equals(status)) {
-      return draft.resubmitDeadline() != null && draft.resubmitDeadline().isAfter(LocalDateTime.now());
+      return "published".equals(normalize(draft.taskStatus()))
+          && !isDeadlineExpired(draft.taskDeadline())
+          && draft.resubmitDeadline() != null
+          && draft.resubmitDeadline().isAfter(LocalDateTime.now());
     }
     String taskStatus = normalize(draft.taskStatus());
     return List.of("claimed", "submitted").contains(status)
@@ -537,6 +553,8 @@ public class AnnotationService {
 
   private boolean isReturnReworkOpen(AssignmentItemRecord assignment) {
     return "returned".equals(normalize(assignment.assignmentStatus()))
+        && "published".equals(normalize(assignment.taskStatus()))
+        && !isDeadlineExpired(assignment.taskDeadline())
         && assignment.resubmitDeadline() != null
         && assignment.resubmitDeadline().isAfter(LocalDateTime.now());
   }
@@ -547,6 +565,12 @@ public class AnnotationService {
     }
     String status = normalize(assignment.assignmentStatus());
     if ("returned".equals(status)) {
+      if (!"published".equals(normalize(assignment.taskStatus()))) {
+        return "TASK_NOT_PUBLISHED";
+      }
+      if (isDeadlineExpired(assignment.taskDeadline())) {
+        return "TASK_EXPIRED";
+      }
       return "RETURN_REWORK_EXPIRED";
     }
     if (!"published".equals(normalize(assignment.taskStatus()))) {
@@ -886,7 +910,7 @@ public class AnnotationService {
         history.add(new LabelerItemHistoryResponse(
             "ai-" + record.annotationId(),
             "ai_review",
-            "AI 预审（Revision " + record.revisionNo() + "）",
+            "第 " + record.revisionNo() + " 轮 AI预审",
             "AI Agent",
             normalizeDecision(record.aiDecision()),
             null,
@@ -904,7 +928,7 @@ public class AnnotationService {
             "human-" + record.annotationId() + "-" + history.size(),
             "human_review",
             resolveHumanHistoryTitle(record.revisionNo(), decision, finalReview),
-            blankToDefault(record.humanReviewerName(), "Reviewer"),
+            LABELER_REVIEWER_ACTOR,
             decision,
             record.humanReason(),
             null,

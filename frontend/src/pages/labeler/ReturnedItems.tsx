@@ -2,6 +2,7 @@ import {
   ExclamationCircleOutlined,
   ReloadOutlined,
   RobotOutlined,
+  SearchOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import {
@@ -9,6 +10,7 @@ import {
   Button,
   Card,
   Empty,
+  Input,
   List,
   Segmented,
   Skeleton,
@@ -37,6 +39,8 @@ export default function ReturnedItems() {
   const navigate = useNavigate();
   const [items, setItems] = useState<LabelerReturnedItem[]>([]);
   const [source, setSource] = useState<ReturnedItemSource>('all');
+  const [searchText, setSearchText] = useState('');
+  const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -48,6 +52,7 @@ export default function ReturnedItems() {
     try {
       const response = await labelerApi.listReturnedItems({
         source,
+        keyword: keyword || undefined,
         page,
         pageSize: PAGE_SIZE,
       });
@@ -64,11 +69,22 @@ export default function ReturnedItems() {
     } finally {
       setLoading(false);
     }
-  }, [page, source]);
+  }, [keyword, page, source]);
 
   useEffect(() => {
     void loadItems();
   }, [loadItems]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextKeyword = searchText.trim();
+      if (keyword !== nextKeyword) {
+        setKeyword(nextKeyword);
+        setPage(1);
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [keyword, searchText]);
 
   const handleSourceChange = (value: ReturnedItemSource) => {
     setSource(value);
@@ -113,6 +129,14 @@ export default function ReturnedItems() {
               options={sourceOptions}
               value={source}
               onChange={(value) => handleSourceChange(value as ReturnedItemSource)}
+            />
+            <Input
+              allowClear
+              className="returned-search-input"
+              prefix={<SearchOutlined />}
+              placeholder="搜索任务标题 / 任务ID / 题目ID / Assignment"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
             />
             <Typography.Text type="secondary">
               共 {total.toLocaleString()} 项
@@ -177,7 +201,7 @@ function ReturnedItemCard({ item, onOpen }: { item: LabelerReturnedItem; onOpen:
               </Tag>
               <Tag color={primaryStatus.color}>{primaryStatus.label}</Tag>
               <Tag color="blue">{item.taskType || 'Annotation Task'}</Tag>
-              <Tag color="default">Revision {item.revisionNo}</Tag>
+              <Tag color="default">第 {item.revisionNo} 轮</Tag>
             </div>
           </div>
         </div>
@@ -186,7 +210,7 @@ function ReturnedItemCard({ item, onOpen }: { item: LabelerReturnedItem; onOpen:
           <ReturnedSummaryItem label="任务" value={item.taskId} />
           <ReturnedSummaryItem label="题目" value={item.itemId} />
           <ReturnedSummaryItem label="更新时间" value={item.updatedAt || '未知'} />
-          <ReturnedSummaryItem label="Reviewer" value={item.reviewerName || (isHumanReturn ? '未记录' : '待分配')} />
+          <ReturnedSummaryItem label="审核角色" value={item.reviewerName || (isHumanReturn ? 'Reviewer' : '待人工审核')} />
           <ReturnedSummaryItem label="阶段" value={stageLabel || (isHumanReturn ? '人工审核' : 'AI预审')} strong />
           <ReturnedSummaryItem label={resolveTimeLabel(item)} value={resolveTimeValue(item)} />
         </div>
@@ -267,6 +291,7 @@ function HumanReturnDetail({ item, stageLabel }: { item: LabelerReturnedItem; st
       {returned && item.resubmitDeadline ? (
         <Typography.Text type={item.editable ? 'secondary' : 'danger'} className="returned-help-text">
           返修截止:{item.resubmitDeadline}
+          {!item.editable && item.expiredReason === 'TASK_EXPIRED' ? '，任务已截止' : ''}
           {!item.editable && item.expiredReason === 'RETURN_REWORK_EXPIRED' ? '，已过期' : ''}
         </Typography.Text>
       ) : null}
@@ -335,7 +360,7 @@ function ReturnedTimeline({ entries }: { entries: LabelerItemHistory[] }) {
             <span className="returned-timeline-dot" />
             <div className="returned-timeline-content">
               <div className="returned-timeline-meta">
-                <span className="returned-timeline-title">{entry.title}</span>
+                <span className="returned-timeline-title">{formatLabelerHistoryTitle(entry.title)}</span>
                 <span className="returned-timeline-time">{entry.occurredAt || (entry.status === 'current' ? '当前' : '')}</span>
               </div>
               <div className="returned-timeline-main">
@@ -490,6 +515,10 @@ function resolveTimelineTone(entry: LabelerItemHistory): 'blue' | 'green' | 'red
   }
   if (entry.type === 'submit') return 'blue';
   return 'gray';
+}
+
+function formatLabelerHistoryTitle(title: string) {
+  return title.replace(/AI\s*预审（Revision\s+(\d+)）/i, '第 $1 轮 AI预审');
 }
 
 function historyDecisionLabel(decision: string): string {

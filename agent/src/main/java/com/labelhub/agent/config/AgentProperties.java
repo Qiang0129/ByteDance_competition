@@ -26,6 +26,7 @@ public class AgentProperties {
     private String username = "system_agent";
     private String password = "agent123";
     private String role = "system_agent";
+    private String serviceLoginToken = "labelhub-local-service-login-token";
 
     public String getBaseUrl() {
       return baseUrl;
@@ -57,6 +58,14 @@ public class AgentProperties {
 
     public void setRole(String role) {
       this.role = role;
+    }
+
+    public String getServiceLoginToken() {
+      return serviceLoginToken;
+    }
+
+    public void setServiceLoginToken(String serviceLoginToken) {
+      this.serviceLoginToken = serviceLoginToken;
     }
   }
 

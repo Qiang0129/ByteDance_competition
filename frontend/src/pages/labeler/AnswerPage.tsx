@@ -1550,7 +1550,7 @@ function AnswerHistoryTimeline({
           <span className="answer-history-dot" />
           <div className="answer-history-content">
             <div className="answer-history-meta">
-              <span className="answer-history-title">{entry.title}</span>
+              <span className="answer-history-title">{formatLabelerHistoryTitle(entry.title)}</span>
               <span className="answer-history-time">{entry.occurredAt || '当前'}</span>
             </div>
             <div className="answer-history-main">
@@ -1586,6 +1586,10 @@ function resolveHistoryTone(entry: LabelerItemHistory): 'blue' | 'green' | 'red'
   }
   if (entry.type === 'submit') return 'blue';
   return 'gray';
+}
+
+function formatLabelerHistoryTitle(title: string) {
+  return title.replace(/AI\s*预审（Revision\s+(\d+)）/i, '第 $1 轮 AI预审');
 }
 
 function historyDecisionLabel(decision: string): string {

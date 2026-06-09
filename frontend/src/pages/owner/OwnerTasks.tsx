@@ -239,9 +239,6 @@ function resolveTaskPrimaryActionLabel(record: OwnerTaskRow) {
   if (record.state === 'draft') {
     return '发布';
   }
-  if (record.state === 'ended') {
-    return '续期发布';
-  }
   return '详情';
 }
 
@@ -658,11 +655,6 @@ export default function OwnerTasks() {
               onClick={() => void handleStateChange(record, 'ended')}
             >
               结束
-            </Button>
-          )}
-          {record.state === 'ended' && (
-            <Button type="link" icon={<SyncOutlined />} onClick={() => openDrawer(record)}>
-              续期发布
             </Button>
           )}
           <Button type="link" onClick={() => openDrawer(record)}>
@@ -1163,7 +1155,7 @@ export default function OwnerTasks() {
         </Button>
 
         <Button
-          type={record.state === 'draft' || record.state === 'ended' ? 'primary' : 'default'}
+          type={record.state === 'draft' ? 'primary' : 'default'}
           block
           onClick={() => openDrawer(record)}
         >

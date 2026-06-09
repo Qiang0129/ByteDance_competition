@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   KeyOutlined,
   TeamOutlined,
@@ -9,6 +9,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { authApi, clearStoredAuthUser, getStoredAuthUser } from '../api/auth';
 import { clearAuthToken, getAuthToken } from '../api/client';
+import TurnstileWidget, { type TurnstileWidgetHandle } from '../components/TurnstileWidget';
 import type { LoginRequest, RegisterRequest } from '../types/auth';
 import { resolveLandingPath } from '../utils/authNavigation';
 
@@ -16,6 +17,7 @@ type AuthMode = 'login' | 'signup';
 type DemoLoginSource = 'owner' | 'labeler' | 'reviewer' | 'ai_reviewer' | 'allRoles';
 type LoginSource = 'manual' | DemoLoginSource;
 
+type LoginFormValues = Pick<LoginRequest, 'username' | 'password'>;
 type SignupFormValues = Pick<RegisterRequest, 'username' | 'password'>;
 type LandingAuthTransitionState = {
   fromLandingAuthTransition?: boolean;
@@ -39,6 +41,9 @@ const SIGNUP_HASH = '#signup';
 const LOGIN_HASH = '#login';
 const LOGIN_ENTRY_ANIMATION_MS = 560;
 const REVIEWER_INVITE_QUERY_KEY = 'reviewerInvite';
+const DEFAULT_TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
+const TURNSTILE_SITE_KEY =
+  import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || DEFAULT_TURNSTILE_SITE_KEY;
 
 function resolveModeFromHash(hash: string): AuthMode {
   return hash === SIGNUP_HASH ? 'signup' : 'login';
@@ -69,6 +74,13 @@ function replaceReviewerInviteSearch() {
   window.history.replaceState(window.history.state, '', nextUrl);
 }
 
+function resolveTurnstileSize(): 'normal' | 'compact' {
+  if (typeof window === 'undefined') {
+    return 'normal';
+  }
+  return window.matchMedia('(max-width: 380px)').matches ? 'compact' : 'normal';
+}
+
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -84,6 +96,12 @@ export default function Login() {
   // 登录成功后的离场动画状态:开启后页面淡出,过渡结束再跳转
   const [leaving, setLeaving] = useState(false);
   const [signingIn, setSigningIn] = useState<LoginSource | null>(null);
+  const [loginTurnstileToken, setLoginTurnstileToken] = useState<string | null>(null);
+  const [signupTurnstileToken, setSignupTurnstileToken] = useState<string | null>(null);
+  const [turnstileSize, setTurnstileSize] =
+    useState<'normal' | 'compact'>(resolveTurnstileSize);
+  const loginTurnstileRef = useRef<TurnstileWidgetHandle | null>(null);
+  const signupTurnstileRef = useRef<TurnstileWidgetHandle | null>(null);
   const reviewerInviteToken = resolveReviewerInviteToken(location.search);
 
   useEffect(() => {
@@ -163,10 +181,45 @@ export default function Login() {
     };
   }, [navigate]);
 
-  const handleLoginFinish = async (values: LoginRequest, source: LoginSource = 'manual') => {
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const media = window.matchMedia('(max-width: 380px)');
+    const handleChange = () => {
+      setTurnstileSize(media.matches ? 'compact' : 'normal');
+    };
+    handleChange();
+    media.addEventListener('change', handleChange);
+    return () => {
+      media.removeEventListener('change', handleChange);
+    };
+  }, []);
+
+  const resetLoginTurnstile = () => {
+    setLoginTurnstileToken(null);
+    loginTurnstileRef.current?.reset();
+  };
+
+  const resetSignupTurnstile = () => {
+    setSignupTurnstileToken(null);
+    signupTurnstileRef.current?.reset();
+  };
+
+  const handleLoginFinish = async (values: LoginFormValues, source: LoginSource = 'manual') => {
+    if (!loginTurnstileToken) {
+      message.warning('请先完成人机验证');
+      return;
+    }
+
+    const turnstileToken = loginTurnstileToken;
     setSigningIn(source);
     try {
-      const response = await authApi.login(values);
+      const response = await authApi.login({
+        ...values,
+        turnstileToken,
+      });
       const landingPath = resolveLandingPath(response.user.roles);
       message.success('登录成功');
       setLeaving(true);
@@ -177,15 +230,23 @@ export default function Login() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : '登录失败');
       setSigningIn(null);
+      resetLoginTurnstile();
     }
   };
 
   const handleSignupFinish = async (values: SignupFormValues) => {
+    if (!signupTurnstileToken) {
+      message.warning('请先完成人机验证');
+      return;
+    }
+
+    const turnstileToken = signupTurnstileToken;
     try {
       await authApi.register({
         ...values,
         role: 'labeler',
         inviteToken: reviewerInviteToken ?? undefined,
+        turnstileToken,
       });
       if (reviewerInviteToken) {
         replaceReviewerInviteSearch();
@@ -195,7 +256,9 @@ export default function Login() {
         message.success('账号创建成功，请登录');
       }
       setMode('login');
+      resetSignupTurnstile();
     } catch (error) {
+      resetSignupTurnstile();
       message.error(error instanceof Error ? error.message : '注册失败');
     }
   };
@@ -253,7 +316,7 @@ export default function Login() {
 
               <h1 className="login-welcome">欢迎回来</h1>
 
-              <Form<LoginRequest>
+              <Form<LoginFormValues>
                 layout="vertical"
                 onFinish={(values) => void handleLoginFinish(values)}
                 requiredMark={false}
@@ -284,6 +347,24 @@ export default function Login() {
                   />
                 </Form.Item>
 
+                <TurnstileWidget
+                  ref={loginTurnstileRef}
+                  siteKey={TURNSTILE_SITE_KEY}
+                  size={turnstileSize}
+                  className="login-turnstile"
+                  onTokenChange={setLoginTurnstileToken}
+                  onExpire={() => {
+                    if (mode === 'login') {
+                      message.warning('人机验证已过期，请重新验证');
+                    }
+                  }}
+                  onError={() => {
+                    if (mode === 'login') {
+                      message.warning('人机验证加载失败，请稍后重试');
+                    }
+                  }}
+                />
+
                 <Button
                   type="primary"
                   htmlType="submit"
@@ -291,7 +372,7 @@ export default function Login() {
                   block
                   className="login-submit"
                   loading={signingIn === 'manual'}
-                  disabled={!!signingIn && signingIn !== 'manual'}
+                  disabled={!loginTurnstileToken || (!!signingIn && signingIn !== 'manual')}
                 >
                   登录
                 </Button>
@@ -306,7 +387,7 @@ export default function Login() {
                       icon={<TeamOutlined />}
                       className="login-demo-button"
                       loading={signingIn === account.source}
-                      disabled={!!signingIn && signingIn !== account.source}
+                      disabled={!loginTurnstileToken || (!!signingIn && signingIn !== account.source)}
                       onClick={() => {
                         void handleLoginFinish(
                           {
@@ -377,12 +458,31 @@ export default function Login() {
                   />
                 </Form.Item>
 
+                <TurnstileWidget
+                  ref={signupTurnstileRef}
+                  siteKey={TURNSTILE_SITE_KEY}
+                  size={turnstileSize}
+                  className="login-turnstile"
+                  onTokenChange={setSignupTurnstileToken}
+                  onExpire={() => {
+                    if (mode === 'signup') {
+                      message.warning('人机验证已过期，请重新验证');
+                    }
+                  }}
+                  onError={() => {
+                    if (mode === 'signup') {
+                      message.warning('人机验证加载失败，请稍后重试');
+                    }
+                  }}
+                />
+
                 <Button
                   type="primary"
                   htmlType="submit"
                   size="large"
                   block
                   className="login-submit"
+                  disabled={!signupTurnstileToken}
                 >
                   注册
                 </Button>

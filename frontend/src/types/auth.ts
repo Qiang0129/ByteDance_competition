@@ -4,6 +4,7 @@ export interface LoginRequest {
   username: string;
   password: string;
   role?: UserRole;
+  turnstileToken?: string;
 }
 
 export interface RegisterRequest {
@@ -11,6 +12,7 @@ export interface RegisterRequest {
   password: string;
   role?: Exclude<UserRole, 'admin' | 'system_agent' | 'ai_reviewer'>;
   inviteToken?: string;
+  turnstileToken?: string;
 }
 
 export interface AuthUser {

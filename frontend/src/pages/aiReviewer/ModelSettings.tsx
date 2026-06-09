@@ -42,6 +42,7 @@ import { AiAssistantIcon } from '../../components/icons';
 
 const { Paragraph, Text, Title } = Typography;
 type ReasoningEffort = AiModelConfigRequest['reasoningEffort'];
+const MOBILE_QUERY = '(max-width: 768px)';
 
 interface ModelSettingsLocationState {
   from?: string;
@@ -115,6 +116,12 @@ function configToForm(config: AiModelConfig): ConfigFormValues {
   };
 }
 
+function isMobileViewport() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia(MOBILE_QUERY).matches;
+}
+
 export default function ModelSettings() {
   const { message } = AntdApp.useApp();
   const location = useLocation();
@@ -130,6 +137,7 @@ export default function ModelSettings() {
   const [saving, setSaving] = useState(false);
   const [modelIds, setModelIds] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const [isMobile, setIsMobile] = useState(isMobileViewport);
 
   /** 加载配置列表 */
   const loadConfigs = useCallback(async () => {
@@ -160,6 +168,19 @@ export default function ModelSettings() {
   useEffect(() => {
     void loadConfigs();
   }, [loadConfigs]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_QUERY);
+    const syncMobileState = () => setIsMobile(mediaQuery.matches);
+
+    syncMobileState();
+    mediaQuery.addEventListener('change', syncMobileState);
+    return () => mediaQuery.removeEventListener('change', syncMobileState);
+  }, []);
 
   /** 当前激活的配置 */
   const activeConfig = useMemo(
@@ -348,7 +369,7 @@ export default function ModelSettings() {
   }, [form.apiKey, form.apiKeyMask]);
 
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack model-settings-page">
       {/* 标题 */}
       <div className="page-title-row">
         <div className="model-settings-title">
@@ -366,7 +387,7 @@ export default function ModelSettings() {
             </Paragraph>
           </Space>
         </div>
-        <Space>
+        <Space className="model-settings-actions">
           {usingFallback && <Tag color="gold">兼容模式 · 旧接口</Tag>}
           <Button icon={<ReloadOutlined />} onClick={() => void loadConfigs()} loading={loading}>
             刷新
@@ -387,7 +408,7 @@ export default function ModelSettings() {
           </Empty>
         </Card>
       ) : (
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Space direction="vertical" size={12} className="model-config-list" style={{ width: '100%' }}>
           {configs.map((config) => (
             <ModelConfigCard
               key={config.configId}
@@ -397,6 +418,7 @@ export default function ModelSettings() {
               onDuplicate={() => openDuplicate(config)}
               onEdit={() => openEdit(config)}
               onDelete={() => void handleDelete(config)}
+              isMobile={isMobile}
             />
           ))}
         </Space>
@@ -408,12 +430,17 @@ export default function ModelSettings() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         width={560}
+        rootClassName="model-config-drawer"
+        className="model-config-drawer-panel"
         destroyOnClose
         footer={
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <Button onClick={() => setDrawerOpen(false)}>取消</Button>
+          <div className="model-config-drawer-footer">
+            <Button className="model-config-drawer-cancel" onClick={() => setDrawerOpen(false)}>
+              取消
+            </Button>
             <Button
               type="primary"
+              className="model-config-drawer-submit"
               icon={<SaveOutlined />}
               loading={saving}
               onClick={() => void handleSave()}
@@ -423,7 +450,7 @@ export default function ModelSettings() {
           </div>
         }
       >
-        <Space direction="vertical" size={20} style={{ width: '100%' }}>
+        <Space direction="vertical" size={20} className="model-config-form" style={{ width: '100%' }}>
           <Alert
             type="info"
             showIcon
@@ -431,7 +458,7 @@ export default function ModelSettings() {
             message="API Key 只会加密保存在后端，页面不会回显明文。留空保存表示沿用当前已保存密钥。"
           />
 
-          <Row gutter={16}>
+          <Row gutter={16} className="model-config-form-row">
             <Col xs={24} md={12}>
               <div className="model-field">
                 <label className="model-field-label">供应商名称 *</label>
@@ -483,7 +510,7 @@ export default function ModelSettings() {
               <label className="model-field-label">
                 <ThunderboltOutlined /> API 请求地址 *
               </label>
-              <Space size={8}>
+              <Space size={8} className="model-config-url-mode">
                 <Text type="secondary" style={{ fontSize: 12 }}>完整 URL</Text>
                 <Switch
                   size="small"
@@ -508,7 +535,7 @@ export default function ModelSettings() {
             />
           </div>
 
-          <Row gutter={16}>
+          <Row gutter={16} className="model-config-form-row">
             <Col xs={24} md={12}>
               <div className="model-field">
                 <div className="model-field-label-row">
@@ -516,6 +543,7 @@ export default function ModelSettings() {
                   <Button
                     type="link"
                     size="small"
+                    className="model-config-fetch-models"
                     icon={<ApiOutlined />}
                     loading={fetchingModels}
                     onClick={() => void handleFetchModels()}
@@ -558,6 +586,7 @@ export default function ModelSettings() {
               min={1}
               max={10}
               precision={0}
+              className="model-config-worker-input"
               value={form.workerConcurrency}
               onChange={(value) => update({ workerConcurrency: value ?? 3 })}
               style={{ width: '100%' }}
@@ -582,6 +611,7 @@ function ModelConfigCard({
   onDuplicate,
   onEdit,
   onDelete,
+  isMobile,
 }: {
   config: AiModelConfig;
   isActive: boolean;
@@ -589,9 +619,44 @@ function ModelConfigCard({
   onDuplicate: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  isMobile: boolean;
 }) {
   // 取供应商名首字母做头像
   const avatar = (config.providerName || 'M').slice(0, 2).toUpperCase();
+  const activateButton = (
+    <Button
+      type="primary"
+      icon={<PlayCircleFilled />}
+      className="model-config-activate-button"
+      onClick={onActivate}
+    >
+      启用
+    </Button>
+  );
+  const duplicateButton = (
+    <Button
+      type="text"
+      icon={<CopyOutlined />}
+      className="model-config-icon-action"
+      onClick={onDuplicate}
+    />
+  );
+  const editButton = (
+    <Button
+      type="text"
+      icon={<EditOutlined />}
+      className="model-config-icon-action"
+      onClick={onEdit}
+    />
+  );
+  const deleteButton = (
+    <Button
+      type="text"
+      danger
+      icon={<DeleteOutlined />}
+      className="model-config-icon-action"
+    />
+  );
 
   return (
     <Card
@@ -606,31 +671,36 @@ function ModelConfigCard({
           </div>
           <div className="model-config-info">
             <div className="model-config-name">
-              <Text strong style={{ fontSize: 15 }}>{config.providerName}</Text>
+              <Text strong className="model-config-provider-name" style={{ fontSize: 15 }}>{config.providerName}</Text>
               {isActive && (
-                <Tag color="success" icon={<CheckCircleFilled />} style={{ marginLeft: 8, borderRadius: 999 }}>
+                <Tag
+                  color="success"
+                  icon={<CheckCircleFilled />}
+                  className="model-config-active-tag"
+                  style={{ marginLeft: 8, borderRadius: 999 }}
+                >
                   当前启用
                 </Tag>
               )}
               {config.notes && (
-                <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                <Text type="secondary" className="model-config-notes" style={{ fontSize: 12, marginLeft: 8 }}>
                   {config.notes}
                 </Text>
               )}
             </div>
             <div className="model-config-meta">
-              <Text type="secondary" style={{ fontSize: 13 }}>
+              <Text type="secondary" className="model-config-url" style={{ fontSize: 13 }}>
                 {config.apiBaseUrl}
               </Text>
             </div>
             <div className="model-config-tags">
-              <Tag color="blue" style={{ borderRadius: 999 }}>{config.modelName}</Tag>
-              <Tag style={{ borderRadius: 999 }}>{config.reasoningEffort}</Tag>
-              <Tag color="geekblue" style={{ borderRadius: 999 }}>
+              <Tag color="blue" className="model-config-model-tag" style={{ borderRadius: 999 }}>{config.modelName}</Tag>
+              <Tag className="model-config-effort-tag" style={{ borderRadius: 999 }}>{config.reasoningEffort}</Tag>
+              <Tag color="geekblue" className="model-config-worker-tag" style={{ borderRadius: 999 }}>
                 并发 {config.workerConcurrency ?? 3}
               </Tag>
               {config.updatedAt && (
-                <Text type="secondary" style={{ fontSize: 11 }}>
+                <Text type="secondary" className="model-config-updated" style={{ fontSize: 11 }}>
                   更新于 {config.updatedAt}
                 </Text>
               )}
@@ -641,22 +711,10 @@ function ModelConfigCard({
         {/* 右侧:操作按钮 */}
         <div className="model-config-card-actions">
           {!isActive && (
-            <Tooltip title="启用此配置">
-              <Button
-                type="primary"
-                icon={<PlayCircleFilled />}
-                onClick={onActivate}
-              >
-                启用
-              </Button>
-            </Tooltip>
+            isMobile ? activateButton : <Tooltip title="启用此配置">{activateButton}</Tooltip>
           )}
-          <Tooltip title="复制配置">
-            <Button type="text" icon={<CopyOutlined />} onClick={onDuplicate} />
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button type="text" icon={<EditOutlined />} onClick={onEdit} />
-          </Tooltip>
+          {isMobile ? duplicateButton : <Tooltip title="复制配置">{duplicateButton}</Tooltip>}
+          {isMobile ? editButton : <Tooltip title="编辑">{editButton}</Tooltip>}
           {!isActive && (
             <Popconfirm
               title="确认删除此配置?"
@@ -666,9 +724,7 @@ function ModelConfigCard({
               cancelText="取消"
               onConfirm={onDelete}
             >
-              <Tooltip title="删除">
-                <Button type="text" danger icon={<DeleteOutlined />} />
-              </Tooltip>
+              {isMobile ? deleteButton : <Tooltip title="删除">{deleteButton}</Tooltip>}
             </Popconfirm>
           )}
         </div>

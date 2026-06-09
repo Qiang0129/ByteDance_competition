@@ -27,7 +27,7 @@ import {
   RiseOutlined,
   ShopOutlined,
 } from '@ant-design/icons';
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { labelerOverviewApi } from '../../api/labelerOverview';
@@ -68,12 +68,20 @@ const reviewLegendConfig = [
   { key: 'humanReturned', label: '打回修改', color: '#f59e0b' },
 ] as const;
 
+const MOBILE_QUERY = '(max-width: 768px)';
+
 const typeTone: Record<string, string> = {
   text: '#2f7bff',
   image: '#22c55e',
   video: '#a855f7',
   markdown: '#f59e0b',
 };
+
+function isMobileViewport() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia(MOBILE_QUERY).matches;
+}
 
 export default function LabelerOverview() {
   const navigate = useNavigate();
@@ -83,6 +91,8 @@ export default function LabelerOverview() {
   const [error, setError] = useState<string | null>(null);
   const [activeRewardTask, setActiveRewardTask] = useState<RewardTaskSummary | null>(null);
   const [rewardPopoverOpen, setRewardPopoverOpen] = useState(false);
+  const [rewardSummaryOpen, setRewardSummaryOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(isMobileViewport);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -101,6 +111,26 @@ export default function LabelerOverview() {
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_QUERY);
+    const syncMobileState = () => {
+      setIsMobile(mediaQuery.matches);
+      if (mediaQuery.matches) {
+        setRewardPopoverOpen(false);
+      } else {
+        setRewardSummaryOpen(false);
+      }
+    };
+
+    syncMobileState();
+    mediaQuery.addEventListener('change', syncMobileState);
+    return () => mediaQuery.removeEventListener('change', syncMobileState);
+  }, []);
 
   const kpis = useMemo<KpiItem[]>(() => {
     if (!data) return [];
@@ -196,6 +226,36 @@ export default function LabelerOverview() {
   }
 
   const pendingTypeDistribution = data.pendingTypeDistribution ?? [];
+  const openRewardTaskDetails = (taskSummary: RewardTaskSummary) => {
+    setRewardSummaryOpen(false);
+    setRewardPopoverOpen(false);
+    setActiveRewardTask(taskSummary);
+  };
+  const openRewardSummary = () => {
+    if (isMobile) {
+      setRewardSummaryOpen(true);
+    }
+  };
+  const handleRewardSummaryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!isMobile) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setRewardSummaryOpen(true);
+    }
+  };
+  const rewardStatNode = (
+    <div
+      className="overview-hero-stat-trigger"
+      role="button"
+      tabIndex={0}
+      onClick={openRewardSummary}
+      onKeyDown={handleRewardSummaryKeyDown}
+      aria-label="查看本月通过奖励明细"
+    >
+      <HeroStat value={`¥${data.heroStats.monthlyRewardEstimate.toFixed(2)}`} label="本月通过奖励" />
+    </div>
+  );
+
   return (
     <>
     <Space direction="vertical" size="large" className="page-stack labeler-overview">
@@ -238,32 +298,31 @@ export default function LabelerOverview() {
           <div className="overview-hero-divider" />
           <HeroStat value={formatPercent(data.heroStats.reviewPassRate)} label="审核通过率" />
           <div className="overview-hero-divider" />
-          <Popover
-            trigger={['hover', 'focus']}
-            placement="bottomRight"
-            overlayClassName="labeler-reward-popover"
-            open={rewardPopoverOpen}
-            onOpenChange={setRewardPopoverOpen}
-            content={
-              <MonthlyRewardPreview
-                taskSummaries={monthlyRewardTaskSummaries}
-                totalItemCount={monthlyRewardDetails.length}
-                totalReward={data.heroStats.monthlyRewardEstimate}
-                onOpenTask={(taskSummary) => {
-                  setActiveRewardTask(taskSummary);
-                  setRewardPopoverOpen(false);
-                }}
-              />
-            }
-          >
-            <div className="overview-hero-stat-trigger" role="button" tabIndex={0}>
-              <HeroStat value={`¥${data.heroStats.monthlyRewardEstimate.toFixed(2)}`} label="本月通过奖励" />
-            </div>
-          </Popover>
+          {isMobile ? (
+            rewardStatNode
+          ) : (
+            <Popover
+              trigger={['hover', 'focus']}
+              placement="bottomRight"
+              overlayClassName="labeler-reward-popover"
+              open={rewardPopoverOpen}
+              onOpenChange={setRewardPopoverOpen}
+              content={
+                <MonthlyRewardPreview
+                  taskSummaries={monthlyRewardTaskSummaries}
+                  totalItemCount={monthlyRewardDetails.length}
+                  totalReward={data.heroStats.monthlyRewardEstimate}
+                  onOpenTask={openRewardTaskDetails}
+                />
+              }
+            >
+              {rewardStatNode}
+            </Popover>
+          )}
         </div>
       </section>
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="labeler-overview-kpi-row">
         {kpis.map((kpi) => (
           <Col xs={24} sm={12} xl={6} key={kpi.key}>
             <Card className="kpi-card">
@@ -285,7 +344,7 @@ export default function LabelerOverview() {
         ))}
       </Row>
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="labeler-overview-main-row">
         <Col xs={24} xl={16}>
           <Card
             className="overview-progress-card"
@@ -362,7 +421,7 @@ export default function LabelerOverview() {
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} className="labeler-overview-lower-row">
         <Col xs={24} xl={16}>
           <Card
             className="overview-batch-card"
@@ -395,7 +454,7 @@ export default function LabelerOverview() {
         </Col>
 
         <Col xs={24} xl={8}>
-          <Space direction="vertical" size={16} className="page-stack">
+          <Space direction="vertical" size={16} className="page-stack labeler-overview-side-stack">
             <Card className="overview-shortcut-card" title="快捷入口">
               <div className="shortcut-grid">
                 <ShortcutTile icon={<ShopOutlined />} label="任务市场" onClick={() => navigate('/labeler/market')} />
@@ -427,6 +486,14 @@ export default function LabelerOverview() {
         </Col>
       </Row>
     </Space>
+    <RewardSummaryDrawer
+      open={rewardSummaryOpen}
+      onClose={() => setRewardSummaryOpen(false)}
+      taskSummaries={monthlyRewardTaskSummaries}
+      totalItemCount={monthlyRewardDetails.length}
+      totalReward={data.heroStats.monthlyRewardEstimate}
+      onOpenTask={openRewardTaskDetails}
+    />
     <RewardTaskDrawer
       task={activeRewardTask}
       open={!!activeRewardTask}
@@ -522,6 +589,41 @@ function MonthlyRewardPreview({
   );
 }
 
+function RewardSummaryDrawer({
+  open,
+  onClose,
+  taskSummaries,
+  totalItemCount,
+  totalReward,
+  onOpenTask,
+}: {
+  open: boolean;
+  onClose: () => void;
+  taskSummaries: RewardTaskSummary[];
+  totalItemCount: number;
+  totalReward: number;
+  onOpenTask: (taskSummary: RewardTaskSummary) => void;
+}) {
+  return (
+    <Drawer
+      title="本月通过奖励明细"
+      placement="right"
+      width="min(520px, 92vw)"
+      open={open}
+      onClose={onClose}
+      destroyOnHidden
+      rootClassName="labeler-reward-summary-drawer"
+    >
+      <MonthlyRewardPreview
+        taskSummaries={taskSummaries}
+        totalItemCount={totalItemCount}
+        totalReward={totalReward}
+        onOpenTask={onOpenTask}
+      />
+    </Drawer>
+  );
+}
+
 function RewardTaskDrawer({
   task,
   open,
@@ -600,7 +702,7 @@ function RecentBatchItem({
   return (
     <div className="batch-item">
       <div className="batch-item-head">
-        <Space size={8} wrap>
+        <Space size={8} wrap className="batch-item-title-row">
           <span className="batch-item-title">{batch.title}</span>
           <Tag color="blue" className="batch-item-tag">
             {batch.taskType}
@@ -623,11 +725,17 @@ function RecentBatchItem({
             剩余 <strong>{remainingQuota}</strong> / {totalQuota}
           </span>
         </div>
-        <Space size={12}>
+        <Space size={12} className="batch-item-action-row">
           <span className="batch-item-deadline">
             <ClockCircleOutlined /> {batch.deadline ? `截止 ${batch.deadline}` : '未设置截止'}
           </span>
-          <Button type="primary" size="small" disabled={!batch.assignmentId} onClick={onEnter}>
+          <Button
+            type="primary"
+            size="small"
+            disabled={!batch.assignmentId}
+            onClick={onEnter}
+            className="batch-item-enter-btn"
+          >
             进入答题 <ArrowRightOutlined />
           </Button>
         </Space>

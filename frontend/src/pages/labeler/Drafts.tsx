@@ -60,7 +60,7 @@ export default function Drafts() {
   };
 
   return (
-    <Space direction="vertical" size="large" className="page-stack">
+    <Space direction="vertical" size="large" className="page-stack labeler-drafts-page">
       <div className="page-title-row">
         <Space direction="vertical" size={4}>
           <Typography.Title level={3}>草稿箱</Typography.Title>
@@ -90,26 +90,47 @@ export default function Drafts() {
         />
       ) : null}
 
-      <Card>
+      <Card className="labeler-drafts-card">
         {loading ? (
           <Skeleton active paragraph={{ rows: 5 }} />
         ) : (
-          <List
+          <List<LabelerDraft>
+            className="labeler-drafts-list"
             dataSource={drafts}
+            rowKey={(item) => item.assignmentId}
             locale={{
               emptyText: <Empty description="暂无草稿,进入任务作答后会自动保存。" />,
             }}
             renderItem={(item) => (
-              <List.Item
-                actions={[
+              <List.Item className="labeler-draft-row">
+                <div className="labeler-draft-content">
+                  <div className="labeler-draft-heading">
+                    <Typography.Text strong className="labeler-draft-title">
+                      {item.title}
+                    </Typography.Text>
+                    <div className="labeler-draft-tags">
+                      <Tag color="blue">{item.taskType}</Tag>
+                      {item.schemaVersion ? (
+                        <Tag color="default">Schema {item.schemaVersion}</Tag>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="labeler-draft-meta">
+                    <span>{item.updatedAt ? `${item.updatedAt} 自动保存` : '最近自动保存时间未知'}</span>
+                    <span>题目 {item.itemId}</span>
+                  </div>
+                </div>
+
+                <div className="labeler-draft-actions">
                   <Button
                     key="continue"
                     type="link"
+                    className="labeler-draft-action-btn"
                     disabled={!item.editable}
                     onClick={() => navigate(`/labeler/answer/${item.assignmentId}`)}
                   >
                     继续编辑
-                  </Button>,
+                  </Button>
                   <Popconfirm
                     key="delete"
                     title="删除草稿"
@@ -122,31 +143,14 @@ export default function Drafts() {
                     <Button
                       type="link"
                       danger
+                      className="labeler-draft-delete-btn"
                       icon={<DeleteOutlined />}
                       loading={deletingId === item.assignmentId}
                     >
                       删除
                     </Button>
-                  </Popconfirm>,
-                ]}
-              >
-                <List.Item.Meta
-                  title={
-                    <Space size={[8, 4]} wrap>
-                      <Typography.Text strong>{item.title}</Typography.Text>
-                      <Tag color="blue">{item.taskType}</Tag>
-                      {item.schemaVersion ? (
-                        <Tag color="default">Schema {item.schemaVersion}</Tag>
-                      ) : null}
-                    </Space>
-                  }
-                  description={
-                    <Space size={[8, 4]} wrap>
-                      <span>{item.updatedAt ? `${item.updatedAt} 自动保存` : '最近自动保存时间未知'}</span>
-                      <span>题目 {item.itemId}</span>
-                    </Space>
-                  }
-                />
+                  </Popconfirm>
+                </div>
               </List.Item>
             )}
           />

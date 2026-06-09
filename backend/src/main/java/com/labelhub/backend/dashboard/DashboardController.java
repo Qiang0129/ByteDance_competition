@@ -71,6 +71,14 @@ public class DashboardController {
     return dashboardService.downloadReviewDistributionReport(authentication, year);
   }
 
+  @GetMapping("/export")
+  public ResponseEntity<Resource> downloadDashboardExport(
+      Authentication authentication,
+      @RequestParam(required = false) String range,
+      @RequestParam(required = false) Integer reviewYear) {
+    return dashboardService.downloadDashboardExport(authentication, range, reviewYear);
+  }
+
   @GetMapping("/labeler-performance")
   public DashboardItemsResponse<LabelerPerformanceResponse> getLabelerPerformance(
       Authentication authentication,

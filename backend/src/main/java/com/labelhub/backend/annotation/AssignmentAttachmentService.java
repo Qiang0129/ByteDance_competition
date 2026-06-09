@@ -287,6 +287,8 @@ public class AssignmentAttachmentService {
 
   private boolean isReturnReworkOpen(AssignmentAttachmentContext assignment) {
     return "returned".equals(normalize(assignment.assignmentStatus()))
+        && "published".equals(normalize(assignment.taskStatus()))
+        && !isDeadlineExpired(assignment.taskDeadline())
         && assignment.resubmitDeadline() != null
         && assignment.resubmitDeadline().isAfter(LocalDateTime.now());
   }

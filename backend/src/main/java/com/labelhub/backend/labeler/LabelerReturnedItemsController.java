@@ -21,8 +21,9 @@ public class LabelerReturnedItemsController {
   public PageResponse<LabelerReturnedItemResponse> listReturnedItems(
       Authentication authentication,
       @RequestParam(required = false) String source,
+      @RequestParam(required = false) String keyword,
       @RequestParam(required = false) Integer page,
       @RequestParam(required = false) Integer pageSize) {
-    return returnedItemsService.listReturnedItems(authentication, source, page, pageSize);
+    return returnedItemsService.listReturnedItems(authentication, source, keyword, page, pageSize);
   }
 }

@@ -15,6 +15,7 @@ labelhub:
     username: ${LABELHUB_AGENT_USERNAME:system_agent}
     password: ${LABELHUB_AGENT_PASSWORD:agent123}
     role: ${LABELHUB_AGENT_ROLE:system_agent}
+    service-login-token: ${LABELHUB_AGENT_SERVICE_LOGIN_TOKEN:labelhub-local-service-login-token}
   worker:
     enabled: ${LABELHUB_AGENT_WORKER_ENABLED:true}
     concurrency: ${LABELHUB_AGENT_CONCURRENCY:3}

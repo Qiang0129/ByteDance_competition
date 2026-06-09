@@ -724,7 +724,7 @@ function OverviewKpi({
           <div className="owner-stat-value">{safe.todayDisputes}</div>
           <div className="owner-review-kpi-meta">
             <Tag color={safe.todayDisputes > 0 ? 'magenta' : 'default'}>
-              对应计划书 4.5 ESCALATE 流转
+              待终审处理
             </Tag>
           </div>
         </Card>
@@ -736,7 +736,7 @@ function OverviewKpi({
           </div>
           <div className="owner-stat-value">{pct(safe.samplingCoverage)}</div>
           <div className="owner-review-kpi-meta">
-            <Tag color="processing">计划书 4.6 抽检比例</Tag>
+            <Tag color="processing">已抽检样本占比</Tag>
           </div>
         </Card>
       </Col>

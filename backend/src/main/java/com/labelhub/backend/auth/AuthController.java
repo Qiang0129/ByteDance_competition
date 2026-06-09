@@ -1,6 +1,7 @@
 package com.labelhub.backend.auth;
 
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -16,6 +17,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+  private static final String SERVICE_LOGIN_TOKEN_HEADER = "X-LabelHub-Service-Login-Token";
+
   private final AuthService authService;
 
   public AuthController(AuthService authService) {
@@ -23,13 +26,18 @@ public class AuthController {
   }
 
   @PostMapping("/login")
-  public LoginResponse login(@Valid @RequestBody LoginRequest request) {
-    return authService.login(request);
+  public LoginResponse login(
+      @Valid @RequestBody LoginRequest request,
+      @RequestHeader(value = SERVICE_LOGIN_TOKEN_HEADER, required = false) String serviceLoginToken,
+      HttpServletRequest servletRequest) {
+    return authService.login(request, serviceLoginToken, resolveClientIp(servletRequest));
   }
 
   @PostMapping("/register")
-  public AuthUserResponse register(@Valid @RequestBody RegisterRequest request) {
-    return authService.register(request);
+  public AuthUserResponse register(
+      @Valid @RequestBody RegisterRequest request,
+      HttpServletRequest servletRequest) {
+    return authService.register(request, resolveClientIp(servletRequest));
   }
 
   @PostMapping("/reviewer-invitations")
@@ -52,5 +60,10 @@ public class AuthController {
   @GetMapping("/me")
   public CurrentUserResponse me(Authentication authentication) {
     return authService.getCurrentUser(authentication);
+  }
+
+  private String resolveClientIp(HttpServletRequest request) {
+    String remoteAddr = request.getRemoteAddr();
+    return remoteAddr == null || remoteAddr.isBlank() ? null : remoteAddr;
   }
 }

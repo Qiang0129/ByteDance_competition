@@ -6,9 +6,9 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Base64;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,20 +27,31 @@ public class AuthService {
   private final AuthRepository authRepository;
   private final PasswordEncoder passwordEncoder;
   private final TokenService tokenService;
+  private final TurnstileVerificationService turnstileVerificationService;
 
   public AuthService(
       AuthProperties authProperties,
       AuthRepository authRepository,
       PasswordEncoder passwordEncoder,
-      TokenService tokenService) {
+      TokenService tokenService,
+      TurnstileVerificationService turnstileVerificationService) {
     this.authProperties = authProperties;
     this.authRepository = authRepository;
     this.passwordEncoder = passwordEncoder;
     this.tokenService = tokenService;
+    this.turnstileVerificationService = turnstileVerificationService;
   }
 
   public LoginResponse login(LoginRequest request) {
+    return login(request, null, null);
+  }
+
+  public LoginResponse login(LoginRequest request, String serviceLoginToken, String remoteIp) {
     String requestedRole = normalizeRole(request.role());
+    if (!canBypassTurnstile(requestedRole, serviceLoginToken)) {
+      turnstileVerificationService.verify(request.turnstileToken(), remoteIp);
+    }
+
     UserAccount user = authRepository.findUserByUsername(request.username())
         .orElseThrow(() -> unauthorized("invalid username or password"));
 
@@ -90,6 +101,13 @@ public class AuthService {
 
   @Transactional
   public AuthUserResponse register(RegisterRequest request) {
+    return register(request, null);
+  }
+
+  @Transactional
+  public AuthUserResponse register(RegisterRequest request, String remoteIp) {
+    turnstileVerificationService.verify(request.turnstileToken(), remoteIp);
+
     String username = request.username().trim();
     String inviteToken = normalizeInviteToken(request.inviteToken());
     ReviewerInvitationRecord invitation = null;
@@ -158,6 +176,22 @@ public class AuthService {
       throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ROLE", "unsupported login role");
     }
     return normalizedRole;
+  }
+
+  private boolean canBypassTurnstile(String requestedRole, String providedServiceLoginToken) {
+    if (!"system_agent".equals(requestedRole)) {
+      return false;
+    }
+
+    String expectedToken = authProperties.getServiceLoginToken();
+    if (expectedToken == null || expectedToken.isBlank()
+        || providedServiceLoginToken == null || providedServiceLoginToken.isBlank()) {
+      return false;
+    }
+
+    return MessageDigest.isEqual(
+        expectedToken.getBytes(StandardCharsets.UTF_8),
+        providedServiceLoginToken.trim().getBytes(StandardCharsets.UTF_8));
   }
 
   private AuthenticatedUser requirePrincipal(Authentication authentication) {

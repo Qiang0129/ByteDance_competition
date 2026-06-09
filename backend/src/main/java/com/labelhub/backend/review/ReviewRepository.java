@@ -757,7 +757,8 @@ public class ReviewRepository {
           CAST(an.schema_snapshot_json AS CHAR) AS schema_snapshot_json,
           CAST(an.answer_json AS CHAR) AS answer_json,
           an.revision_no,
-          a.item_id
+          a.item_id,
+          t.deadline AS task_deadline
         FROM annotations an
         JOIN assignments a ON a.id = an.assignment_id
         JOIN tasks t ON t.id = a.task_id
@@ -784,7 +785,8 @@ public class ReviewRepository {
             rs.getString("answer_json"),
             rs.getInt("revision_no"),
             rs.getString("annotation_status"),
-            rs.getString("assignment_status")),
+            rs.getString("assignment_status"),
+            toLocalDateTime(rs.getTimestamp("task_deadline"))),
         annotationId)
         .stream()
         .findFirst();
@@ -1488,7 +1490,8 @@ public class ReviewRepository {
       String answerJson,
       int revisionNo,
       String annotationStatus,
-      String assignmentStatus) {}
+      String assignmentStatus,
+      LocalDateTime taskDeadline) {}
 
   public record DisputeRecord(
       long disputeId,
