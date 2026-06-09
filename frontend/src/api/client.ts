@@ -1,5 +1,18 @@
-const DEFAULT_API_BASE_URL = '/api';
+function resolveDefaultApiBaseUrl() {
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  const normalizedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  return `${normalizedBase}/api`;
+}
+
+const DEFAULT_API_BASE_URL = resolveDefaultApiBaseUrl();
 const AUTH_TOKEN_KEY = 'labelhub_access_token';
+
+export function buildPublicUrl(path: string) {
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  const normalizedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${window.location.origin}${normalizedBase}${normalizedPath}`;
+}
 
 export interface ApiRequestOptions extends RequestInit {
   skipAuth?: boolean;

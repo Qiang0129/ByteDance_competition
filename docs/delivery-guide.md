@@ -73,3 +73,4 @@
 
 - 原 `docs/architecture.md`、`docs/state-machine.md`、`docs/api-docs.md`、`docs/demo-script.md` 和 `submission/demo-video.md` 目前只保留为仓库占位文件，不再作为文档中心独立入口。
 - 技术说明以 `基础技术文档.docx`、`README.md`、`接口文档.md` 和源码为准。
+- 生产部署以 `docs/deployment-labelhub.md`、`infra/docker-compose.yml`、`infra/env.example` 和 `infra/nginx.conf` 为准；当前推荐部署地址为 `https://www.scu-gpt.top/labelhub`。

@@ -11,7 +11,9 @@ public class AuthProperties {
 
   private DemoUsers demoUsers = new DemoUsers();
   private InitialOwner initialOwner = new InitialOwner();
+  private SystemAgent systemAgent = new SystemAgent();
   private Turnstile turnstile = new Turnstile();
+  private Cors cors = new Cors();
   private String serviceLoginToken = "labelhub-local-service-login-token";
 
   public long getTokenTtlSeconds() {
@@ -38,12 +40,28 @@ public class AuthProperties {
     this.initialOwner = initialOwner;
   }
 
+  public SystemAgent getSystemAgent() {
+    return systemAgent;
+  }
+
+  public void setSystemAgent(SystemAgent systemAgent) {
+    this.systemAgent = systemAgent;
+  }
+
   public Turnstile getTurnstile() {
     return turnstile;
   }
 
   public void setTurnstile(Turnstile turnstile) {
     this.turnstile = turnstile;
+  }
+
+  public Cors getCors() {
+    return cors;
+  }
+
+  public void setCors(Cors cors) {
+    this.cors = cors;
   }
 
   public String getServiceLoginToken() {
@@ -81,6 +99,21 @@ public class AuthProperties {
 
     public void setTimeoutMs(int timeoutMs) {
       this.timeoutMs = timeoutMs;
+    }
+  }
+
+  public static class Cors {
+    private String allowedOriginPatterns =
+        "http://localhost:[*],http://127.0.0.1:[*],http://192.168.*:[*],http://10.*:[*],"
+            + "http://172.16.*:[*],http://172.17.*:[*],http://172.18.*:[*],http://172.19.*:[*],"
+            + "http://172.2*.*:[*],http://172.30.*:[*],http://172.31.*:[*]";
+
+    public String getAllowedOriginPatterns() {
+      return allowedOriginPatterns;
+    }
+
+    public void setAllowedOriginPatterns(String allowedOriginPatterns) {
+      this.allowedOriginPatterns = allowedOriginPatterns;
     }
   }
 
@@ -154,6 +187,45 @@ public class AuthProperties {
     private boolean enabled = false;
     private String username = "";
     private String displayName = "Owner";
+    private String password = "";
+
+    public boolean isEnabled() {
+      return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+      this.enabled = enabled;
+    }
+
+    public String getUsername() {
+      return username;
+    }
+
+    public void setUsername(String username) {
+      this.username = username;
+    }
+
+    public String getDisplayName() {
+      return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+      this.displayName = displayName;
+    }
+
+    public String getPassword() {
+      return password;
+    }
+
+    public void setPassword(String password) {
+      this.password = password;
+    }
+  }
+
+  public static class SystemAgent {
+    private boolean enabled = false;
+    private String username = "system_agent";
+    private String displayName = "System Agent";
     private String password = "";
 
     public boolean isEnabled() {

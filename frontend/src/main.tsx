@@ -13,6 +13,8 @@ import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { DEFAULT_STYLE_VERSION, DEFAULT_THEME_KEY } from './theme/themePresets';
 
 const publicRoutePaths = new Set(['/', '/login', '/docs', '/about']);
+const routerBasename =
+  import.meta.env.BASE_URL === '/' ? undefined : import.meta.env.BASE_URL.replace(/\/$/, '');
 
 function isPublicRoute(pathname: string) {
   return publicRoutePaths.has(pathname);
@@ -110,7 +112,7 @@ function RouteAwareThemeBoundary() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename}>
       <RouteAwareThemeBoundary />
     </BrowserRouter>
   </React.StrictMode>,

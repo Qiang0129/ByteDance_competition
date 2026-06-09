@@ -42,7 +42,6 @@ import implementationPlanDocxUrl from '../../../submission/相关文档/项目�
 import basicTechDocxUrl from '../../../submission/相关文档/基础技术文档.docx?url';
 import architectureDiagramUrl from '../../../submission/相关文档/系统架构图.png?url';
 import demoScreenshotUrl from '../../../submission/相关文档/Demo截图/数据集页面.png?url';
-import demoVideoUrl from '../../../submission/演示视频/系统演示.mp4?url';
 import docsCenterPreviewUrl from '../../images/文档中心.png';
 import imageIconUrl from '../../images/图片.svg';
 import loginIconUrl from '../../images/登陆账号.svg';
@@ -52,6 +51,7 @@ import videoIconUrl from '../../images/视频.svg';
 import '../styles/landing-docs.css';
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.6';
+const DEMO_VIDEO_URL = import.meta.env.VITE_DEMO_VIDEO_URL as string | undefined;
 const LOGIN_BASE_URL = 'http://localhost:5173';
 const LOGIN_ENDPOINTS = ['/login', '/login#signup'] as const;
 const LOGIN_ENDPOINT_CYCLE = [...LOGIN_ENDPOINTS, LOGIN_ENDPOINTS[0]];
@@ -278,6 +278,11 @@ const docsMarkdownComponents: Components = {
       <table {...props}>{children}</table>
     </div>
   ),
+  pre: ({ children, node: _node, ...props }) => (
+    <div className="landing-about-code-block landing-docs-code-block">
+      <pre {...props}>{children}</pre>
+    </div>
+  ),
 };
 
 type MarkdownComponentNode = {
@@ -430,11 +435,13 @@ const docsResources: DocsResource[] = [
     id: 'demo-video',
     category: 'video',
     title: '系统演示.mp4',
-    description: '提交资料中的系统演示视频，可在文档中心直接预览和下载。',
-    kind: 'video',
-    status: 'available',
+    description: DEMO_VIDEO_URL
+      ? '提交资料中的系统演示视频，可在文档中心直接预览和下载。'
+      : '演示视频文件未打包进前端镜像，可通过 VITE_DEMO_VIDEO_URL 配置外部访问地址。',
+    kind: DEMO_VIDEO_URL ? 'video' : 'missing',
+    status: DEMO_VIDEO_URL ? 'available' : 'missing',
     badge: 'MP4',
-    fileUrl: demoVideoUrl,
+    fileUrl: DEMO_VIDEO_URL,
     downloadName: '系统演示.mp4',
     meta: 'submission/演示视频',
   },
@@ -3599,7 +3606,7 @@ function getDocsMarkdownOutline(
   }
 
   const source = previewCache?.kind === 'markdown' ? previewCache.source : resource.source ?? '';
-  if (source.length < MARKDOWN_VIRTUAL_THRESHOLD) {
+  if (!source.trim()) {
     return undefined;
   }
 

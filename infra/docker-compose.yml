@@ -1,1 +1,179 @@
-﻿# 占位：后续补充 MySQL / Redis / backend / agent / frontend / nginx 服务编排`n
+name: labelhub
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      - --max-connections=80
+      - --innodb-buffer-pool-size=256M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LABELHUB_MYSQL_ROOT_PASSWORD:?set LABELHUB_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: labelhub
+      MYSQL_USER: ${LABELHUB_DB_USERNAME:-labelhub}
+      MYSQL_PASSWORD: ${LABELHUB_DB_PASSWORD:?set LABELHUB_DB_PASSWORD}
+    volumes:
+      - labelhub-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - labelhub
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      LABELHUB_REDIS_PASSWORD: ${LABELHUB_REDIS_PASSWORD:?set LABELHUB_REDIS_PASSWORD}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${LABELHUB_REDIS_PASSWORD:?set LABELHUB_REDIS_PASSWORD}
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - labelhub-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${LABELHUB_REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      - labelhub
+
+  backend:
+    image: ${LABELHUB_BACKEND_IMAGE:?set LABELHUB_BACKEND_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${LABELHUB_BACKEND_HOST_PORT:-8080}:8080"
+    environment:
+      JAVA_OPTS: ${LABELHUB_BACKEND_JAVA_OPTS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
+      LABELHUB_BACKEND_PORT: 8080
+      LABELHUB_DB_URL: jdbc:mysql://mysql:3306/labelhub?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      LABELHUB_DB_USERNAME: ${LABELHUB_DB_USERNAME:-labelhub}
+      LABELHUB_DB_PASSWORD: ${LABELHUB_DB_PASSWORD:?set LABELHUB_DB_PASSWORD}
+      LABELHUB_REDIS_HOST: redis
+      LABELHUB_REDIS_PORT: 6379
+      LABELHUB_REDIS_PASSWORD: ${LABELHUB_REDIS_PASSWORD:?set LABELHUB_REDIS_PASSWORD}
+      LABELHUB_REDIS_TIMEOUT: ${LABELHUB_REDIS_TIMEOUT:-3s}
+      LABELHUB_AUTH_TOKEN_TTL_SECONDS: ${LABELHUB_AUTH_TOKEN_TTL_SECONDS:-7200}
+      LABELHUB_AUTH_CORS_ALLOWED_ORIGIN_PATTERNS: ${LABELHUB_AUTH_CORS_ALLOWED_ORIGIN_PATTERNS:-https://www.scu-gpt.top}
+      LABELHUB_AUTH_TURNSTILE_SECRET_KEY: ${LABELHUB_AUTH_TURNSTILE_SECRET_KEY:?set LABELHUB_AUTH_TURNSTILE_SECRET_KEY}
+      LABELHUB_AUTH_TURNSTILE_SITEVERIFY_URL: ${LABELHUB_AUTH_TURNSTILE_SITEVERIFY_URL:-https://challenges.cloudflare.com/turnstile/v0/siteverify}
+      LABELHUB_AUTH_TURNSTILE_TIMEOUT_MS: ${LABELHUB_AUTH_TURNSTILE_TIMEOUT_MS:-5000}
+      LABELHUB_AUTH_SERVICE_LOGIN_TOKEN: ${LABELHUB_AUTH_SERVICE_LOGIN_TOKEN:?set LABELHUB_AUTH_SERVICE_LOGIN_TOKEN}
+      LABELHUB_DEMO_USERS_ENABLED: ${LABELHUB_DEMO_USERS_ENABLED:-false}
+      LABELHUB_INITIAL_OWNER_ENABLED: ${LABELHUB_INITIAL_OWNER_ENABLED:-true}
+      LABELHUB_INITIAL_OWNER_USERNAME: ${LABELHUB_INITIAL_OWNER_USERNAME:?set LABELHUB_INITIAL_OWNER_USERNAME}
+      LABELHUB_INITIAL_OWNER_DISPLAY_NAME: ${LABELHUB_INITIAL_OWNER_DISPLAY_NAME:-Owner}
+      LABELHUB_INITIAL_OWNER_PASSWORD: ${LABELHUB_INITIAL_OWNER_PASSWORD:?set LABELHUB_INITIAL_OWNER_PASSWORD}
+      LABELHUB_SYSTEM_AGENT_ENABLED: ${LABELHUB_SYSTEM_AGENT_ENABLED:-true}
+      LABELHUB_SYSTEM_AGENT_USERNAME: ${LABELHUB_SYSTEM_AGENT_USERNAME:-system_agent}
+      LABELHUB_SYSTEM_AGENT_DISPLAY_NAME: ${LABELHUB_SYSTEM_AGENT_DISPLAY_NAME:-System Agent}
+      LABELHUB_SYSTEM_AGENT_PASSWORD: ${LABELHUB_SYSTEM_AGENT_PASSWORD:?set LABELHUB_SYSTEM_AGENT_PASSWORD}
+      LABELHUB_MODEL_CONFIG_SECRET: ${LABELHUB_MODEL_CONFIG_SECRET:?set LABELHUB_MODEL_CONFIG_SECRET}
+      LABELHUB_EXPORT_STORAGE_DIR: /app/data/exports
+      LABELHUB_ATTACHMENTS_STORAGE_DIR: /app/data/attachments
+      LABELHUB_PROMPTS_DIR: /app/agent/prompts
+    volumes:
+      - labelhub-backend-exports:/app/data/exports
+      - labelhub-backend-attachments:/app/data/attachments
+    networks:
+      - labelhub
+
+  agent:
+    image: ${LABELHUB_AGENT_IMAGE:?set LABELHUB_AGENT_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      JAVA_OPTS: ${LABELHUB_AGENT_JAVA_OPTS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
+      LABELHUB_AGENT_PORT: 8091
+      LABELHUB_BACKEND_BASE_URL: http://backend:8080
+      LABELHUB_AGENT_USERNAME: ${LABELHUB_SYSTEM_AGENT_USERNAME:-system_agent}
+      LABELHUB_AGENT_PASSWORD: ${LABELHUB_SYSTEM_AGENT_PASSWORD:?set LABELHUB_SYSTEM_AGENT_PASSWORD}
+      LABELHUB_AGENT_ROLE: system_agent
+      LABELHUB_AGENT_SERVICE_LOGIN_TOKEN: ${LABELHUB_AUTH_SERVICE_LOGIN_TOKEN:?set LABELHUB_AUTH_SERVICE_LOGIN_TOKEN}
+      LABELHUB_AGENT_WORKER_ENABLED: ${LABELHUB_AGENT_WORKER_ENABLED:-true}
+      LABELHUB_AGENT_CONCURRENCY: ${LABELHUB_AGENT_CONCURRENCY:-1}
+      LABELHUB_AGENT_POLL_INTERVAL_MS: ${LABELHUB_AGENT_POLL_INTERVAL_MS:-5000}
+      LABELHUB_AGENT_IDLE_DELAY_MS: ${LABELHUB_AGENT_IDLE_DELAY_MS:-1500}
+      LABELHUB_LLM_BASE_URL: ${LABELHUB_LLM_BASE_URL:?set LABELHUB_LLM_BASE_URL}
+      LABELHUB_LLM_API_KEY: ${LABELHUB_LLM_API_KEY:?set LABELHUB_LLM_API_KEY}
+      LABELHUB_LLM_MODEL: ${LABELHUB_LLM_MODEL:?set LABELHUB_LLM_MODEL}
+      LABELHUB_LLM_REASONING_EFFORT: ${LABELHUB_LLM_REASONING_EFFORT:-high}
+      LABELHUB_LLM_WIRE_API: ${LABELHUB_LLM_WIRE_API:-responses}
+      LABELHUB_LLM_TIMEOUT_MS: ${LABELHUB_LLM_TIMEOUT_MS:-120000}
+      LABELHUB_PROMPTS_DIR: /app/agent/prompts
+    networks:
+      - labelhub
+
+  frontend:
+    image: ${LABELHUB_FRONTEND_IMAGE:?set LABELHUB_FRONTEND_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${LABELHUB_FRONTEND_HOST_PORT:-18080}:80"
+    networks:
+      - labelhub
+
+  db-migrate:
+    image: ${LABELHUB_BACKEND_IMAGE:?set LABELHUB_BACKEND_IMAGE}
+    profiles:
+      - migrate
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LABELHUB_MYSQL_ROOT_PASSWORD:?set LABELHUB_MYSQL_ROOT_PASSWORD}
+      LABELHUB_DEMO_USERS_ENABLED: ${LABELHUB_DEMO_USERS_ENABLED:-false}
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        export MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}"
+        mysql -h mysql -uroot -e "CREATE DATABASE IF NOT EXISTS labelhub CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        mysql -h mysql -uroot labelhub -e "CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(64) NOT NULL PRIMARY KEY, script VARCHAR(255) NOT NULL, executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
+        for file in $$(ls /app/db/migration/V*.sql | sort -V); do
+          script=$$(basename "$${file}")
+          version="$${script%%__*}"
+          applied=$$(mysql -N -B -h mysql -uroot labelhub -e "SELECT COUNT(*) FROM schema_migrations WHERE version='$${version}';")
+          if [ "$${applied}" = "0" ]; then
+            echo "Applying $${script}"
+            mysql -h mysql -uroot labelhub < "$${file}"
+            mysql -h mysql -uroot labelhub -e "INSERT INTO schema_migrations (version, script) VALUES ('$${version}', '$${script}');"
+          else
+            echo "Skipping $${script}"
+          fi
+        done
+        if [ "$${LABELHUB_DEMO_USERS_ENABLED}" = "false" ]; then
+          mysql -h mysql -uroot labelhub -e "UPDATE users SET status='disabled', updated_at=CURRENT_TIMESTAMP WHERE username IN ('owner','labeler','reviewer','demo');"
+        fi
+    networks:
+      - labelhub
+
+volumes:
+  labelhub-mysql-data:
+  labelhub-redis-data:
+  labelhub-backend-exports:
+  labelhub-backend-attachments:
+
+networks:
+  labelhub:
+    driver: bridge

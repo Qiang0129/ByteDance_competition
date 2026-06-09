@@ -180,18 +180,3 @@ export interface OwnerReviewReviewer {
 }
 
 export type OwnerReviewAuditLogExportScope = 'human' | 'full';
-
-/** 批量审核动作请求 */
-export interface OwnerReviewBatchDecisionRequest {
-  annotationIds: string[];
-  decision: ReviewDecision;
-  reason?: string;
-  note?: string;
-}
-
-/** 批量审核动作响应 */
-export interface OwnerReviewBatchDecisionResponse {
-  success: number;
-  failed: number;
-  failedIds?: string[];
-}

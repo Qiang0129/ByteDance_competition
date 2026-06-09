@@ -50,7 +50,7 @@ import {
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 
-import { getApiErrorMessage } from '../../api/client';
+import { buildPublicUrl, getApiErrorMessage } from '../../api/client';
 import { authApi } from '../../api/auth';
 import { dashboardApi } from '../../api/dashboard';
 import { AiAssistantIcon } from '../../components/icons';
@@ -347,7 +347,7 @@ export default function OwnerDashboard() {
     setReviewerInvite((current) => ({ ...current, loading: true, error: null }));
     try {
       const result = await authApi.createReviewerInvitation();
-      const link = `${window.location.origin}/login?reviewerInvite=${encodeURIComponent(result.token)}#signup`;
+      const link = buildPublicUrl(`/login?reviewerInvite=${encodeURIComponent(result.token)}#signup`);
       setReviewerInvite({
         link,
         expiresAt: result.expiresAt,

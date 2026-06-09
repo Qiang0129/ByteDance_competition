@@ -1366,6 +1366,42 @@
   font-weight: 850;
 }
 
+.landing-docs-markdown .landing-docs-code-block {
+  max-width: 100%;
+  margin: 18px 0;
+}
+
+.landing-docs-markdown .landing-docs-code-block pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 16px 18px;
+  overflow-x: auto;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  background: #111827;
+  color: #e5edf8;
+  font-size: 13px;
+  line-height: 1.72;
+}
+
+.landing-docs-markdown .landing-docs-code-block pre code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  white-space: pre;
+}
+
+.landing-docs-markdown :not(pre) > code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #1f2937;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
 .landing-docs-virtual-markdown {
   min-height: 100%;
   background: #ffffff;

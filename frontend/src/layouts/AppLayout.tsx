@@ -39,7 +39,7 @@ import type { MenuProps } from 'antd';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { authApi, clearStoredAuthUser, getStoredAuthUser } from '../api/auth';
-import { clearAuthToken, getAuthToken } from '../api/client';
+import { buildPublicUrl, clearAuthToken, getAuthToken } from '../api/client';
 import type { AuthUser } from '../types/auth';
 import {
   isWorkspaceRole,
@@ -525,7 +525,7 @@ export default function AppLayout() {
     setOwnerInvite((current) => ({ ...current, loading: true, error: null }));
     try {
       const result = await authApi.createOwnerInvitation();
-      const link = `${window.location.origin}/login?ownerInvite=${encodeURIComponent(result.token)}#signup`;
+      const link = buildPublicUrl(`/login?ownerInvite=${encodeURIComponent(result.token)}#signup`);
       setOwnerInvite({
         link,
         expiresAt: result.expiresAt,

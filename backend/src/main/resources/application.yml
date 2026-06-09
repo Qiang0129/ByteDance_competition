@@ -25,6 +25,8 @@ labelhub:
     dir: ${LABELHUB_PROMPTS_DIR:agent/prompts}
   auth:
     token-ttl-seconds: ${LABELHUB_AUTH_TOKEN_TTL_SECONDS:7200}
+    cors:
+      allowed-origin-patterns: ${LABELHUB_AUTH_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:[*],http://127.0.0.1:[*],http://192.168.*:[*],http://10.*:[*],http://172.16.*:[*],http://172.17.*:[*],http://172.18.*:[*],http://172.19.*:[*],http://172.2*.*:[*],http://172.30.*:[*],http://172.31.*:[*]}
     service-login-token: ${LABELHUB_AUTH_SERVICE_LOGIN_TOKEN:labelhub-local-service-login-token}
     turnstile:
       secret-key: ${LABELHUB_AUTH_TURNSTILE_SECRET_KEY:1x0000000000000000000000000000000AA}
@@ -43,7 +45,14 @@ labelhub:
       username: ${LABELHUB_INITIAL_OWNER_USERNAME:}
       display-name: ${LABELHUB_INITIAL_OWNER_DISPLAY_NAME:Owner}
       password: ${LABELHUB_INITIAL_OWNER_PASSWORD:}
+    system-agent:
+      enabled: ${LABELHUB_SYSTEM_AGENT_ENABLED:false}
+      username: ${LABELHUB_SYSTEM_AGENT_USERNAME:system_agent}
+      display-name: ${LABELHUB_SYSTEM_AGENT_DISPLAY_NAME:System Agent}
+      password: ${LABELHUB_SYSTEM_AGENT_PASSWORD:}
   model-config:
     secret: ${LABELHUB_MODEL_CONFIG_SECRET:}
   export:
     storage-dir: ${LABELHUB_EXPORT_STORAGE_DIR:data/exports}
+  attachments:
+    storage-dir: ${LABELHUB_ATTACHMENTS_STORAGE_DIR:data/attachments}

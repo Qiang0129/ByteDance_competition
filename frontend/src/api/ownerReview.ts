@@ -10,7 +10,6 @@
  *   - GET    /reviews/tasks/{taskId}/annotations 任务下条目明细(只读)
  *   - GET    /reviews/tasks/{taskId}/audit-log/export 任务日志导出
  *   - GET    /reviews/audit-log               审计日志
- *   - POST   /reviews/batch-decision          预留兼容方法,当前 Owner 页不接入后端裁决
  *
  * 与 Reviewer 端 `/reviewer/*` 区别:
  *   - Owner 端是横向看「所有任务 / 所有审核员」的进度;
@@ -22,8 +21,6 @@ import type {
   OwnerReviewAnnotation,
   OwnerReviewAuditLogExportScope,
   OwnerReviewAuditQuery,
-  OwnerReviewBatchDecisionRequest,
-  OwnerReviewBatchDecisionResponse,
   OwnerReviewOverview,
   OwnerReviewPageResult,
   OwnerReviewReviewer,
@@ -150,15 +147,5 @@ export const ownerReviewApi = {
     return apiRequest<ReviewAuditItemTimeline>(
       `/reviews/audit-log/${logId}/item-timeline`,
     );
-  },
-
-  /** 预留兼容方法:当前 Owner 人工审核页只读,不调用该接口。 */
-  batchDecision(
-    payload: OwnerReviewBatchDecisionRequest,
-  ): Promise<OwnerReviewBatchDecisionResponse> {
-    return apiRequest<OwnerReviewBatchDecisionResponse>('/reviews/batch-decision', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
   },
 };
