@@ -367,6 +367,10 @@ public class SchemaService {
   }
 
   private ArrayNode normalizeFields(JsonNode fields) {
+    return normalizeFields(fields, fields);
+  }
+
+  private ArrayNode normalizeFields(JsonNode fields, JsonNode allFields) {
     ArrayNode normalized = objectMapper.createArrayNode();
     for (JsonNode field : fields) {
       if (!field.isObject()) {
@@ -375,23 +379,63 @@ public class SchemaService {
       }
       ObjectNode nextField = ((ObjectNode) field).deepCopy();
       ensureSemanticType(nextField);
-      JsonNode reactions = nextField.path("reactions");
-      if (reactions.isArray()) {
-        ArrayNode nextReactions = objectMapper.createArrayNode();
-        for (JsonNode reaction : reactions) {
-          if (!reaction.isObject()) {
-            nextReactions.add(reaction.deepCopy());
-            continue;
-          }
-          ObjectNode nextReaction = ((ObjectNode) reaction).deepCopy();
-          normalizeReaction(nextReaction, fields);
-          nextReactions.add(nextReaction);
-        }
-        nextField.set("reactions", nextReactions);
-      }
+      normalizeReactions(nextField, allFields);
+      normalizeLayoutChildren(nextField, allFields);
       normalized.add(nextField);
     }
     return normalized;
+  }
+
+  private void normalizeReactions(ObjectNode field, JsonNode allFields) {
+    JsonNode reactions = field.path("reactions");
+    if (!reactions.isArray()) {
+      return;
+    }
+    ArrayNode nextReactions = objectMapper.createArrayNode();
+    for (JsonNode reaction : reactions) {
+      if (!reaction.isObject()) {
+        nextReactions.add(reaction.deepCopy());
+        continue;
+      }
+      ObjectNode nextReaction = ((ObjectNode) reaction).deepCopy();
+      normalizeReaction(nextReaction, allFields);
+      nextReactions.add(nextReaction);
+    }
+    field.set("reactions", nextReactions);
+  }
+
+  private void normalizeLayoutChildren(ObjectNode field, JsonNode allFields) {
+    if ("multi-tab".equals(text(field, "kind"))) {
+      JsonNode tabs = field.path("componentProps").path("tabs");
+      if (!tabs.isArray()) {
+        return;
+      }
+      ObjectNode componentProps = field.path("componentProps").isObject()
+          ? ((ObjectNode) field.path("componentProps")).deepCopy()
+          : objectMapper.createObjectNode();
+      ArrayNode nextTabs = objectMapper.createArrayNode();
+      for (JsonNode tab : tabs) {
+        if (!tab.isObject()) {
+          nextTabs.add(tab.deepCopy());
+          continue;
+        }
+        ObjectNode nextTab = ((ObjectNode) tab).deepCopy();
+        JsonNode children = nextTab.path("children");
+        if (children.isArray()) {
+          nextTab.set("children", normalizeFields(children, allFields));
+        }
+        nextTabs.add(nextTab);
+      }
+      componentProps.set("tabs", nextTabs);
+      field.set("componentProps", componentProps);
+      field.remove("children");
+      return;
+    }
+
+    JsonNode children = field.path("children");
+    if (children.isArray()) {
+      field.set("children", normalizeFields(children, allFields));
+    }
   }
 
   private void ensureSemanticType(ObjectNode field) {
@@ -430,7 +474,7 @@ public class SchemaService {
     if (sourceFieldName == null || rawValue == null) {
       return;
     }
-    JsonNode sourceField = findField(fields, sourceFieldName);
+    JsonNode sourceField = SchemaFieldTree.findField(fields, sourceFieldName);
     if (sourceField == null) {
       return;
     }
@@ -446,18 +490,6 @@ public class SchemaService {
         return;
       }
     }
-  }
-
-  private JsonNode findField(JsonNode fields, String fieldName) {
-    if (fields == null || !fields.isArray() || fieldName == null) {
-      return null;
-    }
-    for (JsonNode field : fields) {
-      if (fieldName.equals(text(field, "fieldName"))) {
-        return field;
-      }
-    }
-    return null;
   }
 
   private String normalizeName(String name) {

@@ -7,6 +7,7 @@ import com.labelhub.backend.annotation.AssignmentAttachmentRepository.Assignment
 import com.labelhub.backend.annotation.AssignmentAttachmentRepository.AttachmentFileRecord;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
+import com.labelhub.backend.schema.SchemaFieldTree;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -182,7 +183,7 @@ public class AssignmentAttachmentService {
     if (!fields.isArray()) {
       throw new ApiException(HttpStatus.CONFLICT, "SCHEMA_NOT_FOUND", "schema fields not found");
     }
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       if (normalizedFieldName.equals(field.path("fieldName").asText())
           && "file-upload".equals(field.path("kind").asText())) {
         return;

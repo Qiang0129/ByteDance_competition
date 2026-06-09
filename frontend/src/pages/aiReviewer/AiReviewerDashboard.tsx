@@ -610,7 +610,7 @@ function AiReviewerOverview() {
       </Card>
 
       {/* 图表行 2:决策分布环状图 + AI 通过率圆环 + 处理效率 */}
-      <Row gutter={16}>
+      <Row gutter={16} className="ai-overview-metric-row">
         {/* 决策分布:左圆环 + 右图例(参考 Owner 看板 ReviewDistributionCard) */}
         <Col xs={24} lg={10}>
           <Card title="决策分布" loading={loading} className="ai-overview-chart-card">

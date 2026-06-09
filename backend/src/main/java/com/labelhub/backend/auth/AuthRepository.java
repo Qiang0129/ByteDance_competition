@@ -159,6 +159,20 @@ public class AuthRepository {
     return count != null && count > 0;
   }
 
+  public boolean existsActiveUserByRoleCode(String roleCode) {
+    Integer count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM users
+        WHERE JSON_CONTAINS(COALESCE(roles_json, JSON_ARRAY()), JSON_QUOTE(?))
+          AND deleted_at IS NULL
+          AND status = 'active'
+        """,
+        Integer.class,
+        roleCode);
+    return count != null && count > 0;
+  }
+
   public UserAccount createUser(String username, String displayName, String passwordHash, String roleCode) {
     long userId = insertUser(username, displayName, passwordHash, List.of(roleCode));
     return findUserById(userId)

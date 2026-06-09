@@ -17,4 +17,15 @@ export {
   resolveRuntimeRules,
   resolveSemanticType,
 } from './schemaCompiler';
+export {
+  findSchemaField,
+  flattenSchemaFields,
+  getFieldChildren,
+  isLayoutField,
+  normalizeLayoutTabs,
+  normalizeSchemaFieldTree,
+  walkSchemaFields,
+  withLayoutTabs,
+} from './schemaTree';
+export type { SchemaFieldPathSegment, SchemaFieldWithPath } from './schemaTree';
 export { normalizeValidators, validateSchemaFields } from './schemaValidation';

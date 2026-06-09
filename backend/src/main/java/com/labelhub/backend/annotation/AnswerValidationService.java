@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.labelhub.backend.auth.ApiException;
+import com.labelhub.backend.schema.SchemaFieldTree;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -36,7 +37,7 @@ public class AnswerValidationService {
   public JsonNode filterVisibleAnswer(JsonNode answerJson, ArrayNode fields) {
     Set<String> hiddenFields = resolveHiddenFields(fields, answerJson);
     ObjectNode filtered = objectMapper.createObjectNode();
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       String semanticType = semanticType(field);
       if (!isSubmittableSemanticType(semanticType)) {
         continue;
@@ -53,7 +54,7 @@ public class AnswerValidationService {
   public void validateAnswer(JsonNode answerJson, ArrayNode fields) {
     Set<String> hiddenFields = resolveHiddenFields(fields, answerJson);
     Set<String> conditionalRequiredFields = resolveConditionalRequiredFields(fields, answerJson);
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       String semanticType = semanticType(field);
       if ("display".equals(semanticType) || "layout".equals(semanticType)) {
         continue;
@@ -113,14 +114,14 @@ public class AnswerValidationService {
     if (hidden != null || required != null) {
       applyDisplayRequiredDefaults(fields, hidden, required);
     }
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       JsonNode reactions = field.path("reactions");
       if (!reactions.isArray()) {
         continue;
       }
       for (JsonNode reaction : reactions) {
         String sourceField = text(reaction, "sourceField", "");
-        if (!matchesReaction(reaction, answerJson.get(sourceField), findField(fields, sourceField))) {
+        if (!matchesReaction(reaction, answerJson.get(sourceField), SchemaFieldTree.findField(fields, sourceField))) {
           continue;
         }
         String targetField = text(reaction, "targetField", "");
@@ -147,7 +148,7 @@ public class AnswerValidationService {
       ArrayNode fields,
       Set<String> hidden,
       Set<String> required) {
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       JsonNode reactions = field.path("reactions");
       if (!reactions.isArray()) {
         continue;
@@ -368,22 +369,9 @@ public class AnswerValidationService {
     }
   }
 
-  private JsonNode findField(ArrayNode fields, String fieldName) {
-    for (JsonNode field : fields) {
-      if (fieldName.equals(text(field, "fieldName", ""))) {
-        return field;
-      }
-    }
-    return null;
-  }
-
   private boolean isStaticRequired(ArrayNode fields, String fieldName) {
-    for (JsonNode field : fields) {
-      if (fieldName.equals(text(field, "fieldName", ""))) {
-        return field.path("required").asBoolean(false);
-      }
-    }
-    return false;
+    JsonNode field = SchemaFieldTree.findField(fields, fieldName);
+    return field != null && field.path("required").asBoolean(false);
   }
 
   private boolean isDisplayRequiredAction(String action) {

@@ -17,6 +17,7 @@ import {
   UpOutlined,
 } from '@ant-design/icons';
 import {
+  Alert,
   App,
   Badge,
   Button,
@@ -73,6 +74,9 @@ interface PublishFormValues {
   title: string;
   tags: string[];
   reward: string;
+  rewardPerItem?: number | null;
+  rewardCapType?: 'monthly' | 'none';
+  rewardCapAmount?: number | null;
   quota: number | null;
   deadline: Dayjs | null;
   datasetId: string;
@@ -101,6 +105,12 @@ const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm';
 const UNTITLED_DRAFT_TITLE_PREFIX = '未命名任务草稿';
 const MOBILE_TASK_COLLAPSED_COUNT = 3;
 const DATASET_ITEM_PAGE_SIZE = 20;
+const DEFAULT_REWARD_TEXT = '0.30 元 / 条 · 月度封顶 1500 元';
+const REWARD_PRESETS = [
+  { label: '基础', rewardPerItem: 0.3, rewardCapType: 'monthly' as const, rewardCapAmount: 1500 },
+  { label: '中等', rewardPerItem: 0.5, rewardCapType: 'monthly' as const, rewardCapAmount: 2000 },
+  { label: '复杂', rewardPerItem: 0.8, rewardCapType: 'none' as const, rewardCapAmount: null },
+];
 
 function createUntitledDraftTitle() {
   return `${UNTITLED_DRAFT_TITLE_PREFIX} ${dayjs().format('MM-DD HH:mm')}`;
@@ -110,10 +120,53 @@ function isAutoNamedDraftTask(record: OwnerTaskRow) {
   return record.state === 'draft' && record.title.trim().startsWith(UNTITLED_DRAFT_TITLE_PREFIX);
 }
 
+function parseRewardRule(reward?: string) {
+  const source = reward?.trim() || DEFAULT_REWARD_TEXT;
+  const numberMatches = Array.from(source.matchAll(/(\d+(?:\.\d+)?)/g)).map((match) => Number(match[1]));
+  const rewardPerItem = Number.isFinite(numberMatches[0]) ? numberMatches[0] : 0.3;
+  const noCap = source.includes('无封顶');
+  return {
+    reward: source,
+    rewardPerItem,
+    rewardCapType: noCap ? 'none' as const : 'monthly' as const,
+    rewardCapAmount: noCap ? null : Number.isFinite(numberMatches[1]) ? numberMatches[1] : 1500,
+  };
+}
+
+function buildRewardRule(values: {
+  rewardPerItem?: number | null;
+  rewardCapType?: 'monthly' | 'none';
+  rewardCapAmount?: number | null;
+  reward?: string;
+}) {
+  const rewardPerItem = Number(values.rewardPerItem);
+  if (!Number.isFinite(rewardPerItem) || rewardPerItem <= 0) {
+    return values.reward?.trim() || DEFAULT_REWARD_TEXT;
+  }
+  if (values.rewardCapType === 'none') {
+    return `${rewardPerItem.toFixed(2)} 元 / 条 · 无封顶`;
+  }
+  const capAmount = Number(values.rewardCapAmount);
+  return `${rewardPerItem.toFixed(2)} 元 / 条 · 月度封顶 ${Number.isFinite(capAmount) && capAmount > 0 ? capAmount : 1500} 元`;
+}
+
+function formatMoneyText(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) {
+    return '0';
+  }
+  return Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 const publishFormFieldTabs: Record<string, string> = {
   title: 'basic',
   tags: 'basic',
   reward: 'basic',
+  rewardPerItem: 'basic',
+  rewardCapType: 'basic',
+  rewardCapAmount: 'basic',
   deadline: 'basic',
   schemaVersionId: 'basic',
   aiReviewEnabled: 'basic',
@@ -347,6 +400,9 @@ export default function OwnerTasks() {
   const selectedReviewerAllocations = Form.useWatch('reviewerAllocations', form);
   const selectedSchemaVersionId = Form.useWatch('schemaVersionId', form);
   const selectedAiReviewEnabled = Form.useWatch('aiReviewEnabled', form);
+  const selectedRewardPerItem = Form.useWatch('rewardPerItem', form);
+  const selectedRewardCapType = Form.useWatch('rewardCapType', form);
+  const selectedRewardCapAmount = Form.useWatch('rewardCapAmount', form);
 
   useEffect(() => {
     void Promise.all([
@@ -519,6 +575,44 @@ export default function OwnerTasks() {
       : selectedDataset?.itemCount ?? 0;
   const labelerAllocationTotal = sumAllocationValues(selectedLabelerAllocations);
   const reviewerAllocationTotal = sumAllocationValues(selectedReviewerAllocations);
+  const rewardPreview = buildRewardRule({
+    reward: form.getFieldValue('reward'),
+    rewardPerItem: selectedRewardPerItem,
+    rewardCapType: selectedRewardCapType,
+    rewardCapAmount: selectedRewardCapAmount,
+  });
+  const labelerRewardWarnings = useMemo(() => {
+    const capAmount = selectedRewardCapType === 'monthly' ? Number(selectedRewardCapAmount) : null;
+    const rewardPerItem = Number(selectedRewardPerItem);
+    if (!capAmount || !Number.isFinite(capAmount) || capAmount <= 0 || !Number.isFinite(rewardPerItem) || rewardPerItem <= 0) {
+      return [];
+    }
+    return (selectedLabelerAllocations ?? [])
+      .map((allocation) => {
+        if (!allocation?.userId || !allocation.itemCount) {
+          return null;
+        }
+        const labeler = assignableLabelers.find((item) => item.userId === allocation.userId);
+        if (!labeler) {
+          return null;
+        }
+        const accepted = labeler.monthlyAcceptedReward ?? 0;
+        const pending = labeler.monthlyPendingReward ?? 0;
+        const current = Number(allocation.itemCount) * rewardPerItem;
+        const projected = accepted + pending + current;
+        if (projected <= capAmount) {
+          return null;
+        }
+        return `${labeler.displayName} 预计 ${formatMoneyText(projected)} 元超过月度封顶 ${formatMoneyText(capAmount)} 元（已验收 ${formatMoneyText(accepted)} 元，待完成 ${formatMoneyText(pending)} 元，本次预计 ${formatMoneyText(current)} 元）`;
+      })
+      .filter((item): item is string => Boolean(item));
+  }, [
+    assignableLabelers,
+    selectedLabelerAllocations,
+    selectedRewardCapAmount,
+    selectedRewardCapType,
+    selectedRewardPerItem,
+  ]);
 
   const columns: ColumnsType<OwnerTaskRow> = [
     {
@@ -770,10 +864,11 @@ export default function OwnerTasks() {
 
   function toFormValues(row?: OwnerTaskRow, detail?: OwnerTaskDetail): PublishFormValues {
     const datasetId = inferDatasetId(row);
+    const rewardFields = parseRewardRule(row?.reward);
     return {
       title: row?.title ?? '',
       tags: row?.tags?.length ? row.tags : ['电商', '中文'],
-      reward: row?.reward ?? '0.30 元 / 条 · 月度封顶 1500 元',
+      ...rewardFields,
       quota: row?.quotaTotal ?? resolveDatasetQuota(datasetId),
       deadline: row?.deadline ? dayjs(row.deadline, DATE_TIME_FORMAT) : null,
       datasetId,
@@ -854,10 +949,11 @@ export default function OwnerTasks() {
         ? activeRow.title.trim()
         : createUntitledDraftTitle();
     const title = values.title?.trim() || (status === 'draft' ? draftTitleFallback : '');
+    const reward = buildRewardRule(values);
     return {
       title,
       tags: values.tags ?? [],
-      reward: values.reward?.trim(),
+      reward,
       quota: totalItems || values.quota || undefined,
       deadline: values.deadline ? values.deadline.format(DATE_TIME_FORMAT) : undefined,
       datasetId: values.datasetId,
@@ -1458,9 +1554,84 @@ export default function OwnerTasks() {
                     <Form.Item label="标签" name="tags">
                       <Select mode="tags" placeholder="按回车输入标签" />
                     </Form.Item>
-                    <Form.Item label="奖励规则" name="reward">
-                      <Input placeholder="0.30 元 / 条 · 月度封顶 1500 元" />
+                    <Form.Item name="reward" hidden>
+                      <Input />
                     </Form.Item>
+                    <div className="owner-reward-editor">
+                      <div className="owner-reward-editor-head">
+                        <Typography.Text strong>奖励规则</Typography.Text>
+                        <Space size={6} wrap>
+                          {REWARD_PRESETS.map((preset) => (
+                            <Button
+                              key={preset.label}
+                              size="small"
+                              onClick={() => {
+                                form.setFieldsValue({
+                                  rewardPerItem: preset.rewardPerItem,
+                                  rewardCapType: preset.rewardCapType,
+                                  rewardCapAmount: preset.rewardCapAmount,
+                                  reward: buildRewardRule(preset),
+                                });
+                              }}
+                            >
+                              {preset.label}
+                            </Button>
+                          ))}
+                        </Space>
+                      </div>
+                      <Row gutter={12}>
+                        <Col xs={24} sm={8}>
+                          <Form.Item
+                            label="单价"
+                            name="rewardPerItem"
+                            rules={[{ required: true, message: '请输入单条奖励' }]}
+                          >
+                            <InputNumber
+                              min={0.01}
+                              precision={2}
+                              step={0.01}
+                              addonAfter="元 / 条"
+                              style={{ width: '100%' }}
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={8}>
+                          <Form.Item label="封顶类型" name="rewardCapType">
+                            <Segmented
+                              block
+                              options={[
+                                { label: '月度封顶', value: 'monthly' },
+                                { label: '无封顶', value: 'none' },
+                              ]}
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={8}>
+                          {selectedRewardCapType !== 'none' ? (
+                            <Form.Item
+                              label="封顶金额"
+                              name="rewardCapAmount"
+                              rules={[{ required: true, message: '请输入月度封顶金额' }]}
+                            >
+                              <InputNumber
+                                min={1}
+                                precision={0}
+                                addonAfter="元"
+                                style={{ width: '100%' }}
+                              />
+                            </Form.Item>
+                          ) : (
+                            <Form.Item label="封顶金额">
+                              <Input disabled value="无封顶" />
+                            </Form.Item>
+                          )}
+                        </Col>
+                      </Row>
+                      <div className="owner-reward-preview">
+                        <span>提交文案</span>
+                        <strong>{rewardPreview}</strong>
+                      </div>
+                    </div>
                     <Form.Item
                       label="截止时间"
                       name="deadline"
@@ -1710,6 +1881,20 @@ export default function OwnerTasks() {
                         addText="添加标注员"
                         total={labelerAllocationTotal}
                         taskItemCount={taskItemCount}
+                      />
+                    ) : null}
+                    {selectedStrategy === 'assigned' && labelerRewardWarnings.length > 0 ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message="月度封顶风险提示"
+                        description={
+                          <div className="owner-reward-warning-list">
+                            {labelerRewardWarnings.map((warning) => (
+                              <div key={warning}>{warning}</div>
+                            ))}
+                          </div>
+                        }
                       />
                     ) : null}
                     {selectedStrategy === 'quota' ? (

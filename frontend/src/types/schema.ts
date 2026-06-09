@@ -80,6 +80,12 @@ export interface SchemaTab {
   label: string;
 }
 
+export interface SchemaLayoutTab {
+  id: string;
+  label: string;
+  children?: SchemaField[];
+}
+
 export interface SchemaDiagnostic {
   level: 'error' | 'warning';
   code: string;
@@ -128,6 +134,8 @@ export interface SchemaField {
   defaultValue?: unknown;
   /** 字段帮助说明 */
   helpText?: string;
+  /** 布局容器的子字段。group 直接使用 children; multi-tab 的子字段优先放在 componentProps.tabs[].children。 */
+  children?: SchemaField[];
   /** 校验规则 */
   validations?: {
     regex?: string;

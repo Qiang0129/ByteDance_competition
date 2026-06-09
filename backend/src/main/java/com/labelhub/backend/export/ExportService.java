@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
+import com.labelhub.backend.schema.SchemaFieldTree;
 import com.labelhub.backend.workflow.StateMachineService;
 import com.labelhub.backend.workflow.WorkflowEntityType;
 import java.io.BufferedWriter;
@@ -720,7 +721,7 @@ public class ExportService {
     }
     List<ExportFieldOptionResponse> options = new ArrayList<>();
     Set<String> names = new LinkedHashSet<>();
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       String fieldName = text(field, "fieldName", "");
       if (fieldName.isBlank() || !isSubmittable(field)) {
         continue;

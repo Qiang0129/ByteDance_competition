@@ -1,6 +1,7 @@
 import type { MaterialKind, SchemaField, SchemaReactionRule, SchemaSemanticType, SchemaTab } from '../../types/schema';
 import type { LlmTriggerStateUpdater, LlmTriggerUiState } from './llmTriggerState';
 import { normalizeValidators, SUBMITTABLE_KINDS } from './schemaValidation';
+import { flattenSchemaFields, normalizeSchemaFieldTree } from './schemaTree';
 
 const SUBMITTABLE_SEMANTIC_TYPES = new Set<SchemaSemanticType>([
   'text',
@@ -83,11 +84,12 @@ export function resolveRuntimeRules(
   fields: SchemaField[],
   values: Record<string, unknown>,
 ): RuntimeRuleState {
-  const visible = Object.fromEntries(fields.map((field) => [field.fieldName, true]));
-  const required = Object.fromEntries(fields.map((field) => [field.fieldName, !!field.required]));
-  const fieldRequired = Object.fromEntries(fields.map((field) => [field.fieldName, !!field.required]));
+  const flatFields = flattenSchemaFields(fields);
+  const visible = Object.fromEntries(flatFields.map((field) => [field.fieldName, true]));
+  const required = Object.fromEntries(flatFields.map((field) => [field.fieldName, !!field.required]));
+  const fieldRequired = Object.fromEntries(flatFields.map((field) => [field.fieldName, !!field.required]));
 
-  fields.forEach((field) => {
+  flatFields.forEach((field) => {
     (field.reactions ?? []).forEach((rule) => {
       if (!rule.targetField) return;
       if (isDisplayRequiredAction(rule.action)) {
@@ -97,10 +99,10 @@ export function resolveRuntimeRules(
     });
   });
 
-  fields.forEach((field) => {
+  flatFields.forEach((field) => {
     (field.reactions ?? []).forEach((rule) => {
       if (!rule.targetField) return;
-      const sourceField = findField(fields, rule.sourceField);
+      const sourceField = findField(flatFields, rule.sourceField);
       if (!matchesRule(rule, values[rule.sourceField], sourceField)) return;
       switch (rule.action) {
         case 'visible':
@@ -130,8 +132,9 @@ export function filterVisibleAnswer(
   values: Record<string, unknown>,
 ): Record<string, unknown> {
   const ruleState = resolveRuntimeRules(fields, values);
+  const flatFields = flattenSchemaFields(fields);
   const next: Record<string, unknown> = {};
-  fields.forEach((field) => {
+  flatFields.forEach((field) => {
     if (!field.fieldName || !isSubmittableField(field)) return;
     if (ruleState.visible[field.fieldName] === false) return;
     if (Object.prototype.hasOwnProperty.call(values, field.fieldName)) {
@@ -145,13 +148,17 @@ export function compileToFormilySchema(fields: SchemaField[], options: CompileOp
   const rawPayload = options.rawPayload ?? {};
   const values = options.values ?? {};
   const ruleState = resolveRuntimeRules(fields, values);
+  const allFields = options.allFields ?? flattenSchemaFields(fields);
   const properties: Record<string, unknown> = {};
 
   fields.forEach((field, index) => {
     if (!field.fieldName) return;
     if (options.fieldFilter && !options.fieldFilter(field)) return;
     if (ruleState.visible[field.fieldName] === false) return;
-    properties[field.fieldName] = toFormilyFieldSchema(field, index, rawPayload, ruleState, options);
+    properties[field.fieldName] = toFormilyFieldSchema(field, index, rawPayload, ruleState, {
+      ...options,
+      allFields,
+    });
   });
 
   return {
@@ -161,11 +168,11 @@ export function compileToFormilySchema(fields: SchemaField[], options: CompileOp
 }
 
 export function normalizeSchemaFields(fields: SchemaField[]): SchemaField[] {
-  return fields.map((field) => ({
+  return normalizeSchemaFieldTree(fields, (field, allFields) => ({
     ...field,
     semanticType: resolveSemanticType(field),
     reactions: (field.reactions ?? []).map((rule) => {
-      const sourceField = findField(fields, rule.sourceField);
+      const sourceField = findField(allFields, rule.sourceField);
       return {
         ...rule,
         action: isDisplayRequiredAction(rule.action) ? 'visibleRequired' : rule.action,

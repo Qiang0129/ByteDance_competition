@@ -241,7 +241,12 @@ export default function MyTasks() {
           <Button
             type="link"
             disabled={record.actionDisabled}
-            onClick={() => navigate(`/labeler/answer/${record.assignmentId}`)}
+            onClick={() => navigate(`/labeler/answer/${record.assignmentId}`, {
+              state: {
+                assignmentId: record.assignmentId,
+                labelerNavKey: '/labeler/my-tasks',
+              },
+            })}
           >
             {record.actionText}
           </Button>

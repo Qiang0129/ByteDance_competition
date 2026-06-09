@@ -10,6 +10,7 @@ public class AuthProperties {
   private long tokenTtlSeconds = 7200;
 
   private DemoUsers demoUsers = new DemoUsers();
+  private InitialOwner initialOwner = new InitialOwner();
   private Turnstile turnstile = new Turnstile();
   private String serviceLoginToken = "labelhub-local-service-login-token";
 
@@ -27,6 +28,14 @@ public class AuthProperties {
 
   public void setDemoUsers(DemoUsers demoUsers) {
     this.demoUsers = demoUsers;
+  }
+
+  public InitialOwner getInitialOwner() {
+    return initialOwner;
+  }
+
+  public void setInitialOwner(InitialOwner initialOwner) {
+    this.initialOwner = initialOwner;
   }
 
   public Turnstile getTurnstile() {
@@ -138,6 +147,45 @@ public class AuthProperties {
 
     public void setAllRolesPassword(String allRolesPassword) {
       this.allRolesPassword = allRolesPassword;
+    }
+  }
+
+  public static class InitialOwner {
+    private boolean enabled = false;
+    private String username = "";
+    private String displayName = "Owner";
+    private String password = "";
+
+    public boolean isEnabled() {
+      return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+      this.enabled = enabled;
+    }
+
+    public String getUsername() {
+      return username;
+    }
+
+    public void setUsername(String username) {
+      this.username = username;
+    }
+
+    public String getDisplayName() {
+      return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+      this.displayName = displayName;
+    }
+
+    public String getPassword() {
+      return password;
+    }
+
+    public void setPassword(String password) {
+      this.password = password;
     }
   }
 }

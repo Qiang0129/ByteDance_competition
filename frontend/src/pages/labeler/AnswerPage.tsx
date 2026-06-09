@@ -28,7 +28,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError, getApiErrorMessage } from '../../api/client';
 import { labelerApi } from '../../api/labeler';
@@ -67,6 +67,15 @@ const DRAFT_TYPING_DEBOUNCE_MS = 400;
 /** 分栏左侧宽度持久化:键名与默认值 */
 const SPLIT_STORAGE_KEY = 'labelhub:answer:split-left-percent';
 const DEFAULT_SPLIT_PERCENT = 42;
+type LabelerAnswerNavKey = '/labeler' | '/labeler/my-tasks' | '/labeler/drafts' | '/labeler/returned';
+
+const LABELER_ANSWER_NAV_KEYS: readonly LabelerAnswerNavKey[] = [
+  '/labeler',
+  '/labeler/my-tasks',
+  '/labeler/drafts',
+  '/labeler/returned',
+];
+
 const LABELER_RAW_PAYLOAD_HIDDEN_KEYS = new Set([
   'preferred',
   'annotatornote',
@@ -136,10 +145,36 @@ function normalizeRawPayloadKey(key: string) {
   return key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function resolveLabelerAnswerNavKey(state: unknown): LabelerAnswerNavKey {
+  if (!state || typeof state !== 'object') return '/labeler/my-tasks';
+  const navKey = (state as { labelerNavKey?: unknown }).labelerNavKey;
+  return LABELER_ANSWER_NAV_KEYS.includes(navKey as LabelerAnswerNavKey)
+    ? (navKey as LabelerAnswerNavKey)
+    : '/labeler/my-tasks';
+}
+
 export default function AnswerPage() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
+  const labelerNavKey = useMemo(() => resolveLabelerAnswerNavKey(location.state), [location.state]);
+  const navigateToAnswer = useCallback(
+    (targetAssignmentId: string, options?: { replace?: boolean }) => {
+      const currentState = location.state && typeof location.state === 'object'
+        ? (location.state as Record<string, unknown>)
+        : {};
+      navigate(`/labeler/answer/${targetAssignmentId}`, {
+        ...options,
+        state: {
+          ...currentState,
+          assignmentId: targetAssignmentId,
+          labelerNavKey,
+        },
+      });
+    },
+    [labelerNavKey, location.state, navigate],
+  );
 
   const [item, setItem] = useState<AssignmentItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -354,7 +389,7 @@ export default function AnswerPage() {
       return;
     }
     entryRedirectedTaskRef.current = item.taskId;
-    navigate(`/labeler/answer/${ids[target]}`, { replace: true });
+    navigateToAnswer(ids[target], { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.taskId, item?.assignmentId, item?.position.statuses]);
 
@@ -529,7 +564,7 @@ export default function AnswerPage() {
           : '当前题已提交审核',
       );
       if (item.position.nextAssignmentId) {
-        navigate(`/labeler/answer/${item.position.nextAssignmentId}`);
+        navigateToAnswer(item.position.nextAssignmentId);
       } else {
         const refreshed = await labelerApi.getAssignmentItem(item.assignmentId);
         applyAssignmentItem(refreshed);
@@ -542,7 +577,7 @@ export default function AnswerPage() {
         const firstInvalid = invalidItems[0];
         message.error(firstInvalid.reason || getSubmitErrorMessage(error));
         if (firstInvalid.assignmentId && firstInvalid.assignmentId !== item.assignmentId) {
-          navigate(`/labeler/answer/${firstInvalid.assignmentId}`);
+          navigateToAnswer(firstInvalid.assignmentId);
         }
       } else {
         message.error(getSubmitErrorMessage(error));
@@ -565,7 +600,7 @@ export default function AnswerPage() {
           message.warning('当前题还有未完成项，已保存草稿，可稍后回来修正。');
         }
       }
-      navigate(`/labeler/answer/${item.position.nextAssignmentId}`);
+      navigateToAnswer(item.position.nextAssignmentId);
     } else {
       message.info('已经是最后一题');
     }
@@ -577,7 +612,7 @@ export default function AnswerPage() {
         const saved = await saveCurrentDraft(true);
         if (!saved) return;
       }
-      navigate(`/labeler/answer/${item.position.prevAssignmentId}`);
+      navigateToAnswer(item.position.prevAssignmentId);
     } else {
       message.info('已经是第一题');
     }
@@ -591,7 +626,7 @@ export default function AnswerPage() {
       const saved = await saveCurrentDraft(true);
       if (!saved) return;
     }
-    navigate(`/labeler/answer/${targetAssignmentId}`);
+    navigateToAnswer(targetAssignmentId);
   }
 
   function markCurrentValidation(valid: boolean, fieldErrors: Record<string, string>) {

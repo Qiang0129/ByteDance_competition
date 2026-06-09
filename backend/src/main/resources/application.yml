@@ -38,6 +38,11 @@ labelhub:
       ai-reviewer-password: ${LABELHUB_DEMO_AI_REVIEWER_PASSWORD:ai_reviewer123}
       system-agent-password: ${LABELHUB_DEMO_SYSTEM_AGENT_PASSWORD:agent123}
       all-roles-password: ${LABELHUB_DEMO_ALL_ROLES_PASSWORD:demo123}
+    initial-owner:
+      enabled: ${LABELHUB_INITIAL_OWNER_ENABLED:false}
+      username: ${LABELHUB_INITIAL_OWNER_USERNAME:}
+      display-name: ${LABELHUB_INITIAL_OWNER_DISPLAY_NAME:Owner}
+      password: ${LABELHUB_INITIAL_OWNER_PASSWORD:}
   model-config:
     secret: ${LABELHUB_MODEL_CONFIG_SECRET:}
   export:

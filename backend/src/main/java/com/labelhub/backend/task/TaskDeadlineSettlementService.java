@@ -12,6 +12,7 @@ import com.labelhub.backend.annotation.AnnotationRepository.DraftRecord;
 import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord;
 import com.labelhub.backend.annotation.AnswerValidationService;
 import com.labelhub.backend.auth.ApiException;
+import com.labelhub.backend.schema.SchemaFieldTree;
 import com.labelhub.backend.workflow.StateMachineService;
 import com.labelhub.backend.workflow.WorkflowEntityType;
 import java.time.LocalDateTime;
@@ -300,17 +301,10 @@ public class TaskDeadlineSettlementService {
   }
 
   private ArrayNode normalizeRuntimeFields(JsonNode fields) {
-    ArrayNode normalized = objectMapper.createArrayNode();
     if (!fields.isArray()) {
-      return normalized;
+      return objectMapper.createArrayNode();
     }
-    for (JsonNode field : fields) {
-      if (!field.isObject()) {
-        continue;
-      }
-      normalized.add(field);
-    }
-    return normalized;
+    return SchemaFieldTree.flattenFields(objectMapper, fields);
   }
 
   private Long readMetadataSchemaVersionId(String rewardRuleJson) {

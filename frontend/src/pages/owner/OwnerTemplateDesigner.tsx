@@ -83,12 +83,17 @@ import {
   DEFAULT_SCHEMA_TABS,
   LabelHubFormRenderer,
   RichTextMarkdown,
+  findSchemaField,
+  flattenSchemaFields,
+  isLayoutField,
+  normalizeLayoutTabs,
   normalizeSchemaFields,
   normalizeSchemaTabs,
   resolveFieldTabId,
   resolveSemanticType,
   isSubmittableField,
   validateSchemaFields,
+  withLayoutTabs,
 } from '../../modules/schema';
 import type { DatasetItem, DatasetMeta } from '../../types/dataset';
 import type {
@@ -97,6 +102,7 @@ import type {
   MaterialMeta,
   SchemaDiagnostic,
   SchemaField,
+  SchemaLayoutTab,
   SchemaReactionAction,
   SchemaReactionOperator,
   SchemaReactionRule,
@@ -177,19 +183,35 @@ type MobileDesignerSection = 'materials' | 'canvas' | 'properties';
 type DropIndicatorEvent = DragMoveEvent | DragOverEvent | DragEndEvent;
 
 const CANVAS_DROPPABLE_PREFIX = 'canvas-droppable';
-const NEW_SCHEMA_TAB_KEY = '__new_schema_tab__';
 
-function canvasDroppableId(tabId: string) {
-  return `${CANVAS_DROPPABLE_PREFIX}:${tabId}`;
+type CanvasScope =
+  | { type: 'root' }
+  | { type: 'group'; fieldId: string }
+  | { type: 'tab'; fieldId: string; tabId: string };
+
+function canvasDroppableId(scope: CanvasScope) {
+  if (scope.type === 'root') return `${CANVAS_DROPPABLE_PREFIX}:root`;
+  if (scope.type === 'group') return `${CANVAS_DROPPABLE_PREFIX}:group:${scope.fieldId}`;
+  return `${CANVAS_DROPPABLE_PREFIX}:tab:${scope.fieldId}:${scope.tabId}`;
 }
 
 function isCanvasDroppableId(id: string) {
   return id === CANVAS_DROPPABLE_PREFIX || id.startsWith(`${CANVAS_DROPPABLE_PREFIX}:`);
 }
 
-function canvasTabIdFromDroppable(id: string) {
+function parseCanvasScope(id: string): CanvasScope | null {
+  if (id === CANVAS_DROPPABLE_PREFIX || id === `${CANVAS_DROPPABLE_PREFIX}:root`) {
+    return { type: 'root' };
+  }
   if (!id.startsWith(`${CANVAS_DROPPABLE_PREFIX}:`)) return null;
-  return id.slice(CANVAS_DROPPABLE_PREFIX.length + 1);
+  const parts = id.slice(CANVAS_DROPPABLE_PREFIX.length + 1).split(':');
+  if (parts[0] === 'group' && parts[1]) {
+    return { type: 'group', fieldId: parts[1] };
+  }
+  if (parts[0] === 'tab' && parts[1] && parts[2]) {
+    return { type: 'tab', fieldId: parts[1], tabId: parts[2] };
+  }
+  return null;
 }
 
 const designerCollisionDetection: CollisionDetection = (args) => {
@@ -308,6 +330,25 @@ function nextFieldName(prefix: string, existing: SchemaField[]): string {
 }
 
 function createField(meta: MaterialMeta, existing: SchemaField[]): SchemaField {
+  const baseComponentProps =
+    meta.kind === 'llm-trigger'
+      ? {
+          taskInstruction: '',
+          promptTemplate: '请根据当前题目和已填写答案,为配置的目标字段生成合法候选值。',
+          outputInstruction: '',
+          contextPaths: [],
+          targetFields: [],
+          buttonText: '生成建议',
+          outputMode: 'structured',
+        }
+      : meta.kind === 'multi-tab'
+        ? {
+            tabs: [
+              { id: 'tab_1', label: 'Tab 1', children: [] },
+              { id: 'tab_2', label: 'Tab 2', children: [] },
+            ],
+          }
+        : undefined;
   return {
     id: uid(),
     kind: meta.kind,
@@ -326,19 +367,205 @@ function createField(meta: MaterialMeta, existing: SchemaField[]): SchemaField {
     sourcePath: meta.kind === 'show-item' ? 'prompt' : undefined,
     validators: meta.kind === 'json-editor' ? [{ type: 'jsonObject' }] : undefined,
     helpText: meta.kind === 'llm-trigger' ? 'Labeler 点击后生成建议,确认后手动应用到目标字段。' : undefined,
-    componentProps:
-      meta.kind === 'llm-trigger'
-        ? {
-            taskInstruction: '',
-            promptTemplate: '请根据当前题目和已填写答案,为配置的目标字段生成合法候选值。',
-            outputInstruction: '',
-            contextPaths: [],
-            targetFields: [],
-            buttonText: '生成建议',
-            outputMode: 'structured',
-          }
-        : undefined,
+    componentProps: baseComponentProps,
+    children: meta.kind === 'group' ? [] : undefined,
   };
+}
+
+function normalizeDesignerSchema(schema: SchemaVersion): SchemaVersion {
+  const tabs = normalizeSchemaTabs(schema.tabs);
+  const flatFields = flattenSchemaFields(schema.fields);
+  if (tabs.length <= 1 || flatFields.some((field) => field.kind === 'multi-tab')) {
+    return { ...schema, tabs };
+  }
+  return {
+    ...schema,
+    tabs: DEFAULT_SCHEMA_TABS,
+    fields: [
+      {
+        id: `legacy-tabs-${uid()}`,
+        kind: 'multi-tab',
+        semanticType: 'layout',
+        fieldName: nextFieldName('tabs', flatFields),
+        label: '多 Tab 布局',
+        required: false,
+        componentProps: {
+          tabs: tabs.map((tab) => ({
+            id: tab.id,
+            label: tab.label,
+            children: schema.fields
+              .filter((field) => resolveFieldTabId(field, tabs) === tab.id)
+              .map((field) => ({
+                ...field,
+                layout: field.layout ? { ...field.layout, tab: undefined } : undefined,
+              })),
+          })),
+        },
+      },
+    ],
+  };
+}
+
+function sameCanvasScope(a: CanvasScope | null, b: CanvasScope | null) {
+  if (!a || !b || a.type !== b.type) return false;
+  if (a.type === 'root' && b.type === 'root') return true;
+  if (a.type === 'group' && b.type === 'group') return a.fieldId === b.fieldId;
+  if (a.type === 'tab' && b.type === 'tab') return a.fieldId === b.fieldId && a.tabId === b.tabId;
+  return false;
+}
+
+function getFieldsInScope(fields: SchemaField[], scope: CanvasScope): SchemaField[] {
+  if (scope.type === 'root') return fields;
+  const container = findSchemaField(fields, scope.fieldId);
+  if (!container) return [];
+  if (scope.type === 'group') return container.children ?? [];
+  return normalizeLayoutTabs(container).find((tab) => tab.id === scope.tabId)?.children ?? [];
+}
+
+function updateFieldsInScope(
+  fields: SchemaField[],
+  scope: CanvasScope,
+  updater: (items: SchemaField[]) => SchemaField[],
+): SchemaField[] {
+  if (scope.type === 'root') return updater(fields);
+  return fields.map((field) => {
+    if (scope.type === 'group' && field.id === scope.fieldId) {
+      return { ...field, children: updater(field.children ?? []) };
+    }
+    if (field.kind === 'multi-tab') {
+      return withLayoutTabs(
+        field,
+        normalizeLayoutTabs(field).map((tab) => ({
+          ...tab,
+          children:
+            scope.type === 'tab' && field.id === scope.fieldId && tab.id === scope.tabId
+              ? updater(tab.children ?? [])
+              : updateFieldsInScope(tab.children ?? [], scope, updater),
+        })),
+      );
+    }
+    return field.children
+      ? { ...field, children: updateFieldsInScope(field.children, scope, updater) }
+      : field;
+  });
+}
+
+function updateFieldInTree(
+  fields: SchemaField[],
+  fieldId: string,
+  updater: (field: SchemaField) => SchemaField,
+): SchemaField[] {
+  return fields.map((field) => {
+    const nextField = field.id === fieldId ? updater(field) : field;
+    if (nextField.kind === 'multi-tab') {
+      return withLayoutTabs(
+        nextField,
+        normalizeLayoutTabs(nextField).map((tab) => ({
+          ...tab,
+          children: updateFieldInTree(tab.children ?? [], fieldId, updater),
+        })),
+      );
+    }
+    return nextField.children
+      ? { ...nextField, children: updateFieldInTree(nextField.children, fieldId, updater) }
+      : nextField;
+  });
+}
+
+function removeFieldFromTree(
+  fields: SchemaField[],
+  fieldId: string,
+): { fields: SchemaField[]; removed: SchemaField | null } {
+  let removed: SchemaField | null = null;
+  const next: SchemaField[] = [];
+  for (const field of fields) {
+    if (field.id === fieldId) {
+      removed = field;
+      continue;
+    }
+    if (field.kind === 'multi-tab') {
+      const nextTabs = normalizeLayoutTabs(field).map((tab) => {
+        const result = removeFieldFromTree(tab.children ?? [], fieldId);
+        if (result.removed) removed = result.removed;
+        return { ...tab, children: result.fields };
+      });
+      next.push(withLayoutTabs(field, nextTabs));
+    } else if (field.children) {
+      const result = removeFieldFromTree(field.children, fieldId);
+      if (result.removed) removed = result.removed;
+      next.push({ ...field, children: result.fields });
+    } else {
+      next.push(field);
+    }
+  }
+  return { fields: next, removed };
+}
+
+function findScopeOfField(
+  fields: SchemaField[],
+  fieldId: string,
+  scope: CanvasScope = { type: 'root' },
+): CanvasScope | null {
+  for (const field of fields) {
+    if (field.id === fieldId) return scope;
+    if (field.kind === 'multi-tab') {
+      for (const tab of normalizeLayoutTabs(field)) {
+        const result = findScopeOfField(tab.children ?? [], fieldId, {
+          type: 'tab',
+          fieldId: field.id,
+          tabId: tab.id,
+        });
+        if (result) return result;
+      }
+    } else if (field.children) {
+      const result = findScopeOfField(field.children, fieldId, { type: 'group', fieldId: field.id });
+      if (result) return result;
+    }
+  }
+  return null;
+}
+
+function isFieldDescendant(fields: SchemaField[], ancestorId: string, candidateId: string) {
+  const ancestor = findSchemaField(fields, ancestorId);
+  if (!ancestor) return false;
+  return flattenSchemaFields(
+    ancestor.kind === 'multi-tab'
+      ? normalizeLayoutTabs(ancestor).flatMap((tab) => tab.children ?? [])
+      : ancestor.children ?? [],
+  ).some((field) => field.id === candidateId);
+}
+
+function scopeTargetsOwnDescendant(fields: SchemaField[], draggedFieldId: string, targetScope: CanvasScope) {
+  if (targetScope.type === 'root') return false;
+  return targetScope.fieldId === draggedFieldId || isFieldDescendant(fields, draggedFieldId, targetScope.fieldId);
+}
+
+function insertFieldInScope(
+  fields: SchemaField[],
+  scope: CanvasScope,
+  field: SchemaField,
+  placement?: DropIndicator | null,
+) {
+  return updateFieldsInScope(fields, scope, (items) => {
+    const next = items.filter((item) => item.id !== field.id);
+    if (!placement) return [...next, field];
+    const index = next.findIndex((item) => item.id === placement.fieldId);
+    if (index < 0) return [...next, field];
+    next.splice(index + (placement.position === 'after' ? 1 : 0), 0, field);
+    return next;
+  });
+}
+
+function moveFieldWithinScope(fields: SchemaField[], scope: CanvasScope, fieldId: string, direction: -1 | 1) {
+  return updateFieldsInScope(fields, scope, (items) => {
+    const index = items.findIndex((item) => item.id === fieldId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= items.length) return items;
+    const next = items.slice();
+    const [item] = next.splice(index, 1);
+    next.splice(target, 0, item);
+    return next;
+  });
 }
 
 const fallbackPreviewPayload: Record<string, unknown> = {
@@ -380,6 +607,7 @@ export default function OwnerTemplateDesigner() {
   const [activeFieldId, setActiveFieldId] = useState<string | null>(
     schema.fields[0]?.id ?? null,
   );
+  const [activeLayoutTabs, setActiveLayoutTabs] = useState<Record<string, string>>({});
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewDatasets, setPreviewDatasets] = useState<DatasetMeta[]>([]);
   const [previewDatasetId, setPreviewDatasetId] = useState<string>();
@@ -407,11 +635,9 @@ export default function OwnerTemplateDesigner() {
       try {
         const real = await schemaApi.getSchema(versionId);
         if (!cancelled) {
-          const tabs = normalizeSchemaTabs(real.tabs);
-          const nextSchema = { ...real, tabs };
+          const nextSchema = normalizeDesignerSchema({ ...real, tabs: normalizeSchemaTabs(real.tabs) });
           setSchema(nextSchema);
-          setActiveSchemaTabId(tabs[0]?.id ?? DEFAULT_SCHEMA_TAB_ID);
-          setActiveFieldId(real.fields[0]?.id ?? null);
+          setActiveFieldId(flattenSchemaFields(nextSchema.fields)[0]?.id ?? null);
           setUsingFallback(false);
         }
       } catch {
@@ -480,15 +706,15 @@ export default function OwnerTemplateDesigner() {
     };
   }, [previewDatasetId, message]);
 
+  const allFields = useMemo(() => flattenSchemaFields(schema.fields), [schema.fields]);
   const activeField = useMemo(
-    () => schema.fields.find((f) => f.id === activeFieldId) ?? null,
+    () => (activeFieldId ? findSchemaField(schema.fields, activeFieldId) : null),
     [schema.fields, activeFieldId],
   );
   const schemaTabs = useMemo(() => normalizeSchemaTabs(schema.tabs), [schema.tabs]);
-  const activeTabFields = useMemo(
-    () =>
-      schema.fields.filter((field) => resolveFieldTabId(field, schemaTabs) === activeSchemaTabId),
-    [schema.fields, schemaTabs, activeSchemaTabId],
+  const activeFieldScope = useMemo(
+    () => (activeFieldId ? findScopeOfField(schema.fields, activeFieldId) : null),
+    [schema.fields, activeFieldId],
   );
   const schemaCheck = useMemo(() => validateSchemaFields(schema.fields), [schema.fields]);
   const previewRawPayload = useMemo(
@@ -514,27 +740,21 @@ export default function OwnerTemplateDesigner() {
   const isPublished = schema.status === 'published';
 
   useEffect(() => {
-    if (schemaTabs.some((tab) => tab.id === activeSchemaTabId)) return;
-    setActiveSchemaTabId(schemaTabs[0]?.id ?? DEFAULT_SCHEMA_TAB_ID);
-  }, [schemaTabs, activeSchemaTabId]);
+    setSchema((prev) => normalizeDesignerSchema(prev));
+    // 只在首次挂载时兜底迁移旧顶层 Tab 模板,避免编辑过程中重复包裹。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
-    if (!editingSchemaTabId) return;
-    if (schemaTabs.some((tab) => tab.id === editingSchemaTabId)) return;
-    setEditingSchemaTabId(null);
-    setEditingSchemaTabDraft('');
-  }, [schemaTabs, editingSchemaTabId]);
-
-  useEffect(() => {
-    if (activeFieldId && activeTabFields.some((field) => field.id === activeFieldId)) return;
-    setActiveFieldId(activeTabFields[0]?.id ?? null);
-  }, [activeFieldId, activeTabFields]);
+    if (activeFieldId && allFields.some((field) => field.id === activeFieldId)) return;
+    setActiveFieldId(allFields[0]?.id ?? null);
+  }, [activeFieldId, allFields]);
 
   function updateField(fieldId: string, patch: Partial<SchemaField>) {
     if (isPublished) return;
     setSchema((prev) => ({
       ...prev,
-      fields: prev.fields.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
+      fields: updateFieldInTree(prev.fields, fieldId, (field) => ({ ...field, ...patch })),
     }));
   }
 
@@ -546,14 +766,17 @@ export default function OwnerTemplateDesigner() {
 
   function addMaterial(meta: MaterialMeta) {
     if (isPublished) return;
-    const field = {
-      ...createField(meta, schema.fields),
-      layout: { tab: activeSchemaTabId },
-    };
+    const scope = resolveClickAddScope();
+    let addedFieldId = '';
     setSchema((prev) => {
-      return { ...prev, fields: [...prev.fields, field] };
+      const field = createField(meta, flattenSchemaFields(prev.fields));
+      addedFieldId = field.id;
+      return {
+        ...prev,
+        fields: insertFieldInScope(prev.fields, scope, field),
+      };
     });
-    setActiveFieldId(field.id);
+    setActiveFieldId(addedFieldId);
     setMobileSection('canvas');
   }
 
@@ -562,93 +785,25 @@ export default function OwnerTemplateDesigner() {
     setMobileSection('properties');
   }
 
-  function addSchemaTab() {
-    if (isPublished) return;
-    let idx = schemaTabs.length;
-    let id = `tab_${idx}`;
-    while (schemaTabs.some((tab) => tab.id === id)) {
-      idx += 1;
-      id = `tab_${idx}`;
+  function resolveClickAddScope(): CanvasScope {
+    if (!activeField) return { type: 'root' };
+    if (activeField.kind === 'group') return { type: 'group', fieldId: activeField.id };
+    if (activeField.kind === 'multi-tab') {
+      const tabs = normalizeLayoutTabs(activeField);
+      return {
+        type: 'tab',
+        fieldId: activeField.id,
+        tabId: activeLayoutTabs[activeField.id] ?? tabs[0]?.id ?? 'tab_1',
+      };
     }
-    const nextTab = { id, label: `新 Tab ${idx}` };
-    setSchema((prev) => ({ ...prev, tabs: [...normalizeSchemaTabs(prev.tabs), nextTab] }));
-    setActiveSchemaTabId(id);
-    setActiveFieldId(null);
-  }
-
-  function renameSchemaTab(tabId: string, label: string) {
-    if (isPublished) return;
-    const nextLabel = label.trim();
-    if (!nextLabel) {
-      message.warning('Tab 名称不能为空');
-      return;
-    }
-    setSchema((prev) => ({
-      ...prev,
-      tabs: normalizeSchemaTabs(prev.tabs).map((tab) =>
-        tab.id === tabId ? { ...tab, label: nextLabel } : tab,
-      ),
-    }));
-  }
-
-  function removeSchemaTab(tabId: string) {
-    if (isPublished || tabId === DEFAULT_SCHEMA_TAB_ID) return;
-    const hasFields = schema.fields.some(
-      (field) => resolveFieldTabId(field, schemaTabs) === tabId,
-    );
-    if (hasFields) {
-      message.warning('该 Tab 下仍有字段,请先移动或删除字段');
-      return;
-    }
-    setSchema((prev) => ({
-      ...prev,
-      tabs: normalizeSchemaTabs(prev.tabs).filter((tab) => tab.id !== tabId),
-    }));
-    if (editingSchemaTabId === tabId) {
-      setEditingSchemaTabId(null);
-      setEditingSchemaTabDraft('');
-    }
-    if (activeSchemaTabId === tabId) {
-      setActiveSchemaTabId(DEFAULT_SCHEMA_TAB_ID);
-      setActiveFieldId(null);
-    }
-  }
-
-  function startSchemaTabEditing(tabId: string) {
-    if (isPublished) return;
-    const targetTab = schemaTabs.find((tab) => tab.id === tabId);
-    if (!targetTab) return;
-    setActiveSchemaTabId(tabId);
-    setEditingSchemaTabId(tabId);
-    setEditingSchemaTabDraft(targetTab.label);
-  }
-
-  function cancelSchemaTabEditing(tabId: string) {
-    if (editingSchemaTabId !== tabId) return;
-    setEditingSchemaTabId(null);
-    setEditingSchemaTabDraft('');
-  }
-
-  function commitSchemaTabEditing(tabId: string) {
-    const targetTab = schemaTabs.find((tab) => tab.id === tabId);
-    setEditingSchemaTabId(null);
-    if (!targetTab) {
-      setEditingSchemaTabDraft('');
-      return;
-    }
-    const nextLabel = editingSchemaTabDraft.trim();
-    setEditingSchemaTabDraft('');
-    if (!nextLabel) return;
-    if (nextLabel !== targetTab.label) {
-      renameSchemaTab(tabId, nextLabel);
-    }
+    return { type: 'root' };
   }
 
   function removeField(fieldId: string) {
     if (isPublished) return;
     setSchema((prev) => {
-      const next = prev.fields.filter((f) => f.id !== fieldId);
-      return { ...prev, fields: next };
+      const result = removeFieldFromTree(prev.fields, fieldId);
+      return { ...prev, fields: result.fields };
     });
     if (activeFieldId === fieldId) {
       setActiveFieldId(null);
@@ -658,21 +813,8 @@ export default function OwnerTemplateDesigner() {
   function moveField(fieldId: string, direction: -1 | 1) {
     if (isPublished) return;
     setSchema((prev) => {
-      const tabs = normalizeSchemaTabs(prev.tabs);
-      const scopedFields = prev.fields.filter(
-        (field) => resolveFieldTabId(field, tabs) === activeSchemaTabId,
-      );
-      const scopedIndex = scopedFields.findIndex((field) => field.id === fieldId);
-      const target = scopedIndex + direction;
-      if (scopedIndex < 0 || target < 0 || target >= scopedFields.length) return prev;
-      const item = prev.fields.find((field) => field.id === fieldId);
-      if (!item) return prev;
-      const targetId = scopedFields[target].id;
-      const next = prev.fields.filter((field) => field.id !== fieldId);
-      const targetIndex = next.findIndex((field) => field.id === targetId);
-      if (targetIndex < 0) return prev;
-      next.splice(direction < 0 ? targetIndex : targetIndex + 1, 0, item);
-      return { ...prev, fields: next };
+      const scope = findScopeOfField(prev.fields, fieldId);
+      return scope ? { ...prev, fields: moveFieldWithinScope(prev.fields, scope, fieldId, direction) } : prev;
     });
   }
 
@@ -704,13 +846,10 @@ export default function OwnerTemplateDesigner() {
 
     const activeData = readDragPayload(event);
     const overId = String(over.id);
-    const scopedFields = schema.fields.filter(
-      (field) => resolveFieldTabId(field, schemaTabs) === activeSchemaTabId,
-    );
+    const overScope = parseCanvasScope(overId) ?? findScopeOfField(schema.fields, overId);
+    const scopedFields = overScope ? getFieldsInScope(schema.fields, overScope) : [];
 
     if (isCanvasDroppableId(overId)) {
-      const overTabId = canvasTabIdFromDroppable(overId);
-      if (overTabId && overTabId !== activeSchemaTabId) return null;
       const lastField = scopedFields[scopedFields.length - 1];
       if (!lastField) return null;
       if (activeData?.type === 'field' && activeData.fieldId === lastField.id) return null;
@@ -782,46 +921,31 @@ export default function OwnerTemplateDesigner() {
 
     const activeData = readDragPayload(event);
     const overId = String(over.id);
-    const overCanvasTabId = canvasTabIdFromDroppable(overId);
-    const isCurrentCanvasDrop =
-      isCanvasDroppableId(overId) && (!overCanvasTabId || overCanvasTabId === activeSchemaTabId);
-    const isCurrentTabField = activeTabFields.some((field) => field.id === overId);
+    const targetScope = parseCanvasScope(overId) ?? findScopeOfField(schema.fields, overId);
+    if (!targetScope) return;
 
     if (activeData?.type === 'material') {
-      if (!isCurrentCanvasDrop && !isCurrentTabField) return;
-      // 物料拖到画布
+      // 物料拖到目标画布范围。
+      let addedFieldId = '';
       setSchema((prev) => {
-        const field = {
-          ...createField(activeData.meta, prev.fields),
-          layout: { tab: activeSchemaTabId },
-        };
-        const next = prev.fields.slice();
-        if (!placement) {
-          next.push(field);
-        } else {
-          const targetId = placement?.fieldId ?? overId;
-          const idx = next.findIndex((f) => f.id === targetId);
-          if (idx === -1) next.push(field);
-          else next.splice(idx + (placement?.position === 'after' ? 1 : 0), 0, field);
-        }
-        return { ...prev, fields: next };
+        const field = createField(activeData.meta, flattenSchemaFields(prev.fields));
+        addedFieldId = field.id;
+        return { ...prev, fields: insertFieldInScope(prev.fields, targetScope, field, placement) };
       });
+      setActiveFieldId(addedFieldId);
       return;
     }
 
     if (activeData?.type === 'field') {
-      if (!isCurrentCanvasDrop && !isCurrentTabField) return;
-      // 字段间排序
+      if (scopeTargetsOwnDescendant(schema.fields, activeData.fieldId, targetScope)) return;
+      // 字段可在同级排序,也可移动到其他容器。
       setSchema((prev) => {
-        if (!placement) return prev;
-        const item = prev.fields.find((f) => f.id === activeData.fieldId);
-        if (!item) return prev;
-        const next = prev.fields.filter((field) => field.id !== activeData.fieldId);
-        const targetIndex = next.findIndex((f) => f.id === placement.fieldId);
-        if (targetIndex === -1) return prev;
-        const insertIndex = targetIndex + (placement.position === 'after' ? 1 : 0);
-        next.splice(insertIndex, 0, item);
-        return { ...prev, fields: next };
+        const result = removeFieldFromTree(prev.fields, activeData.fieldId);
+        if (!result.removed) return prev;
+        return {
+          ...prev,
+          fields: insertFieldInScope(result.fields, targetScope, result.removed, placement),
+        };
       });
     }
   }
@@ -876,10 +1000,11 @@ export default function OwnerTemplateDesigner() {
         fields: normalizedFields,
       });
       setSchema(created);
+      const createdFields = flattenSchemaFields(created.fields);
       setActiveFieldId(
-        created.fields.some((field) => field.id === currentActiveFieldId)
+        createdFields.some((field) => field.id === currentActiveFieldId)
           ? currentActiveFieldId
-          : created.fields[0]?.id ?? null,
+          : createdFields[0]?.id ?? null,
       );
       setUsingFallback(false);
       navigate(`/owner/templates/designer?versionId=${encodeURIComponent(created.versionId)}`, {
@@ -898,10 +1023,11 @@ export default function OwnerTemplateDesigner() {
       fields: normalizedFields,
     });
     setSchema(updated);
+    const updatedFields = flattenSchemaFields(updated.fields);
     setActiveFieldId(
-      updated.fields.some((field) => field.id === currentActiveFieldId)
+      updatedFields.some((field) => field.id === currentActiveFieldId)
         ? currentActiveFieldId
-        : updated.fields[0]?.id ?? null,
+        : updatedFields[0]?.id ?? null,
     );
     setUsingFallback(false);
     return updated;
@@ -949,10 +1075,11 @@ export default function OwnerTemplateDesigner() {
         try {
           const withdrawn = await schemaApi.withdraw(schema.versionId);
           setSchema(withdrawn);
+          const withdrawnFields = flattenSchemaFields(withdrawn.fields);
           setActiveFieldId(
-            withdrawn.fields.some((field) => field.id === activeFieldId)
+            withdrawnFields.some((field) => field.id === activeFieldId)
               ? activeFieldId
-              : withdrawn.fields[0]?.id ?? null,
+              : withdrawnFields[0]?.id ?? null,
           );
           setUsingFallback(false);
           message.success('模板已收回,现在可以继续编辑');
@@ -963,7 +1090,7 @@ export default function OwnerTemplateDesigner() {
     });
   }
 
-  const submittableCount = schema.fields.filter(isSubmittableField).length;
+  const submittableCount = allFields.filter(isSubmittableField).length;
   const designerMoreItems = [
     {
       key: 'version',
@@ -1155,7 +1282,7 @@ export default function OwnerTemplateDesigner() {
 
       <div className="designer-subtitle">
         Schema 与渲染解耦:左物料 → 中画布 → 右属性,产物为可序列化 JSON Schema。当前模板包含
-        <strong> {schema.fields.length} </strong>
+        <strong> {allFields.length} </strong>
         个字段({submittableCount} 个参与提交)。
       </div>
 
@@ -1194,68 +1321,27 @@ export default function OwnerTemplateDesigner() {
 
         {/* 中:画布 */}
         <div className="designer-center">
-          <Tabs
-            activeKey={activeSchemaTabId}
-            className="designer-tabs"
-            destroyOnHidden
-            onChange={(key) => {
-              if (key === NEW_SCHEMA_TAB_KEY) {
-                addSchemaTab();
-                return;
-              }
-              setActiveSchemaTabId(key);
-            }}
-            tabBarExtraContent={
-              <Typography.Text type="secondary" className="designer-tab-tip">
-                CMD+S 保存 · 点击物料追加字段
-              </Typography.Text>
+          <div className="designer-canvas-head">
+            <Typography.Text type="secondary" className="designer-tab-tip">
+              CMD+S 保存 · 点击物料追加到当前选中的容器
+            </Typography.Text>
+          </div>
+          <Canvas
+            scope={{ type: 'root' }}
+            fields={schema.fields}
+            activeFieldId={activeFieldId}
+            dropIndicator={dropIndicator}
+            activeLayoutTabs={activeLayoutTabs}
+            onActiveLayoutTabChange={(fieldId: string, tabId: string) =>
+              setActiveLayoutTabs((prev) => ({ ...prev, [fieldId]: tabId }))
             }
-            items={[
-              ...schemaTabs.map((tab) => ({
-                key: tab.id,
-                label: (
-                  <DesignerSchemaTabLabel
-                    tab={tab}
-                    isDefault={tab.id === DEFAULT_SCHEMA_TAB_ID}
-                    disabled={isPublished}
-                    editing={editingSchemaTabId === tab.id}
-                    draftLabel={editingSchemaTabId === tab.id ? editingSchemaTabDraft : tab.label}
-                    onDraftChange={setEditingSchemaTabDraft}
-                    onStartEditing={startSchemaTabEditing}
-                    onCommitEditing={commitSchemaTabEditing}
-                    onCancelEditing={cancelSchemaTabEditing}
-                    onRemove={removeSchemaTab}
-                  />
-                ),
-                children: (
-                  <Canvas
-                    droppableId={canvasDroppableId(tab.id)}
-                    fields={schema.fields.filter(
-                      (field) => resolveFieldTabId(field, schemaTabs) === tab.id,
-                    )}
-                    activeFieldId={tab.id === activeSchemaTabId ? activeFieldId : null}
-                    dropIndicator={tab.id === activeSchemaTabId ? dropIndicator : null}
-                    onSelect={selectCanvasField}
-                    onMove={moveField}
-                    onRemove={removeField}
-                    onAdd={() => {
-                      setMobileSection('materials');
-                      message.info('从左侧物料栏点击物料即可追加新字段');
-                    }}
-                  />
-                ),
-              })),
-              {
-                key: NEW_SCHEMA_TAB_KEY,
-                label: (
-                  <span>
-                    <PlusOutlined /> 新 Tab
-                  </span>
-                ),
-                disabled: isPublished,
-                children: null,
-              },
-            ]}
+            onSelect={selectCanvasField}
+            onMove={moveField}
+            onRemove={removeField}
+            onAdd={() => {
+              setMobileSection('materials');
+              message.info('从左侧物料栏点击物料即可追加新字段');
+            }}
           />
         </div>
 
@@ -1264,8 +1350,7 @@ export default function OwnerTemplateDesigner() {
           {activeField ? (
             <PropertyPanel
               field={activeField}
-              fields={schema.fields}
-              tabs={schemaTabs}
+              fields={allFields}
               rawPathOptions={rawPathOptions}
               onChange={(patch) => updateField(activeField.id, patch)}
             />
@@ -1365,7 +1450,7 @@ export default function OwnerTemplateDesigner() {
             </div>
           ) : draggingFieldId ? (
             <div className="field-card is-overlay">
-              {schema.fields.find((f) => f.id === draggingFieldId)?.label ?? '字段'}
+              {findSchemaField(schema.fields, draggingFieldId)?.label ?? '字段'}
             </div>
           ) : null}
         </DragOverlay>,
@@ -1377,33 +1462,38 @@ export default function OwnerTemplateDesigner() {
 
 /** 中间画布 */
 function Canvas({
-  droppableId,
+  scope,
   fields,
   activeFieldId,
   dropIndicator,
+  activeLayoutTabs,
+  onActiveLayoutTabChange,
   onSelect,
   onMove,
   onRemove,
   onAdd,
 }: {
-  droppableId: string;
+  scope: CanvasScope;
   fields: SchemaField[];
   activeFieldId: string | null;
   dropIndicator: DropIndicator | null;
+  activeLayoutTabs: Record<string, string>;
+  onActiveLayoutTabChange: (fieldId: string, tabId: string) => void;
   onSelect: (id: string) => void;
   onMove: (id: string, dir: -1 | 1) => void;
   onRemove: (id: string) => void;
   onAdd: () => void;
 }) {
+  const droppableId = canvasDroppableId(scope);
   const { setNodeRef, isOver } = useDroppable({ id: droppableId });
 
   if (fields.length === 0) {
     return (
-      <div
-        ref={setNodeRef}
-        className={`canvas-empty ${isOver ? 'is-drop-over' : ''}`}
-      >
+      <div ref={setNodeRef} className={`canvas-empty ${isOver ? 'is-drop-over' : ''}`}>
         <Empty description="从左侧物料拖入此处,或点击物料卡片直接追加字段" />
+        <button type="button" className="canvas-add" onClick={onAdd}>
+          <PlusOutlined /> 添加字段
+        </button>
       </div>
     );
   }
@@ -1425,6 +1515,14 @@ function Canvas({
             onMoveUp={() => onMove(field.id, -1)}
             onMoveDown={() => onMove(field.id, 1)}
             onRemove={() => onRemove(field.id)}
+            activeFieldId={activeFieldId}
+            dropIndicator={dropIndicator}
+            activeLayoutTabs={activeLayoutTabs}
+            onActiveLayoutTabChange={onActiveLayoutTabChange}
+            onNestedSelect={onSelect}
+            onNestedMove={onMove}
+            onNestedRemove={onRemove}
+            onNestedAdd={onAdd}
           />
         ))}
         <button type="button" className="canvas-add" onClick={onAdd}>
@@ -1577,6 +1675,14 @@ function FieldCard({
   onMoveUp,
   onMoveDown,
   onRemove,
+  activeFieldId,
+  dropIndicator,
+  activeLayoutTabs,
+  onActiveLayoutTabChange,
+  onNestedSelect,
+  onNestedMove,
+  onNestedRemove,
+  onNestedAdd,
 }: {
   field: SchemaField;
   active: boolean;
@@ -1587,8 +1693,17 @@ function FieldCard({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRemove: () => void;
+  activeFieldId: string | null;
+  dropIndicator: DropIndicator | null;
+  activeLayoutTabs: Record<string, string>;
+  onActiveLayoutTabChange: (fieldId: string, tabId: string) => void;
+  onNestedSelect: (id: string) => void;
+  onNestedMove: (id: string, dir: -1 | 1) => void;
+  onNestedRemove: (id: string) => void;
+  onNestedAdd: () => void;
 }) {
   const submittable = isSubmittableField(field);
+  const layoutField = isLayoutField(field);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: field.id,
     data: { type: 'field', fieldId: field.id },
@@ -1602,10 +1717,13 @@ function FieldCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`field-card ${active ? 'is-active' : ''} ${
+      className={`field-card ${layoutField ? 'is-layout' : ''} ${active ? 'is-active' : ''} ${
         dropPosition ? `is-drop-${dropPosition}` : ''
       }`}
-      onClick={onSelect}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
     >
       {dropPosition === 'before' && <span className="field-drop-indicator is-before" />}
       <div className="field-card-head">
@@ -1625,7 +1743,11 @@ function FieldCard({
           </span>
           {!submittable && (
             <Tag className="field-show-tag">
-              {field.kind === 'llm-trigger' ? '操作控件 · 不参与提交' : '不参与提交'}
+              {field.kind === 'llm-trigger'
+                ? '操作控件 · 不参与提交'
+                : layoutField
+                  ? '布局容器 · 不参与提交'
+                  : '不参与提交'}
             </Tag>
           )}
         </div>
@@ -1657,8 +1779,120 @@ function FieldCard({
       <div className="field-card-meta">
         字段名:<code>{field.fieldName}</code> · {fieldKindLabel(field.kind)}
       </div>
-      <div className="field-card-preview">{renderFieldPreview(field)}</div>
+      {layoutField ? (
+        <FieldCardLayoutBody
+          field={field}
+          activeFieldId={activeFieldId}
+          dropIndicator={dropIndicator}
+          activeLayoutTabs={activeLayoutTabs}
+          onActiveLayoutTabChange={onActiveLayoutTabChange}
+          onSelect={onNestedSelect}
+          onMove={onNestedMove}
+          onRemove={onNestedRemove}
+          onAdd={onNestedAdd}
+        />
+      ) : (
+        <div className="field-card-preview">{renderFieldPreview(field)}</div>
+      )}
       {dropPosition === 'after' && <span className="field-drop-indicator is-after" />}
+    </div>
+  );
+}
+
+function FieldCardLayoutBody({
+  field,
+  activeFieldId,
+  dropIndicator,
+  activeLayoutTabs,
+  onActiveLayoutTabChange,
+  onSelect,
+  onMove,
+  onRemove,
+  onAdd,
+}: {
+  field: SchemaField;
+  activeFieldId: string | null;
+  dropIndicator: DropIndicator | null;
+  activeLayoutTabs: Record<string, string>;
+  onActiveLayoutTabChange: (fieldId: string, tabId: string) => void;
+  onSelect: (id: string) => void;
+  onMove: (id: string, dir: -1 | 1) => void;
+  onRemove: (id: string) => void;
+  onAdd: () => void;
+}) {
+  if (field.kind === 'multi-tab') {
+    const tabs = normalizeLayoutTabs(field);
+    const fallbackTabId = tabs[0]?.id ?? 'tab_1';
+    const activeTabId = tabs.some((tab) => tab.id === activeLayoutTabs[field.id])
+      ? activeLayoutTabs[field.id]
+      : fallbackTabId;
+    return (
+      <div className="field-card-layout-body" onClick={(event) => event.stopPropagation()}>
+        <Tabs
+          className="field-card-inner-tabs"
+          size="small"
+          activeKey={activeTabId}
+          onChange={(tabId) => {
+            onActiveLayoutTabChange(field.id, tabId);
+            onSelect(field.id);
+          }}
+          items={tabs.map((tab) => ({
+            key: tab.id,
+            label: (
+              <span className="field-card-inner-tab-label">
+                {tab.label}
+                <span>{(tab.children ?? []).length}</span>
+              </span>
+            ),
+            children: (
+              <div className="field-card-tab-canvas">
+                <Canvas
+                  scope={{ type: 'tab', fieldId: field.id, tabId: tab.id }}
+                  fields={tab.children ?? []}
+                  activeFieldId={activeFieldId}
+                  dropIndicator={dropIndicator}
+                  activeLayoutTabs={activeLayoutTabs}
+                  onActiveLayoutTabChange={onActiveLayoutTabChange}
+                  onSelect={onSelect}
+                  onMove={onMove}
+                  onRemove={onRemove}
+                  onAdd={() => {
+                    onActiveLayoutTabChange(field.id, tab.id);
+                    onSelect(field.id);
+                    onAdd();
+                  }}
+                />
+              </div>
+            ),
+          }))}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="field-card-layout-body" onClick={(event) => event.stopPropagation()}>
+      <div className="field-card-layout-summary">
+        <Tag className="field-option-tag">{(field.children ?? []).length} 个子字段</Tag>
+        <Typography.Text type="secondary">拖入字段后按分组渲染,容器本身不提交答案。</Typography.Text>
+      </div>
+      <div className="field-card-nested-canvas">
+        <Canvas
+          scope={{ type: 'group', fieldId: field.id }}
+          fields={field.children ?? []}
+          activeFieldId={activeFieldId}
+          dropIndicator={dropIndicator}
+          activeLayoutTabs={activeLayoutTabs}
+          onActiveLayoutTabChange={onActiveLayoutTabChange}
+          onSelect={onSelect}
+          onMove={onMove}
+          onRemove={onRemove}
+          onAdd={() => {
+            onSelect(field.id);
+            onAdd();
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -1795,13 +2029,11 @@ function resolveLlmTargetFields(componentProps?: Record<string, unknown>) {
 function PropertyPanel({
   field,
   fields,
-  tabs,
   rawPathOptions,
   onChange,
 }: {
   field: SchemaField;
   fields: SchemaField[];
-  tabs: SchemaTab[];
   rawPathOptions: Array<{ label: string; value: string }>;
   onChange: (patch: Partial<SchemaField>) => void;
 }) {
@@ -1811,7 +2043,6 @@ function PropertyPanel({
   const targetFieldOptions = fields
     .filter((item) => item.id !== field.id && item.fieldName && isSubmittableField(item))
     .map((item) => ({ label: `${item.label} (${item.fieldName})`, value: item.fieldName }));
-  const tabOptions = tabs.map((tab) => ({ label: tab.label, value: tab.id }));
   const componentProps = field.componentProps ?? {};
   const llmTargetFields = resolveLlmTargetFields(componentProps);
   const llmTargetFieldDetails = llmTargetFields
@@ -1901,20 +2132,20 @@ function PropertyPanel({
                     onChange={(event) => onChange({ helpText: event.target.value })}
                   />
                 </Field>
-                <Field label="所属 Tab">
-                  <Select
-                    options={tabOptions}
-                    value={resolveFieldTabId(field, tabs)}
-                    onChange={(value) =>
-                      onChange({
-                        layout: {
-                          ...(field.layout ?? {}),
-                          tab: value ?? DEFAULT_SCHEMA_TAB_ID,
-                        },
-                      })
-                    }
-                  />
-                </Field>
+                {field.kind === 'multi-tab' && (
+                  <Field label="Tab 配置">
+                    <LayoutTabsEditor
+                      tabs={normalizeLayoutTabs(field)}
+                      onChange={(nextTabs) => {
+                        const nextField = withLayoutTabs(field, nextTabs);
+                        onChange({
+                          componentProps: nextField.componentProps,
+                          children: undefined,
+                        });
+                      }}
+                    />
+                  </Field>
+                )}
                 {(field.kind === 'text-single' || field.kind === 'text-multi') && (
                   <Field label="最大长度">
                     <Input
@@ -2157,6 +2388,96 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="property-field">
       <div className="property-field-label">{label}</div>
       <div className="property-field-control">{children}</div>
+    </div>
+  );
+}
+
+function LayoutTabsEditor({
+  tabs,
+  onChange,
+}: {
+  tabs: SchemaLayoutTab[];
+  onChange: (next: SchemaLayoutTab[]) => void;
+}) {
+  const normalizedTabs = tabs.length > 0 ? tabs : [{ id: 'tab_1', label: 'Tab 1', children: [] }];
+
+  const updateAt = (index: number, patch: Partial<SchemaLayoutTab>) => {
+    onChange(normalizedTabs.map((tab, currentIndex) => (
+      currentIndex === index ? { ...tab, ...patch } : tab
+    )));
+  };
+
+  const removeAt = (index: number) => {
+    if (normalizedTabs.length <= 1) return;
+    onChange(normalizedTabs.filter((_, currentIndex) => currentIndex !== index));
+  };
+
+  const moveAt = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= normalizedTabs.length) return;
+    const next = normalizedTabs.slice();
+    const [item] = next.splice(index, 1);
+    next.splice(target, 0, item);
+    onChange(next);
+  };
+
+  const addTab = () => {
+    let index = normalizedTabs.length + 1;
+    const existingIds = new Set(normalizedTabs.map((tab) => tab.id));
+    while (existingIds.has(`tab_${index}`)) index += 1;
+    onChange([
+      ...normalizedTabs,
+      { id: `tab_${index}`, label: `Tab ${index}`, children: [] },
+    ]);
+  };
+
+  return (
+    <div className="layout-tabs-editor">
+      {normalizedTabs.map((tab, index) => (
+        <div key={tab.id} className="layout-tabs-editor-row">
+          <span className="layout-tabs-editor-index">{index + 1}</span>
+          <Input
+            value={tab.label}
+            placeholder={`Tab ${index + 1}`}
+            onChange={(event) => updateAt(index, { label: event.target.value })}
+          />
+          <Tag className="layout-tabs-editor-count">{(tab.children ?? []).length}</Tag>
+          <Button
+            type="text"
+            size="small"
+            icon={<ArrowUpOutlined />}
+            disabled={index === 0}
+            onClick={() => moveAt(index, -1)}
+            aria-label={`上移 ${tab.label}`}
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<ArrowDownOutlined />}
+            disabled={index === normalizedTabs.length - 1}
+            onClick={() => moveAt(index, 1)}
+            aria-label={`下移 ${tab.label}`}
+          />
+          <Button
+            type="text"
+            size="small"
+            danger
+            icon={<CloseOutlined />}
+            disabled={normalizedTabs.length <= 1}
+            onClick={() => removeAt(index)}
+            aria-label={`删除 ${tab.label}`}
+          />
+        </div>
+      ))}
+      <Button
+        type="dashed"
+        block
+        icon={<PlusOutlined />}
+        onClick={addTab}
+        className="layout-tabs-editor-add"
+      >
+        添加 Tab
+      </Button>
     </div>
   );
 }

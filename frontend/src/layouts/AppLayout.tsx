@@ -51,10 +51,19 @@ import { AiAssistantIcon } from '../components/icons';
 const { Header, Sider, Content } = Layout;
 
 const SIDER_COPYRIGHT_TEXT = 'Copyright © SCU-肖强 | 蜀ICP备2026020302号-1';
+const SIDER_COPYRIGHT_LINES = ['Copyright © SCU-肖强 | 蜀ICP备', '2026020302号-1'];
 const SIDER_OPENING_ANIMATION_MS = 520;
 
 /** 角色顶层路径前缀,用于推断当前在哪个角色端 */
 type RoleSection = WorkspaceRole;
+type LabelerNavKey = '/labeler' | '/labeler/my-tasks' | '/labeler/drafts' | '/labeler/returned';
+
+const labelerAnswerNavKeys: readonly LabelerNavKey[] = [
+  '/labeler',
+  '/labeler/my-tasks',
+  '/labeler/drafts',
+  '/labeler/returned',
+];
 
 /** 路径片段 -> 显示文案,顶部面包屑使用 */
 const segmentLabel: Record<string, string> = {
@@ -195,9 +204,18 @@ function resolveSection(pathname: string): RoleSection {
   return 'owner';
 }
 
-function resolveSelectedKey(section: RoleSection, pathname: string): string {
+function resolveLabelerAnswerNavKey(state: unknown): LabelerNavKey {
+  if (!state || typeof state !== 'object') return '/labeler/my-tasks';
+  const navKey = (state as { labelerNavKey?: unknown }).labelerNavKey;
+  return labelerAnswerNavKeys.includes(navKey as LabelerNavKey) ? (navKey as LabelerNavKey) : '/labeler/my-tasks';
+}
+
+function resolveSelectedKey(section: RoleSection, pathname: string, state?: unknown): string {
   if (section === 'labeler') {
     const labelerKeys = ['/labeler/market', '/labeler/my-tasks', '/labeler/drafts', '/labeler/returned'];
+    if (pathname.startsWith('/labeler/answer/')) {
+      return resolveLabelerAnswerNavKey(state);
+    }
     return labelerKeys.find((key) => pathname.startsWith(key)) ?? '/labeler';
   }
   if (section === 'owner') {
@@ -235,7 +253,7 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const section = resolveSection(location.pathname);
-  const selectedKey = resolveSelectedKey(section, location.pathname);
+  const selectedKey = resolveSelectedKey(section, location.pathname, location.state);
 
   // 侧栏折叠状态:由顶部左侧折叠按钮控制(桌面端语义:窄轨/宽轨)
   const [collapsed, setCollapsed] = useState(false);
@@ -520,7 +538,11 @@ export default function AppLayout() {
               aria-hidden={collapsed}
               title={SIDER_COPYRIGHT_TEXT}
             >
-              <span className="app-sider-copyright">{SIDER_COPYRIGHT_TEXT}</span>
+              {SIDER_COPYRIGHT_LINES.map((line) => (
+                <span className="app-sider-copyright" key={line}>
+                  {line}
+                </span>
+              ))}
             </span>
             <span
               className="app-sider-version-mark app-sider-copyright-mark"

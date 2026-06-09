@@ -230,21 +230,30 @@ public class TaskService {
   public List<AssignableLabelerResponse> listAssignableLabelers(Authentication authentication) {
     requireOwner(authentication);
     return authRepository.listUsersByRoleCode("labeler").stream()
-        .map(user -> new AssignableLabelerResponse(
-            Long.toString(user.id()),
-            user.username(),
-            user.name()))
+        .map(user -> toAssignableLabelerResponse(user, true))
         .toList();
   }
 
   public List<AssignableLabelerResponse> listAssignableReviewers(Authentication authentication) {
     requireOwner(authentication);
     return authRepository.listUsersByRoleCode("reviewer").stream()
-        .map(user -> new AssignableLabelerResponse(
-            Long.toString(user.id()),
-            user.username(),
-            user.name()))
+        .map(user -> toAssignableLabelerResponse(user, false))
         .toList();
+  }
+
+  private AssignableLabelerResponse toAssignableLabelerResponse(UserAccount user, boolean includeRewardUsage) {
+    Double monthlyAcceptedReward = includeRewardUsage
+        ? roundMoney(taskRepository.sumMonthlyAcceptedReward(user.id()))
+        : null;
+    Double monthlyPendingReward = includeRewardUsage
+        ? roundMoney(taskRepository.sumMonthlyPendingRewardEstimate(user.id()))
+        : null;
+    return new AssignableLabelerResponse(
+        Long.toString(user.id()),
+        user.username(),
+        user.name(),
+        monthlyAcceptedReward,
+        monthlyPendingReward);
   }
 
   @Transactional
@@ -996,7 +1005,12 @@ public class TaskService {
     int totalQuota = record.quota() == null ? 0 : record.quota();
     int remainingQuota = Math.max(totalQuota - record.quotaUsed(), 0);
     boolean expired = isDeadlineExpired(record.deadline());
-    boolean claimable = "published".equals(record.status()) && !expired && remainingQuota > 0;
+    boolean baseClaimable = "published".equals(record.status()) && !expired && remainingQuota > 0;
+    boolean claimedByMe = taskRepository.hasTaskAssignment(record.id(), currentUserId);
+    int estimatedClaimCount = claimedByMe ? 0 : estimateClaimBatchSize(record, metadata, currentUserId);
+    RewardCapStatus rewardCapStatus = resolveRewardCapStatus(metadata, currentUserId, estimatedClaimCount);
+    boolean rewardCapExceeded = !claimedByMe && baseClaimable && rewardCapStatus.exceeded();
+    boolean claimable = baseClaimable && !rewardCapExceeded;
     String taskType = metadata.resolvedTaskType();
     List<String> mediaTypes = taskRepository.listTaskMediaTypes(record.id());
     Long schemaVersionId = resolveEffectiveSchemaVersionId(record, metadata);
@@ -1021,11 +1035,19 @@ public class TaskService {
         metadata.resolvedAiReviewEnabled() ? metadata.aiReviewRuleName() : null,
         formatDateTime(record.publishedAt() == null ? record.createdAt() : record.publishedAt()),
         metadata.resolvedMaxClaimPerUser(),
-        taskRepository.hasTaskAssignment(record.id(), currentUserId),
+        claimedByMe,
         record.status(),
         expired || "ended".equals(record.status()),
         claimable,
-        resolveMarketStatusLabel(record.status(), expired, remainingQuota));
+        rewardCapExceeded
+            ? "已达月度封顶"
+            : resolveMarketStatusLabel(record.status(), expired, remainingQuota),
+        rewardCapExceeded,
+        rewardCapStatus.message(),
+        rewardCapStatus.accepted(),
+        rewardCapStatus.pending(),
+        rewardCapStatus.projected(),
+        rewardCapStatus.cap());
   }
 
   private AssignmentResponse createAssignmentForStrategy(TaskRecord task, AuthenticatedUser labeler) {
@@ -1081,6 +1103,14 @@ public class TaskService {
     }
 
     int batchSize = toBatchSize(Math.min(taskRemaining, labelerRemaining));
+    RewardCapStatus rewardCapStatus = resolveRewardCapStatus(metadata, labelerId, batchSize);
+    if (rewardCapStatus.exceeded()) {
+      if (failWhenNoNewAssignment) {
+        throw monthlyRewardCapExceeded(rewardCapStatus);
+      }
+      return 0;
+    }
+
     List<Long> itemIds = taskRepository.findClaimableItems(task.id(), batchSize);
     if (itemIds.isEmpty()) {
       if (failWhenNoNewAssignment) {
@@ -1151,9 +1181,11 @@ public class TaskService {
 
     if ("quota".equals(metadata.resolvedStrategy()) && metadata.resolvedMaxClaimPerUser() != null) {
       long current = taskRepository.countLabelerTaskAssignments(task.id(), labelerId);
-      return metadata.resolvedMaxClaimPerUser() - current > 0;
+      if (metadata.resolvedMaxClaimPerUser() - current <= 0) {
+        return false;
+      }
     }
-    return true;
+    return !resolveRewardCapStatus(metadata, labelerId, estimateClaimBatchSize(task, metadata, labelerId)).exceeded();
   }
 
   private boolean isDeadlineExpired(LocalDateTime deadline) {
@@ -1183,6 +1215,57 @@ public class TaskService {
     }
     long quotaRemaining = quota - taskRepository.countTaskAssignments(taskId);
     return Math.min(Math.max(quotaRemaining, 0), claimableItems);
+  }
+
+  private int estimateClaimBatchSize(TaskRecord task, TaskMetadata metadata, long labelerId) {
+    if ("assigned".equals(metadata.resolvedStrategy())) {
+      return 0;
+    }
+    long taskRemaining = resolveAssignableRemaining(task.id(), task.quota());
+    if (taskRemaining <= 0) {
+      return 0;
+    }
+    long labelerRemaining = taskRemaining;
+    if ("quota".equals(metadata.resolvedStrategy()) && metadata.resolvedMaxClaimPerUser() != null) {
+      long current = taskRepository.countLabelerTaskAssignments(task.id(), labelerId);
+      labelerRemaining = metadata.resolvedMaxClaimPerUser() - current;
+    }
+    return toBatchSize(Math.min(taskRemaining, Math.max(labelerRemaining, 0)));
+  }
+
+  private RewardCapStatus resolveRewardCapStatus(TaskMetadata metadata, long labelerId, int itemCount) {
+    Double cap = resolveMonthlyRewardCap(metadata.reward());
+    double rewardPerItem = metadata.rewardPerItem() == null ? 0D : metadata.rewardPerItem();
+    double accepted = roundMoney(taskRepository.sumMonthlyAcceptedReward(labelerId));
+    double pending = roundMoney(taskRepository.sumMonthlyPendingRewardEstimate(labelerId));
+    double currentClaimReward = Math.max(itemCount, 0) * Math.max(rewardPerItem, 0D);
+    double projected = roundMoney(accepted + pending + currentClaimReward);
+    boolean exceeded = cap != null && itemCount > 0 && projected > cap;
+    String message = exceeded
+        ? "本月预计奖励 " + formatMoney(projected) + " 元超过月度封顶 "
+            + formatMoney(cap) + " 元（已验收 " + formatMoney(accepted)
+            + " 元，待完成 " + formatMoney(pending)
+            + " 元，本次预计 " + formatMoney(currentClaimReward) + " 元）"
+        : null;
+    return new RewardCapStatus(
+        exceeded,
+        message,
+        accepted,
+        pending,
+        projected,
+        cap == null ? null : roundMoney(cap));
+  }
+
+  private ApiException monthlyRewardCapExceeded(RewardCapStatus status) {
+    return new ApiException(
+        HttpStatus.CONFLICT,
+        "MONTHLY_REWARD_CAP_EXCEEDED",
+        status.message() == null ? "本月奖励预计已超过月度封顶，无法继续认领该任务" : status.message(),
+        Map.of(
+            "monthlyAcceptedReward", status.accepted(),
+            "monthlyPendingReward", status.pending(),
+            "monthlyProjectedReward", status.projected(),
+            "monthlyRewardCap", status.cap() == null ? 0D : status.cap()));
   }
 
   private int toBatchSize(long size) {
@@ -1627,6 +1710,22 @@ public class TaskService {
     return parts.length < 2 || parts[1].isBlank() ? null : parts[1].trim();
   }
 
+  private Double resolveMonthlyRewardCap(String reward) {
+    String rewardCap = resolveRewardCap(reward);
+    if (rewardCap == null || rewardCap.contains("无封顶")) {
+      return null;
+    }
+    var matcher = NUMBER_PATTERN.matcher(rewardCap);
+    if (!matcher.find()) {
+      return null;
+    }
+    try {
+      return Double.parseDouble(matcher.group(1));
+    } catch (NumberFormatException exception) {
+      return null;
+    }
+  }
+
   private LocalDateTime parseDeadline(String deadline) {
     if (deadline == null || deadline.isBlank()) {
       return null;
@@ -1752,7 +1851,20 @@ public class TaskService {
     return Math.round(value * 100.0) / 100.0;
   }
 
+  private String formatMoney(double value) {
+    String text = String.format(Locale.ROOT, "%.2f", roundMoney(value));
+    return text.replaceAll("\\.?0+$", "");
+  }
+
   private record SchemaSelection(long id, int version, String label) {}
 
   private record AiReviewRuleSelection(Long ruleId, String ruleName) {}
+
+  private record RewardCapStatus(
+      boolean exceeded,
+      String message,
+      double accepted,
+      double pending,
+      double projected,
+      Double cap) {}
 }

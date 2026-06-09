@@ -67,8 +67,9 @@ public class SchemaDefinitionValidator {
     Map<String, Integer> nameCounts = new HashMap<>();
     Set<String> fieldNames = new HashSet<>();
     boolean hasSubmittable = false;
+    List<JsonNode> flatFields = SchemaFieldTree.flattenFieldList(fields);
 
-    for (JsonNode field : fields) {
+    for (JsonNode field : flatFields) {
       String kind = text(field, "kind");
       String semanticType = fallback(text(field, "semanticType"), inferSemanticType(kind));
       String fieldName = text(field, "fieldName");
@@ -118,7 +119,7 @@ public class SchemaDefinitionValidator {
         errors.add(error("DUPLICATE_FIELD_NAME", "字段名 " + fieldName + " 重复,会导致答案覆盖。", fieldName));
       }
     });
-    for (JsonNode field : fields) {
+    for (JsonNode field : flatFields) {
       validateReactions(field, fieldNames, errors, warnings);
     }
     if (!hasSubmittable) {

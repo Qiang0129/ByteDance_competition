@@ -237,10 +237,13 @@ export default function LabelerOverview() {
     }
   };
   const handleRewardSummaryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!isMobile) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      setRewardSummaryOpen(true);
+      if (isMobile) {
+        setRewardSummaryOpen(true);
+      } else {
+        setRewardPopoverOpen(true);
+      }
     }
   };
   const rewardStatNode = (
@@ -302,7 +305,7 @@ export default function LabelerOverview() {
             rewardStatNode
           ) : (
             <Popover
-              trigger={['hover', 'focus']}
+              trigger="click"
               placement="bottomRight"
               overlayClassName="labeler-reward-popover"
               open={rewardPopoverOpen}
@@ -443,7 +446,12 @@ export default function LabelerOverview() {
                     strokeColor={themeColors.primary}
                     onEnter={() => {
                       if (batch.assignmentId) {
-                        navigate(`/labeler/answer/${batch.assignmentId}`);
+                        navigate(`/labeler/answer/${batch.assignmentId}`, {
+                          state: {
+                            assignmentId: batch.assignmentId,
+                            labelerNavKey: '/labeler',
+                          },
+                        });
                       }
                     }}
                   />

@@ -407,7 +407,7 @@ export default function TaskMarket() {
     }
 
     if (task.claimable === false) {
-      message.warning(task.statusLabel ?? '该任务已截止，无法认领。');
+      message.warning(task.rewardCapMessage ?? task.statusLabel ?? '该任务已截止，无法认领。');
       return;
     }
 
@@ -622,6 +622,8 @@ export default function TaskMarket() {
                       ? '已截止'
                     : activeTask.claimedByMe
                       ? '去作答'
+                      : activeTask.rewardCapExceeded
+                        ? '已达月度封顶'
                       : '立即认领'}
               </Button>
             </div>
@@ -709,6 +711,10 @@ function TaskCard({
         </div>
       </div>
 
+      {task.rewardCapExceeded && task.rewardCapMessage ? (
+        <div className="market-cap-warning">{task.rewardCapMessage}</div>
+      ) : null}
+
       <div className="market-card-foot">
         <span className="market-card-time">
           <ClockCircleOutlined /> 发布时间: {task.publishedAt ?? '-'}
@@ -740,6 +746,8 @@ function TaskCard({
             ? '去作答'
             : exhausted
               ? '配额已用尽'
+              : task.rewardCapExceeded
+                ? '已达月度封顶'
               : '立即认领'}
       </Button>
     </Card>
@@ -780,6 +788,16 @@ function TaskDetail({ task }: { task: MarketTask }) {
         })}
         <TaskFeatureTags task={task} showAiRule />
       </Space>
+
+      {task.rewardCapExceeded && task.rewardCapMessage ? (
+        <Alert
+          type="warning"
+          showIcon
+          className="market-detail-cap-alert"
+          message="月度封顶"
+          description={task.rewardCapMessage}
+        />
+      ) : null}
 
       <div>
         <div className="market-detail-label">任务描述</div>

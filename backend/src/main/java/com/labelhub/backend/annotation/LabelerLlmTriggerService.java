@@ -11,6 +11,7 @@ import com.labelhub.backend.annotation.AnnotationRepository.AssignmentItemRecord
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
 import com.labelhub.backend.prompt.PromptTemplateLoader;
+import com.labelhub.backend.schema.SchemaFieldTree;
 import com.labelhub.backend.task.TaskDeadlineSettlementService;
 import com.labelhub.backend.workflow.AuditLogRepository;
 import com.labelhub.backend.workflow.WorkflowEntityType;
@@ -238,7 +239,7 @@ public class LabelerLlmTriggerService {
 
   private ArrayNode reactionRulesPayload(ArrayNode fields) {
     ArrayNode result = objectMapper.createArrayNode();
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       JsonNode reactions = field.path("reactions");
       if (!reactions.isArray()) {
         continue;
@@ -246,8 +247,8 @@ public class LabelerLlmTriggerService {
       for (JsonNode reaction : reactions) {
         String sourceFieldName = text(reaction, "sourceField", "");
         String targetFieldName = text(reaction, "targetField", "");
-        JsonNode sourceField = findField(fields, sourceFieldName);
-        JsonNode targetField = findField(fields, targetFieldName);
+        JsonNode sourceField = SchemaFieldTree.findField(fields, sourceFieldName);
+        JsonNode targetField = SchemaFieldTree.findField(fields, targetFieldName);
         ObjectNode node = objectMapper.createObjectNode();
         node.put("sourceField", sourceFieldName);
         node.put("sourceLabel", sourceField == null ? sourceFieldName : text(sourceField, "label", sourceFieldName));
@@ -542,13 +543,13 @@ public class LabelerLlmTriggerService {
 
   private Set<String> resolveVisibleFields(ArrayNode fields, ObjectNode values) {
     Set<String> visible = new LinkedHashSet<>();
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       String fieldName = text(field, "fieldName", "");
       if (!fieldName.isBlank()) {
         visible.add(fieldName);
       }
     }
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       JsonNode reactions = field.path("reactions");
       if (!reactions.isArray()) {
         continue;
@@ -561,7 +562,7 @@ public class LabelerLlmTriggerService {
         }
       }
     }
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       JsonNode reactions = field.path("reactions");
       if (!reactions.isArray()) {
         continue;
@@ -571,7 +572,7 @@ public class LabelerLlmTriggerService {
         if (targetField.isBlank()) {
           continue;
         }
-        JsonNode sourceField = findField(fields, text(reaction, "sourceField", ""));
+        JsonNode sourceField = SchemaFieldTree.findField(fields, text(reaction, "sourceField", ""));
         if (!matchesReaction(reaction, values.get(text(reaction, "sourceField", "")), sourceField)) {
           continue;
         }
@@ -735,18 +736,13 @@ public class LabelerLlmTriggerService {
   private ArrayNode fieldsNode(JsonNode schema) {
     JsonNode fields = schema.path("fields");
     if (fields.isArray()) {
-      return (ArrayNode) fields;
+      return SchemaFieldTree.flattenFields(objectMapper, fields);
     }
     return objectMapper.createArrayNode();
   }
 
   private JsonNode findField(ArrayNode fields, String fieldName) {
-    for (JsonNode field : fields) {
-      if (fieldName.equals(text(field, "fieldName", ""))) {
-        return field;
-      }
-    }
-    return null;
+    return SchemaFieldTree.findField(fields, fieldName);
   }
 
   private boolean isSubmittableTarget(JsonNode field) {

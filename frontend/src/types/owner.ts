@@ -88,6 +88,8 @@ export interface AssignableLabeler {
   userId: string;
   username: string;
   displayName: string;
+  monthlyAcceptedReward?: number | null;
+  monthlyPendingReward?: number | null;
 }
 
 export interface UpdateOwnerTaskStateRequest {

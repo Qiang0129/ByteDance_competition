@@ -27,4 +27,10 @@ public record MarketTaskResponse(
     String state,
     boolean expired,
     boolean claimable,
-    String statusLabel) {}
+    String statusLabel,
+    boolean rewardCapExceeded,
+    String rewardCapMessage,
+    Double monthlyAcceptedReward,
+    Double monthlyPendingReward,
+    Double monthlyProjectedReward,
+    Double monthlyRewardCap) {}

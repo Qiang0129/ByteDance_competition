@@ -127,7 +127,12 @@ export default function Drafts() {
                     type="link"
                     className="labeler-draft-action-btn"
                     disabled={!item.editable}
-                    onClick={() => navigate(`/labeler/answer/${item.assignmentId}`)}
+                    onClick={() => navigate(`/labeler/answer/${item.assignmentId}`, {
+                      state: {
+                        assignmentId: item.assignmentId,
+                        labelerNavKey: '/labeler/drafts',
+                      },
+                    })}
                   >
                     继续编辑
                   </Button>

@@ -17,6 +17,7 @@ import com.labelhub.backend.annotation.AnnotationRepository.LabelerItemHistoryRe
 import com.labelhub.backend.annotation.AnnotationRepository.SchemaSnapshotRecord;
 import com.labelhub.backend.auth.ApiException;
 import com.labelhub.backend.auth.AuthenticatedUser;
+import com.labelhub.backend.schema.SchemaFieldTree;
 import com.labelhub.backend.task.PageResponse;
 import com.labelhub.backend.task.TaskDeadlineSettlementService;
 import com.labelhub.backend.task.TaskService;
@@ -685,13 +686,42 @@ public class AnnotationService {
         normalized.add(field.deepCopy());
         continue;
       }
-      ObjectNode next = ((ObjectNode) field).deepCopy();
-      if (!next.hasNonNull("semanticType") || next.path("semanticType").asText("").isBlank()) {
-        next.put("semanticType", inferSemanticType(text(next, "kind", "")));
-      }
-      normalized.add(next);
+      normalized.add(normalizeRuntimeField(field));
     }
     return normalized;
+  }
+
+  private ObjectNode normalizeRuntimeField(JsonNode field) {
+    ObjectNode next = ((ObjectNode) field).deepCopy();
+    if (!next.hasNonNull("semanticType") || next.path("semanticType").asText("").isBlank()) {
+      next.put("semanticType", inferSemanticType(text(next, "kind", "")));
+    }
+    JsonNode children = next.path("children");
+    if (children.isArray()) {
+      next.set("children", normalizeRuntimeFields(children));
+    }
+    JsonNode tabs = next.path("componentProps").path("tabs");
+    if (tabs.isArray()) {
+      ObjectNode componentProps = next.path("componentProps").isObject()
+          ? ((ObjectNode) next.path("componentProps")).deepCopy()
+          : objectMapper.createObjectNode();
+      ArrayNode normalizedTabs = objectMapper.createArrayNode();
+      for (JsonNode tab : tabs) {
+        if (!tab.isObject()) {
+          normalizedTabs.add(tab.deepCopy());
+          continue;
+        }
+        ObjectNode nextTab = ((ObjectNode) tab).deepCopy();
+        JsonNode tabChildren = nextTab.path("children");
+        nextTab.set(
+            "children",
+            tabChildren.isArray() ? normalizeRuntimeFields(tabChildren) : objectMapper.createArrayNode());
+        normalizedTabs.add(nextTab);
+      }
+      componentProps.set("tabs", normalizedTabs);
+      next.set("componentProps", componentProps);
+    }
+    return next;
   }
 
   private void ensureSchemaDigestMatches(String requestDigest, SchemaContext schema) {
@@ -1010,7 +1040,7 @@ public class AnnotationService {
   private void validateAnswer(JsonNode answerJson, ArrayNode fields) {
     Set<String> hiddenFields = resolveHiddenFields(fields, answerJson);
     Set<String> conditionalRequiredFields = resolveConditionalRequiredFields(fields, answerJson);
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       String kind = text(field, "kind", "");
       String semanticType = semanticType(field);
       if ("display".equals(semanticType) || "layout".equals(semanticType)) {
@@ -1050,7 +1080,7 @@ public class AnnotationService {
   private JsonNode filterVisibleAnswer(JsonNode answerJson, ArrayNode fields) {
     Set<String> hiddenFields = resolveHiddenFields(fields, answerJson);
     ObjectNode filtered = objectMapper.createObjectNode();
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       String semanticType = semanticType(field);
       if (!isSubmittableSemanticType(semanticType)) {
         continue;
@@ -1252,14 +1282,14 @@ public class AnnotationService {
     if (hidden != null || required != null) {
       applyDisplayRequiredDefaults(fields, hidden, required);
     }
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       JsonNode reactions = field.path("reactions");
       if (!reactions.isArray()) {
         continue;
       }
       for (JsonNode reaction : reactions) {
         String sourceField = text(reaction, "sourceField", "");
-        if (!matchesReaction(reaction, answerJson.get(sourceField), findField(fields, sourceField))) {
+        if (!matchesReaction(reaction, answerJson.get(sourceField), SchemaFieldTree.findField(fields, sourceField))) {
           continue;
         }
         String targetField = text(reaction, "targetField", "");
@@ -1286,7 +1316,7 @@ public class AnnotationService {
       ArrayNode fields,
       Set<String> hidden,
       Set<String> required) {
-    for (JsonNode field : fields) {
+    for (JsonNode field : SchemaFieldTree.flattenFieldList(fields)) {
       JsonNode reactions = field.path("reactions");
       if (!reactions.isArray()) {
         continue;
@@ -1315,21 +1345,12 @@ public class AnnotationService {
   }
 
   private boolean isStaticRequired(ArrayNode fields, String fieldName) {
-    for (JsonNode field : fields) {
-      if (fieldName.equals(text(field, "fieldName", ""))) {
-        return field.path("required").asBoolean(false);
-      }
-    }
-    return false;
+    JsonNode field = SchemaFieldTree.findField(fields, fieldName);
+    return field != null && field.path("required").asBoolean(false);
   }
 
   private JsonNode findField(ArrayNode fields, String fieldName) {
-    for (JsonNode field : fields) {
-      if (fieldName.equals(text(field, "fieldName", ""))) {
-        return field;
-      }
-    }
-    return null;
+    return SchemaFieldTree.findField(fields, fieldName);
   }
 
   private boolean matchesReaction(JsonNode reaction, JsonNode value, JsonNode sourceField) {

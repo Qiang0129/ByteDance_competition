@@ -96,6 +96,7 @@ export default function ReturnedItems() {
       state: {
         entry: item.reworkStatus === 'RETURNED' ? 'returned-rework' : 'returned-result',
         assignmentId: item.assignmentId,
+        labelerNavKey: '/labeler/returned',
       },
     });
   };

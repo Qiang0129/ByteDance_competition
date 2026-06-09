@@ -13,6 +13,7 @@ import {
   resolveRuntimeRules,
 } from './schemaCompiler';
 import { formilyAntd6Components } from './formilyAntd6';
+import { flattenSchemaFields, isLayoutField, normalizeLayoutTabs } from './schemaTree';
 import {
   EMPTY_LLM_TRIGGER_STATE,
   LlmTriggerStateContext,
@@ -134,47 +135,26 @@ export function LabelHubFormRenderer({
     }),
     [llmTriggerStates, updateLlmTriggerState],
   );
-
-  const formilySchema = useMemo(
-    () =>
-      compileToFormilySchema(schema, {
-        rawPayload,
-        values: value ?? {},
-        readonly,
-        assignmentId,
-        previewMode,
-        allFields: schema,
-        onApplyLlmResult: applyLlmResult,
-        onApplyLlmResults: applyLlmResults,
-        llmTriggerStates,
-        onUpdateLlmTriggerState: updateLlmTriggerState,
-      }),
-    [
-      schema,
-      rawPayload,
-      value,
-      readonly,
-      assignmentId,
-      previewMode,
-      applyLlmResult,
-      applyLlmResults,
-      llmTriggerStates,
-      updateLlmTriggerState,
-    ],
+  const flatSchemaFields = useMemo(() => flattenSchemaFields(schema), [schema]);
+  const runtimeRuleState = useMemo(
+    () => resolveRuntimeRules(schema, value ?? {}),
+    [schema, value],
   );
-  const useTabbedRenderer = schemaTabs.length > 1;
+
+  const hasNestedLayout = flatSchemaFields.some((field) => isLayoutField(field));
+  const useTabbedRenderer = schemaTabs.length > 1 && !hasNestedLayout;
   const tabbedSchemas = useMemo(
     () =>
       Object.fromEntries(
         schemaTabs.map((tab) => [
           tab.id,
-          compileToFormilySchema(schema, {
+          compileToFormilySchema(flatSchemaFields, {
             rawPayload,
             values: value ?? {},
             readonly,
             assignmentId,
             previewMode,
-            allFields: schema,
+            allFields: flatSchemaFields,
             onApplyLlmResult: applyLlmResult,
             onApplyLlmResults: applyLlmResults,
             llmTriggerStates,
@@ -184,7 +164,7 @@ export function LabelHubFormRenderer({
         ]),
       ) as Record<string, unknown>,
     [
-      schema,
+      flatSchemaFields,
       schemaTabs,
       rawPayload,
       value,
@@ -198,8 +178,84 @@ export function LabelHubFormRenderer({
     ],
   );
   const runtimeRuleKey = useMemo(
-    () => JSON.stringify(resolveRuntimeRules(schema, value ?? {})),
-    [schema, value],
+    () => JSON.stringify(runtimeRuleState),
+    [runtimeRuleState],
+  );
+  const leafRendererOptions = useMemo(
+    () => ({
+      rawPayload,
+      values: value ?? {},
+      readonly,
+      assignmentId,
+      previewMode,
+      allFields: flatSchemaFields,
+      onApplyLlmResult: applyLlmResult,
+      onApplyLlmResults: applyLlmResults,
+      llmTriggerStates,
+      onUpdateLlmTriggerState: updateLlmTriggerState,
+    }),
+    [
+      rawPayload,
+      value,
+      readonly,
+      assignmentId,
+      previewMode,
+      flatSchemaFields,
+      applyLlmResult,
+      applyLlmResults,
+      llmTriggerStates,
+      updateLlmTriggerState,
+    ],
+  );
+
+  const renderFieldTree = (fields: SchemaField[]) => (
+    <div className="lh-formily-field-tree">
+      {fields.map((field) => {
+        if (field.fieldName && runtimeRuleState.visible[field.fieldName] === false) {
+          return null;
+        }
+        if (isLayoutField(field)) {
+          if (field.kind === 'multi-tab') {
+            const layoutTabs = normalizeLayoutTabs(field);
+            return (
+              <div key={field.id} className="lh-formily-layout lh-formily-layout-tabs">
+                <div className="lh-formily-layout-title">{field.label || '多 Tab 布局'}</div>
+                {field.helpText && <div className="lh-formily-layout-help">{field.helpText}</div>}
+                <Tabs
+                  className="lh-formily-inner-tabs"
+                  items={layoutTabs.map((tab) => ({
+                    key: tab.id,
+                    label: tab.label,
+                    children: (tab.children ?? []).length > 0
+                      ? renderFieldTree(tab.children ?? [])
+                      : <div className="lh-formily-layout-empty">暂无字段</div>,
+                  }))}
+                />
+              </div>
+            );
+          }
+          return (
+            <div key={field.id} className="lh-formily-layout lh-formily-layout-group">
+              <div className="lh-formily-layout-title">{field.label || '分组容器'}</div>
+              {field.helpText && <div className="lh-formily-layout-help">{field.helpText}</div>}
+              {(field.children ?? []).length > 0
+                ? renderFieldTree(field.children ?? [])
+                : <div className="lh-formily-layout-empty">暂无字段</div>}
+            </div>
+          );
+        }
+        const leafSchema = compileToFormilySchema(flatSchemaFields, {
+          ...leafRendererOptions,
+          fieldFilter: (item) => item.id === field.id,
+        });
+        return (
+          <SchemaFieldRenderer
+            key={`${schemaRenderKey}-${runtimeRuleKey}-${field.id}`}
+            schema={leafSchema as never}
+          />
+        );
+      })}
+    </div>
   );
 
   return (
@@ -221,10 +277,7 @@ export function LabelHubFormRenderer({
               }))}
             />
           ) : (
-            <SchemaFieldRenderer
-              key={`${schemaRenderKey}-${runtimeRuleKey}`}
-              schema={formilySchema as never}
-            />
+            renderFieldTree(schema)
           )}
           {onSubmit && (
             <Space className="lh-formily-actions">

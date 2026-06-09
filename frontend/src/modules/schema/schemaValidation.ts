@@ -9,6 +9,7 @@ import type {
   SchemaValidatorRule,
   SchemaValidatorType,
 } from '../../types/schema';
+import { flattenSchemaFields } from './schemaTree';
 
 export const SUBMITTABLE_KINDS = new Set<MaterialKind>([
   'text-single',
@@ -95,6 +96,7 @@ export function validateSchemaFields(fields: SchemaField[]): SchemaValidationRes
   const errors: SchemaDiagnostic[] = [];
   const warnings: SchemaDiagnostic[] = [];
   const names = new Map<string, number>();
+  const flatFields = flattenSchemaFields(fields);
 
   if (!Array.isArray(fields) || fields.length === 0) {
     errors.push({
@@ -105,7 +107,7 @@ export function validateSchemaFields(fields: SchemaField[]): SchemaValidationRes
     return { valid: false, errors, warnings };
   }
 
-  fields.forEach((field, index) => {
+  flatFields.forEach((field, index) => {
     const label = field.label || `字段 ${index + 1}`;
     if (!ALLOWED_KINDS.has(field.kind)) {
       errors.push({
@@ -181,9 +183,9 @@ export function validateSchemaFields(fields: SchemaField[]): SchemaValidationRes
   });
 
   const nameSet = new Set([...names.keys()]);
-  fields.forEach((field) => validateReactions(field, nameSet, errors, warnings));
+  flatFields.forEach((field) => validateReactions(field, nameSet, errors, warnings));
 
-  if (!fields.some((field) => SUBMITTABLE_KINDS.has(field.kind))) {
+  if (!flatFields.some((field) => SUBMITTABLE_KINDS.has(field.kind))) {
     warnings.push({
       level: 'warning',
       code: 'NO_SUBMITTABLE_FIELD',

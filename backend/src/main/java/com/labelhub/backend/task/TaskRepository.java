@@ -2,6 +2,7 @@ package com.labelhub.backend.task;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
@@ -288,6 +289,69 @@ public class TaskRepository {
         taskId,
         labelerId);
     return count == null ? 0L : count;
+  }
+
+  public double sumMonthlyAcceptedReward(long labelerId) {
+    return queryDouble(
+        """
+        SELECT COALESCE(SUM(accepted_rewards.reward_per_item), 0)
+        FROM (
+          SELECT
+            COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0) AS reward_per_item,
+            COALESCE(accepted_audit.created_at, accepted_hr.created_at, an.updated_at) AS accepted_at
+          FROM assignments a
+          JOIN tasks t ON t.id = a.task_id
+          JOIN annotations an ON an.id = (
+            SELECT latest.id
+            FROM annotations latest
+            WHERE latest.assignment_id = a.id
+              AND latest.status <> 'voided'
+            ORDER BY latest.revision_no DESC, latest.id DESC
+            LIMIT 1
+          )
+          LEFT JOIN audit_logs accepted_audit ON accepted_audit.id = (
+            SELECT al.id
+            FROM audit_logs al
+            WHERE al.entity_type = 'annotation'
+              AND al.entity_id = an.id
+              AND al.action IN ('human_review.approve', 'human_review.revise.accept')
+              AND al.to_state = 'accepted'
+            ORDER BY al.created_at ASC, al.id ASC
+            LIMIT 1
+          )
+          LEFT JOIN human_reviews accepted_hr ON accepted_hr.id = (
+            SELECT hr.id
+            FROM human_reviews hr
+            WHERE hr.annotation_id = an.id
+              AND LOWER(hr.decision) IN ('approve', 'approved', 'revise')
+            ORDER BY hr.created_at ASC, hr.id ASC
+            LIMIT 1
+          )
+          WHERE a.labeler_id = ?
+            AND a.status IN ('accepted', 'exported')
+            AND an.status IN ('accepted', 'exported')
+            AND t.deleted_at IS NULL
+        ) accepted_rewards
+        WHERE accepted_rewards.accepted_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
+          AND accepted_rewards.accepted_at < DATE_ADD(DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+        """,
+        labelerId);
+  }
+
+  public double sumMonthlyPendingRewardEstimate(long labelerId) {
+    return queryDouble(
+        """
+        SELECT COALESCE(SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(t.reward_rule, '$.rewardPerItem')) AS DECIMAL(10, 4)), 0)), 0)
+        FROM assignments a
+        JOIN tasks t ON t.id = a.task_id
+        WHERE a.labeler_id = ?
+          AND a.status IN ('claimed', 'submitted', 'returned')
+          AND a.status <> 'voided'
+          AND t.deleted_at IS NULL
+          AND a.claimed_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')
+          AND a.claimed_at < DATE_ADD(DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+        """,
+        labelerId);
   }
 
   public boolean hasTaskWork(long taskId) {
@@ -1124,6 +1188,17 @@ public class TaskRepository {
 
   private Long toLong(Object value) {
     return value == null ? null : ((Number) value).longValue();
+  }
+
+  private double queryDouble(String sql, Object... args) {
+    Number value = jdbcTemplate.queryForObject(sql, Number.class, args);
+    if (value == null) {
+      return 0D;
+    }
+    if (value instanceof BigDecimal decimal) {
+      return decimal.doubleValue();
+    }
+    return value.doubleValue();
   }
 
   private record QueryParts(String whereClause, List<Object> args) {}

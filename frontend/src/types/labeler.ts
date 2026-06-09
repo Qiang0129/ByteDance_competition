@@ -74,6 +74,14 @@ export interface MarketTask {
   claimable?: boolean;
   /** 后端计算后的状态文案,如可认领/已截止/配额已满 */
   statusLabel?: string;
+  /** 是否因月度奖励封顶而不可继续认领 */
+  rewardCapExceeded?: boolean;
+  /** 月度奖励封顶提示文案 */
+  rewardCapMessage?: string;
+  monthlyAcceptedReward?: number | null;
+  monthlyPendingReward?: number | null;
+  monthlyProjectedReward?: number | null;
+  monthlyRewardCap?: number | null;
 }
 
 /** 任务市场顶部 KPI,由后端按当前标注员真实可领取状态统计 */

@@ -213,13 +213,13 @@ function AiReviewTaskCard({
 }) {
   // 已完成视图下,进度按"已审/总数"展示;待审视图按原有"已审进度"展示。
   const reviewedCount = task.reviewedCount ?? 0;
+  const isReviewedOnly = view === 'reviewed' || (view !== 'pending' && task.pendingHuman <= 0);
   const donePct =
     task.total > 0
-      ? view === 'reviewed'
+      ? isReviewedOnly
         ? 100
         : Math.round(((task.total - task.pendingHuman) / task.total) * 100)
       : 0;
-  const isReviewedOnly = view === 'reviewed' || (view !== 'pending' && task.pendingHuman <= 0);
   const buttonText = isReviewedOnly ? '查看历史 →' : '进入审核 →';
   const progressText = isReviewedOnly
     ? `已审 ${reviewedCount || task.total} · 共 ${task.total} 条`
