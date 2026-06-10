@@ -130,7 +130,7 @@ Vite preview: http://localhost:4173
 后端默认启用演示账号：
 
 ```text
-labelhub_owner / abelhub_owner
+labelhub_owner / labelhub_owner
 labeler1 / labeler1123
 reviewer2 / reviewer2123
 ai_reviewer / ai_reviewer123
