@@ -26,7 +26,13 @@ public class SecurityConfig {
         .authorizeHttpRequests(auth -> auth
             .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-            .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/register").permitAll()
+            .requestMatchers(
+                HttpMethod.POST,
+                "/api/auth/login",
+                "/api/auth/register",
+                "/api/auth/password-reset/code",
+                "/api/auth/password-reset/confirm")
+            .permitAll()
             .requestMatchers(HttpMethod.GET, "/api/auth/reviewer-invitations/validate").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/auth/owner-invitations/validate").permitAll()
             .requestMatchers(

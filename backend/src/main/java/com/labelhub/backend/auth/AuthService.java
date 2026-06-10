@@ -4,11 +4,16 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,10 +23,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthService {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(AuthService.class);
   private static final List<String> LOGIN_ROLES =
       List.of("owner", "labeler", "reviewer", "ai_reviewer", "system_agent");
   private static final int REVIEWER_INVITE_TTL_HOURS = 24;
   private static final int OWNER_INVITE_TTL_HOURS = 24;
+  private static final int RESET_CODE_BOUND = 1_000_000;
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
   private final AuthProperties authProperties;
@@ -29,18 +36,24 @@ public class AuthService {
   private final PasswordEncoder passwordEncoder;
   private final TokenService tokenService;
   private final TurnstileVerificationService turnstileVerificationService;
+  private final PasswordResetCodeStore passwordResetCodeStore;
+  private final PasswordResetMailService passwordResetMailService;
 
   public AuthService(
       AuthProperties authProperties,
       AuthRepository authRepository,
       PasswordEncoder passwordEncoder,
       TokenService tokenService,
-      TurnstileVerificationService turnstileVerificationService) {
+      TurnstileVerificationService turnstileVerificationService,
+      PasswordResetCodeStore passwordResetCodeStore,
+      PasswordResetMailService passwordResetMailService) {
     this.authProperties = authProperties;
     this.authRepository = authRepository;
     this.passwordEncoder = passwordEncoder;
     this.tokenService = tokenService;
     this.turnstileVerificationService = turnstileVerificationService;
+    this.passwordResetCodeStore = passwordResetCodeStore;
+    this.passwordResetMailService = passwordResetMailService;
   }
 
   public LoginResponse login(LoginRequest request) {
@@ -197,6 +210,130 @@ public class AuthService {
     tokenService.revoke(authorizationHeader);
   }
 
+  public PasswordResetCodeResponse sendPasswordResetCode(PasswordResetCodeRequest request, String remoteIp) {
+    turnstileVerificationService.verify(request.turnstileToken(), remoteIp);
+
+    String username = normalizeUsername(request.username());
+    String email = normalizeEmail(request.email());
+    AuthProperties.PasswordReset passwordReset = authProperties.getPasswordReset();
+    int codeTtlSeconds = Math.max(60, passwordReset.getCodeTtlSeconds());
+    int cooldownSeconds = Math.max(10, passwordReset.getResendCooldownSeconds());
+    PasswordResetCodeResponse response = genericPasswordResetCodeResponse(codeTtlSeconds, cooldownSeconds);
+
+    if (passwordResetCodeStore.isInCooldown(username)) {
+      throw new ApiException(
+          HttpStatus.TOO_MANY_REQUESTS,
+          "PASSWORD_RESET_CODE_COOLDOWN",
+          "verification code was sent recently, please try again later");
+    }
+
+    Optional<UserAccount> user = authRepository.findUserByUsername(username);
+    if (user.isEmpty()) {
+      LOGGER.info("Password reset code skipped: user not found, usernameHash={}", hashLogValue(username));
+      return response;
+    }
+    if (!isActive(user.get())) {
+      LOGGER.info("Password reset code skipped: inactive user id={}", user.get().id());
+      return response;
+    }
+    PasswordResetEmailCheck emailCheck = checkPasswordResetEmail(user.get(), email);
+    if (!emailCheck.allowed()) {
+      LOGGER.info(
+          "Password reset code skipped: email check failed, userId={}, reason={}, emailDomain={}",
+          user.get().id(),
+          emailCheck.reason(),
+          emailDomain(email));
+      return response;
+    }
+
+    String code = generateVerificationCode();
+    String codeHash = hashPasswordResetCode(username, email, code);
+    LOGGER.info(
+        "Password reset code accepted: userId={}, emailDomain={}, ttlSeconds={}, cooldownSeconds={}",
+        user.get().id(),
+        emailDomain(email),
+        codeTtlSeconds,
+        cooldownSeconds);
+    passwordResetCodeStore.save(
+        new PasswordResetCodeRecord(user.get().id(), username, email, codeHash, 0),
+        Duration.ofSeconds(codeTtlSeconds),
+        Duration.ofSeconds(cooldownSeconds));
+    try {
+      passwordResetMailService.sendResetCode(email, code, Math.max(1, codeTtlSeconds / 60));
+    } catch (ApiException exception) {
+      passwordResetCodeStore.delete(username);
+      throw exception;
+    }
+    return response;
+  }
+
+  @Transactional
+  public PasswordResetConfirmResponse confirmPasswordReset(PasswordResetConfirmRequest request) {
+    String username = normalizeUsername(request.username());
+    String email = normalizeEmail(request.email());
+    String code = normalizeResetCode(request.code());
+
+    if (!request.newPassword().equals(request.confirmPassword())) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "PASSWORD_CONFIRM_MISMATCH", "password confirmation does not match");
+    }
+
+    PasswordResetCodeRecord record = passwordResetCodeStore.find(username)
+        .orElseThrow(() -> new ApiException(
+            HttpStatus.BAD_REQUEST,
+            "PASSWORD_RESET_CODE_INVALID",
+            "verification code is invalid or expired"));
+    if (!record.email().equals(email)) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "PASSWORD_RESET_CODE_INVALID",
+          "verification code is invalid or expired");
+    }
+
+    int maxAttempts = Math.max(1, authProperties.getPasswordReset().getMaxAttempts());
+    if (!MessageDigest.isEqual(
+        record.codeHash().getBytes(StandardCharsets.UTF_8),
+        hashPasswordResetCode(username, email, code).getBytes(StandardCharsets.UTF_8))) {
+      PasswordResetCodeRecord failedRecord = new PasswordResetCodeRecord(
+          record.userId(),
+          record.username(),
+          record.email(),
+          record.codeHash(),
+          record.attempts() + 1);
+      if (failedRecord.attempts() >= maxAttempts) {
+        passwordResetCodeStore.delete(username);
+      } else {
+        passwordResetCodeStore.updateAttempts(failedRecord);
+      }
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "PASSWORD_RESET_CODE_INVALID",
+          "verification code is invalid or expired");
+    }
+
+    UserAccount user = authRepository.findUserById(record.userId())
+        .orElseThrow(() -> new ApiException(
+            HttpStatus.BAD_REQUEST,
+            "PASSWORD_RESET_CODE_INVALID",
+            "verification code is invalid or expired"));
+    if (!isActive(user) || !checkPasswordResetEmail(user, email).allowed()) {
+      passwordResetCodeStore.delete(username);
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "PASSWORD_RESET_CODE_INVALID",
+          "verification code is invalid or expired");
+    }
+
+    int updated = authRepository.updatePasswordAndBindEmailIfMissing(
+        user.id(),
+        passwordEncoder.encode(request.newPassword()),
+        email);
+    if (updated == 0) {
+      throw new ApiException(HttpStatus.CONFLICT, "PASSWORD_RESET_FAILED", "password reset failed");
+    }
+    passwordResetCodeStore.delete(username);
+    return new PasswordResetConfirmResponse("password reset successfully");
+  }
+
   private AuthUserResponse toAuthUser(UserAccount user, List<String> roles) {
     return new AuthUserResponse(
         Long.toString(user.id()),
@@ -306,6 +443,81 @@ public class AuthService {
     return token.trim();
   }
 
+  private String normalizeUsername(String username) {
+    return username == null ? "" : username.trim();
+  }
+
+  private String normalizeEmail(String email) {
+    return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+  }
+
+  private String normalizeResetCode(String code) {
+    String normalized = code == null ? "" : code.trim();
+    if (!normalized.matches("\\d{6}")) {
+      throw new ApiException(
+          HttpStatus.BAD_REQUEST,
+          "PASSWORD_RESET_CODE_INVALID",
+          "verification code is invalid or expired");
+    }
+    return normalized;
+  }
+
+  private boolean isActive(UserAccount user) {
+    return "active".equalsIgnoreCase(user.status());
+  }
+
+  private PasswordResetEmailCheck checkPasswordResetEmail(UserAccount user, String email) {
+    if (email == null || email.isBlank()) {
+      return new PasswordResetEmailCheck(false, "blank_email");
+    }
+    if (authRepository.emailBelongsToAnotherUser(email, user.id())) {
+      return new PasswordResetEmailCheck(false, "email_belongs_to_another_user");
+    }
+    String existingEmail = normalizeEmail(user.email());
+    if (existingEmail.isBlank()) {
+      return new PasswordResetEmailCheck(true, "missing_existing_email");
+    }
+    if (!existingEmail.equals(email)) {
+      return new PasswordResetEmailCheck(false, "email_mismatch");
+    }
+    return new PasswordResetEmailCheck(true, "email_match");
+  }
+
+  private String hashLogValue(String value) {
+    if (value == null || value.isBlank()) {
+      return "blank";
+    }
+    return hashToken(value).substring(0, 12);
+  }
+
+  private String emailDomain(String email) {
+    if (email == null || email.isBlank()) {
+      return "blank";
+    }
+    int atIndex = email.lastIndexOf('@');
+    if (atIndex < 0 || atIndex == email.length() - 1) {
+      return "invalid";
+    }
+    return email.substring(atIndex + 1);
+  }
+
+  private PasswordResetCodeResponse genericPasswordResetCodeResponse(
+      int codeTtlSeconds,
+      int cooldownSeconds) {
+    return new PasswordResetCodeResponse(
+        "if the account can be verified, a verification code will be sent",
+        codeTtlSeconds,
+        cooldownSeconds);
+  }
+
+  private String generateVerificationCode() {
+    return "%06d".formatted(SECURE_RANDOM.nextInt(RESET_CODE_BOUND));
+  }
+
+  private String hashPasswordResetCode(String username, String email, String code) {
+    return hashToken("%s:%s:%s".formatted(username, email, code));
+  }
+
   private String generateInviteToken() {
     byte[] bytes = new byte[32];
     SECURE_RANDOM.nextBytes(bytes);
@@ -329,4 +541,6 @@ public class AuthService {
   private ApiException unauthorized(String message) {
     return new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", message);
   }
+
+  private record PasswordResetEmailCheck(boolean allowed, String reason) {}
 }

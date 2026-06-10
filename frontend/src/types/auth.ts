@@ -16,6 +16,30 @@ export interface RegisterRequest {
   turnstileToken?: string;
 }
 
+export interface PasswordResetCodeRequest {
+  username: string;
+  email: string;
+  turnstileToken?: string;
+}
+
+export interface PasswordResetCodeResponse {
+  message: string;
+  expiresInSeconds: number;
+  resendCooldownSeconds: number;
+}
+
+export interface PasswordResetConfirmRequest {
+  username: string;
+  email: string;
+  code: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+export interface PasswordResetConfirmResponse {
+  message: string;
+}
+
 export interface AuthUser {
   id: string;
   username: string;

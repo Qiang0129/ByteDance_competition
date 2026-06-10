@@ -7,6 +7,10 @@ import type {
   LoginRequest,
   LoginResponse,
   OwnerInvitationValidationResponse,
+  PasswordResetCodeRequest,
+  PasswordResetCodeResponse,
+  PasswordResetConfirmRequest,
+  PasswordResetConfirmResponse,
   RegisterRequest,
   ReviewerInvitationValidationResponse,
 } from '../types/auth';
@@ -71,6 +75,22 @@ export const authApi = {
 
   register(payload: RegisterRequest): Promise<AuthUser> {
     return apiRequest<AuthUser>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      skipAuth: true,
+    });
+  },
+
+  sendPasswordResetCode(payload: PasswordResetCodeRequest): Promise<PasswordResetCodeResponse> {
+    return apiRequest<PasswordResetCodeResponse>('/auth/password-reset/code', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      skipAuth: true,
+    });
+  },
+
+  confirmPasswordReset(payload: PasswordResetConfirmRequest): Promise<PasswordResetConfirmResponse> {
+    return apiRequest<PasswordResetConfirmResponse>('/auth/password-reset/confirm', {
       method: 'POST',
       body: JSON.stringify(payload),
       skipAuth: true,

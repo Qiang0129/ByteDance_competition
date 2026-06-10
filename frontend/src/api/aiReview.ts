@@ -15,6 +15,7 @@ import type {
   ListAiReviewJobsQuery,
   ListAiReviewRulesQuery,
 } from '../types/aiReview';
+import { repairUtf8Mojibake } from '../utils/textEncoding';
 
 /**
  * AI 预审规则 / 作业 API。
@@ -40,40 +41,70 @@ function buildQuery(params: Record<string, unknown>): string {
   return qs ? `?${qs}` : '';
 }
 
+function normalizeRuleText(value: string | undefined) {
+  return value === undefined ? value : repairUtf8Mojibake(value);
+}
+
+function normalizeAiReviewRule(rule: AiReviewRule): AiReviewRule {
+  return {
+    ...rule,
+    name: normalizeRuleText(rule.name) ?? rule.name,
+    scopeTaskTitle: normalizeRuleText(rule.scopeTaskTitle),
+    promptTemplate: normalizeRuleText(rule.promptTemplate) ?? rule.promptTemplate,
+    createdBy: normalizeRuleText(rule.createdBy) ?? rule.createdBy,
+    dimensions: rule.dimensions.map((dimension) => ({
+      ...dimension,
+      label: normalizeRuleText(dimension.label) ?? dimension.label,
+    })),
+  };
+}
+
+function normalizeAiReviewRulePage(page: AiReviewPageResult<AiReviewRule>) {
+  return {
+    ...page,
+    items: page.items.map(normalizeAiReviewRule),
+  };
+}
+
 export const aiReviewApi = {
-  listRules(query: ListAiReviewRulesQuery = {}): Promise<AiReviewPageResult<AiReviewRule>> {
-    return apiRequest<AiReviewPageResult<AiReviewRule>>(
+  async listRules(query: ListAiReviewRulesQuery = {}): Promise<AiReviewPageResult<AiReviewRule>> {
+    const page = await apiRequest<AiReviewPageResult<AiReviewRule>>(
       `/ai-review/rules${buildQuery(query as Record<string, unknown>)}`,
     );
+    return normalizeAiReviewRulePage(page);
   },
 
-  getRule(ruleId: string): Promise<AiReviewRule> {
-    return apiRequest<AiReviewRule>(`/ai-review/rules/${ruleId}`);
+  async getRule(ruleId: string): Promise<AiReviewRule> {
+    const rule = await apiRequest<AiReviewRule>(`/ai-review/rules/${ruleId}`);
+    return normalizeAiReviewRule(rule);
   },
 
-  createRule(payload: AiReviewRuleRequest): Promise<AiReviewRule> {
-    return apiRequest<AiReviewRule>('/ai-review/rules', {
+  async createRule(payload: AiReviewRuleRequest): Promise<AiReviewRule> {
+    const rule = await apiRequest<AiReviewRule>('/ai-review/rules', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    return normalizeAiReviewRule(rule);
   },
 
-  updateRule(ruleId: string, payload: AiReviewRuleRequest): Promise<AiReviewRule> {
-    return apiRequest<AiReviewRule>(`/ai-review/rules/${ruleId}`, {
+  async updateRule(ruleId: string, payload: AiReviewRuleRequest): Promise<AiReviewRule> {
+    const rule = await apiRequest<AiReviewRule>(`/ai-review/rules/${ruleId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
+    return normalizeAiReviewRule(rule);
   },
 
   deleteRule(ruleId: string): Promise<void> {
     return apiRequest<void>(`/ai-review/rules/${ruleId}`, { method: 'DELETE' });
   },
 
-  toggleRule(ruleId: string, status: AiReviewRuleStatus): Promise<AiReviewRule> {
-    return apiRequest<AiReviewRule>(`/ai-review/rules/${ruleId}/toggle`, {
+  async toggleRule(ruleId: string, status: AiReviewRuleStatus): Promise<AiReviewRule> {
+    const rule = await apiRequest<AiReviewRule>(`/ai-review/rules/${ruleId}/toggle`, {
       method: 'POST',
       body: JSON.stringify({ status }),
     });
+    return normalizeAiReviewRule(rule);
   },
 
   listJobs(query: ListAiReviewJobsQuery = {}): Promise<AiReviewPageResult<AiReviewJob>> {

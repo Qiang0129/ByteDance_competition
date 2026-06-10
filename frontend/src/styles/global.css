@@ -486,6 +486,12 @@ html.lh-public-page body {
   font-weight: 800;
 }
 
+.landing-version-text {
+  display: inline-block;
+  min-width: 42px;
+  white-space: nowrap;
+}
+
 .landing-hero {
   position: relative;
   display: flex;
@@ -3111,6 +3117,42 @@ html.lh-public-page body {
   margin-left: 6px;
   color: var(--lh-primary);
   font-weight: 600;
+}
+
+.login-footer a:first-child {
+  margin-left: 0;
+}
+
+.login-footer-separator {
+  display: inline-block;
+  margin: 0 8px;
+  color: #b5bdca;
+}
+
+.login-reset-target {
+  display: grid;
+  gap: 3px;
+  margin: -8px 0 14px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(248, 251, 255, 0.62);
+  border: 1px solid rgba(209, 218, 232, 0.64);
+  text-align: center;
+  color: #475569;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.76) inset,
+    0 6px 16px rgba(15, 23, 42, 0.04);
+}
+
+.login-reset-target span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.login-reset-target small {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: #8a91a0;
 }
 
 /* 窄屏:左侧文字隐藏,只保留居中的登录卡 */

@@ -63,6 +63,7 @@ services:
     environment:
       JAVA_OPTS: ${LABELHUB_BACKEND_JAVA_OPTS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
       LABELHUB_BACKEND_PORT: 8080
+      SERVER_FORWARD_HEADERS_STRATEGY: ${SERVER_FORWARD_HEADERS_STRATEGY:-framework}
       LABELHUB_DB_URL: jdbc:mysql://mysql:3306/labelhub?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       LABELHUB_DB_USERNAME: ${LABELHUB_DB_USERNAME:-labelhub}
       LABELHUB_DB_PASSWORD: ${LABELHUB_DB_PASSWORD:?set LABELHUB_DB_PASSWORD}
@@ -75,6 +76,16 @@ services:
       LABELHUB_AUTH_TURNSTILE_SECRET_KEY: ${LABELHUB_AUTH_TURNSTILE_SECRET_KEY:?set LABELHUB_AUTH_TURNSTILE_SECRET_KEY}
       LABELHUB_AUTH_TURNSTILE_SITEVERIFY_URL: ${LABELHUB_AUTH_TURNSTILE_SITEVERIFY_URL:-https://challenges.cloudflare.com/turnstile/v0/siteverify}
       LABELHUB_AUTH_TURNSTILE_TIMEOUT_MS: ${LABELHUB_AUTH_TURNSTILE_TIMEOUT_MS:-5000}
+      LABELHUB_AUTH_PASSWORD_RESET_CODE_TTL_SECONDS: ${LABELHUB_AUTH_PASSWORD_RESET_CODE_TTL_SECONDS:-600}
+      LABELHUB_AUTH_PASSWORD_RESET_RESEND_COOLDOWN_SECONDS: ${LABELHUB_AUTH_PASSWORD_RESET_RESEND_COOLDOWN_SECONDS:-60}
+      LABELHUB_AUTH_PASSWORD_RESET_MAX_ATTEMPTS: ${LABELHUB_AUTH_PASSWORD_RESET_MAX_ATTEMPTS:-5}
+      LABELHUB_MAIL_HOST: ${LABELHUB_MAIL_HOST:-smtp.qq.com}
+      LABELHUB_MAIL_PORT: ${LABELHUB_MAIL_PORT:-465}
+      LABELHUB_MAIL_USERNAME: ${LABELHUB_MAIL_USERNAME:-}
+      LABELHUB_MAIL_PASSWORD: ${LABELHUB_MAIL_PASSWORD:-}
+      LABELHUB_MAIL_FROM: ${LABELHUB_MAIL_FROM:-}
+      LABELHUB_MAIL_SSL_ENABLED: ${LABELHUB_MAIL_SSL_ENABLED:-true}
+      LABELHUB_MAIL_STARTTLS_ENABLED: ${LABELHUB_MAIL_STARTTLS_ENABLED:-false}
       LABELHUB_AUTH_SERVICE_LOGIN_TOKEN: ${LABELHUB_AUTH_SERVICE_LOGIN_TOKEN:?set LABELHUB_AUTH_SERVICE_LOGIN_TOKEN}
       LABELHUB_DEMO_USERS_ENABLED: ${LABELHUB_DEMO_USERS_ENABLED:-false}
       LABELHUB_INITIAL_OWNER_ENABLED: ${LABELHUB_INITIAL_OWNER_ENABLED:-true}
@@ -135,7 +146,7 @@ services:
       - labelhub
 
   db-migrate:
-    image: ${LABELHUB_BACKEND_IMAGE:?set LABELHUB_BACKEND_IMAGE}
+    image: mysql:8.0
     profiles:
       - migrate
     depends_on:
@@ -144,26 +155,28 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${LABELHUB_MYSQL_ROOT_PASSWORD:?set LABELHUB_MYSQL_ROOT_PASSWORD}
       LABELHUB_DEMO_USERS_ENABLED: ${LABELHUB_DEMO_USERS_ENABLED:-false}
+    volumes:
+      - ./db/migration:/app/db/migration:ro
     entrypoint: ["sh", "-ec"]
     command:
       - |
         export MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}"
-        mysql -h mysql -uroot -e "CREATE DATABASE IF NOT EXISTS labelhub CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-        mysql -h mysql -uroot labelhub -e "CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(64) NOT NULL PRIMARY KEY, script VARCHAR(255) NOT NULL, executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
+        mysql --ssl-mode=DISABLED -h mysql -uroot -e "CREATE DATABASE IF NOT EXISTS labelhub CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        mysql --ssl-mode=DISABLED -h mysql -uroot labelhub -e "CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(64) NOT NULL PRIMARY KEY, script VARCHAR(255) NOT NULL, executed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
         for file in $$(ls /app/db/migration/V*.sql | sort -V); do
           script=$$(basename "$${file}")
           version="$${script%%__*}"
-          applied=$$(mysql -N -B -h mysql -uroot labelhub -e "SELECT COUNT(*) FROM schema_migrations WHERE version='$${version}';")
+          applied=$$(mysql --ssl-mode=DISABLED -N -B -h mysql -uroot labelhub -e "SELECT COUNT(*) FROM schema_migrations WHERE version='$${version}';")
           if [ "$${applied}" = "0" ]; then
             echo "Applying $${script}"
-            mysql -h mysql -uroot labelhub < "$${file}"
-            mysql -h mysql -uroot labelhub -e "INSERT INTO schema_migrations (version, script) VALUES ('$${version}', '$${script}');"
+            mysql --ssl-mode=DISABLED -h mysql -uroot labelhub < "$${file}"
+            mysql --ssl-mode=DISABLED -h mysql -uroot labelhub -e "INSERT INTO schema_migrations (version, script) VALUES ('$${version}', '$${script}');"
           else
             echo "Skipping $${script}"
           fi
         done
         if [ "$${LABELHUB_DEMO_USERS_ENABLED}" = "false" ]; then
-          mysql -h mysql -uroot labelhub -e "UPDATE users SET status='disabled', updated_at=CURRENT_TIMESTAMP WHERE username IN ('owner','labeler','reviewer','demo');"
+          mysql --ssl-mode=DISABLED -h mysql -uroot labelhub -e "UPDATE users SET status='disabled', updated_at=CURRENT_TIMESTAMP WHERE username IN ('owner','labeler','reviewer','demo');"
         fi
     networks:
       - labelhub

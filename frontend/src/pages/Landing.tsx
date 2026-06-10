@@ -18,6 +18,8 @@ import {
   DownloadOutlined,
   FileTextOutlined,
   FileWordOutlined,
+  FolderOpenOutlined,
+  FolderOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
   GithubOutlined,
@@ -35,13 +37,13 @@ import JSZip from 'jszip';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
+import { buildPublicUrl } from '../api/client';
 import deliveryGuideSource from '../../../submission/演示说明.md?raw';
 import readmeSource from '../../../submission/README.md?raw';
 import aboutSource from '../../../关于.md?raw';
 import implementationPlanDocxUrl from '../../../submission/相关文档/项目实施计划书.docx?url';
 import basicTechDocxUrl from '../../../submission/相关文档/基础技术文档.docx?url';
 import architectureDiagramUrl from '../../../submission/相关文档/系统架构图.png?url';
-import demoScreenshotUrl from '../../../submission/相关文档/Demo截图/数据集页面.png?url';
 import docsCenterPreviewUrl from '../../images/文档中心.png';
 import imageIconUrl from '../../images/图片.svg';
 import loginIconUrl from '../../images/登陆账号.svg';
@@ -50,9 +52,8 @@ import textIconUrl from '../../images/文本.svg';
 import videoIconUrl from '../../images/视频.svg';
 import '../styles/landing-docs.css';
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION ?? '0.1.6';
+const APP_VERSION = import.meta.env.VITE_APP_VERSION?.trim() || '0.1.0';
 const DEMO_VIDEO_URL = import.meta.env.VITE_DEMO_VIDEO_URL as string | undefined;
-const LOGIN_BASE_URL = 'http://localhost:5173';
 const LOGIN_ENDPOINTS = ['/login', '/login#signup'] as const;
 const LOGIN_ENDPOINT_CYCLE = [...LOGIN_ENDPOINTS, LOGIN_ENDPOINTS[0]];
 const ENDPOINT_SWITCH_INTERVAL = 4000;
@@ -94,6 +95,7 @@ type DocsResource = {
   downloadName?: string;
   meta?: string;
   groupLabel?: string;
+  directorySegments?: string[];
 };
 
 type DocsCategory = {
@@ -106,11 +108,14 @@ type DocsCategory = {
 
 type DocsResourceListItem =
   | { type: 'group'; id: string; label: string }
+  | { type: 'folder'; id: string; label: string; path: string[]; count: number }
   | { type: 'resource'; resource: DocsResource };
 
 type DocsDownloadableResource = DocsResource & {
   downloadPathSegments: string[];
 };
+
+type DemoScreenshotModule = string;
 
 type DocsPreviewStatus = 'idle' | 'loading' | 'success' | 'error';
 type DocsPreviewStage = 'prepare' | 'fetch' | 'parse' | 'render' | 'layout' | 'done';
@@ -380,7 +385,25 @@ const ABOUT_DOCUMENT_HEADINGS = createAboutDocumentHeadings(aboutSource);
 const ABOUT_DOCUMENT_TOC_GROUPS = createAboutDocumentTocGroups(ABOUT_DOCUMENT_HEADINGS);
 const ABOUT_DOCUMENT_PARENT_HEADING_ID_BY_ID =
   createAboutDocumentParentHeadingIdMap(ABOUT_DOCUMENT_TOC_GROUPS);
-const SWAGGER_URL = 'http://127.0.0.1:8080/swagger-ui/index.html';
+const SWAGGER_URL = buildPublicUrl('/swagger-ui/index.html');
+const SWAGGER_META = `${import.meta.env.BASE_URL.replace(/\/$/, '') || ''}/swagger-ui`;
+const demoScreenshotModules = import.meta.glob<DemoScreenshotModule>(
+  '../../../submission/相关文档/Demo截图/**/*.png',
+  {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  },
+);
+const DEMO_SCREENSHOT_ROOT = '../../../submission/相关文档/Demo截图/';
+const DEMO_SCREENSHOT_GROUP_LABEL = 'Demo 截图';
+const DEMO_SCREENSHOT_SEGMENT_LABELS: Record<string, string> = {
+  public: '公共页面',
+  owner: '负责人端',
+  labeler: '标注员端',
+  reviewer: '审核员端',
+  agent: 'AI Agent',
+};
 
 const docsCategories: DocsCategory[] = [
   {
@@ -417,6 +440,8 @@ const docsCategories: DocsCategory[] = [
     action: 'group',
   },
 ];
+
+const demoScreenshotResources = createDemoScreenshotResources(demoScreenshotModules);
 
 const docsResources: DocsResource[] = [
   {
@@ -521,19 +546,7 @@ const docsResources: DocsResource[] = [
     downloadName: '系统架构图.png',
     meta: 'submission/相关文档',
   },
-  {
-    id: 'demo-screenshot-dataset',
-    category: 'related',
-    title: '数据集页面.png',
-    description: 'Demo 截图中的数据集页面预览图。',
-    kind: 'image',
-    status: 'available',
-    badge: 'PNG',
-    fileUrl: demoScreenshotUrl,
-    downloadName: '数据集页面.png',
-    meta: 'submission/相关文档/Demo截图',
-    groupLabel: 'Demo 截图',
-  },
+  ...demoScreenshotResources,
   {
     id: 'key-tech-points',
     category: 'related',
@@ -580,7 +593,7 @@ const docsResources: DocsResource[] = [
     status: 'external',
     badge: 'HTTP',
     externalUrl: SWAGGER_URL,
-    meta: '127.0.0.1:8080',
+    meta: SWAGGER_META,
   },
 ];
 
@@ -592,11 +605,100 @@ function getDocsCategoryResourceCount(category: DocsCategory) {
   return docsResources.filter((resource) => resource.category === category.key).length;
 }
 
-function createDocsResourceListItems(resources: DocsResource[]): DocsResourceListItem[] {
+function createDemoScreenshotResources(modules: Record<string, DemoScreenshotModule>): DocsResource[] {
+  return Object.entries(modules)
+    .map(([modulePath, fileUrl]) => {
+      const relativePath = modulePath.replace(DEMO_SCREENSHOT_ROOT, '');
+      const rawSegments = relativePath.split('/').filter(Boolean);
+      const filename = rawSegments[rawSegments.length - 1] ?? relativePath;
+      const directorySegments = rawSegments.slice(0, -1).map(formatDemoScreenshotSegment);
+      const title = filename || 'Demo 截图.png';
+      const id = `demo-screenshot-${createHeadingBaseId([...directorySegments, title].join('-'))}`;
+
+      return {
+        id,
+        category: 'related' as DocsCategoryKey,
+        title,
+        description: `${[...directorySegments, title].join(' / ')} 预览图。`,
+        kind: 'image' as DocsResourceKind,
+        status: 'available' as const,
+        badge: 'PNG',
+        fileUrl,
+        downloadName: title,
+        meta: ['submission/相关文档/Demo截图', ...directorySegments].join('/'),
+        groupLabel: DEMO_SCREENSHOT_GROUP_LABEL,
+        directorySegments,
+      };
+    })
+    .sort((left, right) => {
+      const leftPath = [...(left.directorySegments ?? []), left.title].join('/');
+      const rightPath = [...(right.directorySegments ?? []), right.title].join('/');
+      return leftPath.localeCompare(rightPath, 'zh-CN');
+    });
+}
+
+function formatDemoScreenshotSegment(segment: string) {
+  return DEMO_SCREENSHOT_SEGMENT_LABELS[segment] ?? segment;
+}
+
+function isSameDocsPath(left: string[], right: string[]) {
+  return left.length === right.length && left.every((segment, index) => segment === right[index]);
+}
+
+function isDemoScreenshotResource(resource: DocsResource) {
+  return resource.groupLabel === DEMO_SCREENSHOT_GROUP_LABEL && resource.directorySegments !== undefined;
+}
+
+function createDocsResourceListItems(resources: DocsResource[], currentPath: string[] = []): DocsResourceListItem[] {
   const items: DocsResourceListItem[] = [];
   let currentGroupLabel: string | undefined;
+  const folderByKey = new Map<string, { label: string; path: string[]; count: number }>();
+  const demoRootCount = resources.filter(isDemoScreenshotResource).length;
+  let demoRootFolderAdded = false;
 
   resources.forEach((resource) => {
+    if (isDemoScreenshotResource(resource)) {
+      const directorySegments = resource.directorySegments ?? [];
+      if (currentPath[0] === DEMO_SCREENSHOT_GROUP_LABEL) {
+        const relativePath = currentPath.slice(1);
+        if (!isSameDocsPath(directorySegments.slice(0, relativePath.length), relativePath)) {
+          return;
+        }
+        if (directorySegments.length > relativePath.length) {
+          const label = directorySegments[relativePath.length];
+          const folderPath = [DEMO_SCREENSHOT_GROUP_LABEL, ...relativePath, label];
+          const key = folderPath.join('/');
+          const existingFolder = folderByKey.get(key);
+          folderByKey.set(key, {
+            label,
+            path: folderPath,
+            count: (existingFolder?.count ?? 0) + 1,
+          });
+          return;
+        }
+        items.push({ type: 'resource', resource });
+        return;
+      }
+
+      if (currentPath.length === 0) {
+        if (!demoRootFolderAdded) {
+          demoRootFolderAdded = true;
+          items.push({
+            type: 'folder',
+            id: 'folder-demo-screenshots',
+            label: DEMO_SCREENSHOT_GROUP_LABEL,
+            path: [DEMO_SCREENSHOT_GROUP_LABEL],
+            count: demoRootCount,
+          });
+        }
+      }
+      return;
+    }
+
+    if (currentPath.length > 0) {
+      return;
+    }
+
     if (resource.groupLabel && resource.groupLabel !== currentGroupLabel) {
       currentGroupLabel = resource.groupLabel;
       items.push({
@@ -613,11 +715,28 @@ function createDocsResourceListItems(resources: DocsResource[]): DocsResourceLis
     items.push({ type: 'resource', resource });
   });
 
+  if (folderByKey.size > 0) {
+    Array.from(folderByKey.values())
+      .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'))
+      .forEach((folder) => {
+        items.push({
+          type: 'folder',
+          id: `folder-${createHeadingBaseId(folder.path.join('-'))}`,
+          label: folder.label,
+          path: folder.path,
+          count: folder.count,
+        });
+      });
+  }
+
   return items;
 }
 
 function getDocsResourceNavigationSegments(resource: DocsResource) {
   const categoryLabel = getDocsCategoryLabel(resource.category);
+  if (isDemoScreenshotResource(resource)) {
+    return [categoryLabel, DEMO_SCREENSHOT_GROUP_LABEL, ...(resource.directorySegments ?? [])];
+  }
   if (resource.category === 'related' && resource.groupLabel) {
     return [categoryLabel, resource.groupLabel];
   }
@@ -887,7 +1006,7 @@ function PublicHeader({ activeKey }: { activeKey: PublicNavKey }) {
 
         <div className="landing-version-pill" aria-label={`当前版本 ${APP_VERSION}`}>
           <span className="landing-version-dot">L</span>
-          <span>v{APP_VERSION}</span>
+          <span className="landing-version-text">v{APP_VERSION}</span>
         </div>
       </header>
       {navTransition ? (
@@ -959,7 +1078,8 @@ export default function Landing() {
   const [isEndpointResetting, setIsEndpointResetting] = useState(false);
   const [routeTransition, setRouteTransition] = useState<LandingRouteTransition | null>(null);
   const currentEndpoint = LOGIN_ENDPOINTS[endpointStep % LOGIN_ENDPOINTS.length];
-  const currentLoginUrl = `${LOGIN_BASE_URL}${currentEndpoint}`;
+  const currentLoginUrl = buildPublicUrl(currentEndpoint);
+  const landingBaseUrl = currentLoginUrl.slice(0, -currentEndpoint.length);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -1050,7 +1170,7 @@ export default function Landing() {
           </p>
 
           <div className="landing-url-pill" role="group" aria-label="登录访问地址">
-            <span className="landing-url-text">{LOGIN_BASE_URL}</span>
+            <span className="landing-url-text">{landingBaseUrl}</span>
             <span
               className="landing-url-endpoint"
               aria-live="polite"
@@ -1183,6 +1303,7 @@ export function DocsPlaceholder() {
   const docsMarkdownScrollSequenceRef = useRef(0);
   const [activeCategory, setActiveCategory] = useState<DocsCategoryKey>('readme');
   const [activeResourceId, setActiveResourceId] = useState(docsResources[0]?.id ?? '');
+  const [docsResourcePath, setDocsResourcePath] = useState<string[]>([]);
   const [docsPanelMode, setDocsPanelMode] = useState<DocsPanelMode>('categories');
   const [docsPanelTransition, setDocsPanelTransition] = useState<DocsPanelTransition>('forward');
   const [activeMarkdownHeadingIdByResourceId, setActiveMarkdownHeadingIdByResourceId] = useState<Record<string, string>>({});
@@ -1196,8 +1317,14 @@ export function DocsPlaceholder() {
   const [docsPreviewStates, setDocsPreviewStates] = useState<Record<string, DocsPreviewState>>({});
   const activeResource = docsResources.find((resource) => resource.id === activeResourceId) ?? docsResources[0];
   const visibleResources = docsResources.filter((resource) => resource.category === activeCategory);
-  const visibleResourceListItems = useMemo(() => createDocsResourceListItems(visibleResources), [visibleResources]);
+  const visibleResourceListItems = useMemo(
+    () => createDocsResourceListItems(visibleResources, docsResourcePath),
+    [docsResourcePath, visibleResources],
+  );
   const activeCategoryMeta = docsCategories.find((category) => category.key === activeCategory) ?? docsCategories[0];
+  const activeResourcePathLabel = docsResourcePath.length > 0
+    ? [activeCategoryMeta.label, ...docsResourcePath].join(' / ')
+    : activeCategoryMeta.label;
   const downloadableResources = useMemo(() => docsResources.filter(isDownloadableDocsResource), []);
   const currentCategoryDownloadableResources = useMemo(
     () => docsResources.filter((resource) => resource.category === activeCategory && isDownloadableDocsResource(resource)),
@@ -1606,13 +1733,25 @@ export function DocsPlaceholder() {
     if (firstResource) {
       setActiveResourceId(firstResource.id);
     }
+    setDocsResourcePath([]);
     setDocsPanelTransition('forward');
     setDocsPanelMode(category?.action === 'resource' ? 'categories' : 'resources');
   };
 
   const backToCategories = () => {
+    if (docsResourcePath.length > 0) {
+      setDocsResourcePath((path) => path.slice(0, -1));
+      setDocsPanelTransition('back');
+      return;
+    }
+
     setDocsPanelTransition('back');
     setDocsPanelMode('categories');
+  };
+
+  const enterDocsFolder = (path: string[]) => {
+    setDocsResourcePath(path);
+    setDocsPanelTransition('forward');
   };
 
   const backToDocsResources = () => {
@@ -1916,7 +2055,7 @@ export function DocsPlaceholder() {
               </a>
               <a
                 className="landing-docs-hero-action"
-                href="http://127.0.0.1:8080/swagger-ui/index.html"
+                href={SWAGGER_URL}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -1996,13 +2135,13 @@ export function DocsPlaceholder() {
                   <div className="landing-docs-resource-panel-head">
                     <button type="button" className="landing-docs-back-button" onClick={backToCategories}>
                       <ArrowLeftOutlined />
-                      返回
+                      {docsResourcePath.length > 0 ? '上级' : '返回'}
                     </button>
                     <div>
-                      <span>{activeCategoryMeta.label}</span>
+                      <span>{activeResourcePathLabel}</span>
                       <small>{activeCategoryMeta.description}</small>
                     </div>
-                    <strong>{visibleResources.length}</strong>
+                    <strong>{visibleResourceListItems.length}</strong>
                   </div>
                   <div className="landing-docs-resource-list landing-docs-resource-list-in-sidebar">
                     {visibleResourceListItems.map((item) => {
@@ -2011,6 +2150,25 @@ export function DocsPlaceholder() {
                           <div key={item.id} className="landing-docs-resource-group-title">
                             {item.label}
                           </div>
+                        );
+                      }
+
+                      if (item.type === 'folder') {
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="landing-docs-resource landing-docs-folder"
+                            onClick={() => enterDocsFolder(item.path)}
+                          >
+                            <span className="landing-docs-resource-icon" aria-hidden="true">
+                              {docsResourcePath.length === 0 ? <FolderOutlined /> : <FolderOpenOutlined />}
+                            </span>
+                            <span className="landing-docs-resource-text">
+                              <strong>{item.label}</strong>
+                              <span className="landing-docs-resource-badge">{item.count} 项</span>
+                            </span>
+                          </button>
                         );
                       }
 

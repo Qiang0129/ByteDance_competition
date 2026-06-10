@@ -47,6 +47,15 @@ sudo chown "$USER:$USER" /opt/labelhub
 cd /opt/labelhub
 ```
 
+确保部署目录内包含仓库中的 `infra/docker-compose.yml`、`infra/nginx.conf`、`infra/.env`，以及数据库迁移目录 `infra/db/migration/V*.sql`。如果从仓库根目录复制，可以执行：
+
+```bash
+mkdir -p /opt/labelhub/infra/db
+cp infra/docker-compose.yml /opt/labelhub/infra/
+cp infra/nginx.conf /opt/labelhub/infra/
+cp -a backend/src/main/resources/db/migration /opt/labelhub/infra/db/
+```
+
 3. 复制 `infra/env.example` 为 `infra/.env`，填写真实密码、Docker Hub 镜像、Turnstile、LLM 和初始 Owner：
 
 ```bash
@@ -78,7 +87,7 @@ docker compose --env-file .env --profile migrate run --rm db-migrate
 docker compose --env-file .env up -d backend agent frontend
 ```
 
-`db-migrate` 使用 backend 镜像内置的 `/app/db/migration/V*.sql`，显式选择 `labelhub` 数据库，并按版本号顺序执行尚未记录的迁移。迁移容器会创建 `schema_migrations` 运维表，记录已执行版本，避免后续升级时重复运行旧 SQL。当 `LABELHUB_DEMO_USERS_ENABLED=false` 时，迁移结束后会禁用 `owner`、`labeler`、`reviewer`、`demo` 演示账号，后端首次启动会创建正式 Owner，并独立 upsert `system_agent` 机器账号。
+`db-migrate` 使用官方 `mysql:8.0` 客户端镜像，并从部署目录挂载 `/opt/labelhub/infra/db/migration/V*.sql`。迁移会显式选择 `labelhub` 数据库，并按版本号顺序执行尚未记录的迁移。迁移容器会创建 `schema_migrations` 运维表，记录已执行版本，避免后续升级时重复运行旧 SQL。当 `LABELHUB_DEMO_USERS_ENABLED=false` 时，迁移结束后会禁用 `owner`、`labeler`、`reviewer`、`demo` 演示账号，后端首次启动会创建正式 Owner，并独立 upsert `system_agent` 机器账号。
 
 后续普通重启只需要：
 

@@ -40,6 +40,19 @@ public class AuthController {
     return authService.register(request, resolveClientIp(servletRequest));
   }
 
+  @PostMapping("/password-reset/code")
+  public PasswordResetCodeResponse sendPasswordResetCode(
+      @Valid @RequestBody PasswordResetCodeRequest request,
+      HttpServletRequest servletRequest) {
+    return authService.sendPasswordResetCode(request, resolveClientIp(servletRequest));
+  }
+
+  @PostMapping("/password-reset/confirm")
+  public PasswordResetConfirmResponse confirmPasswordReset(
+      @Valid @RequestBody PasswordResetConfirmRequest request) {
+    return authService.confirmPasswordReset(request);
+  }
+
   @PostMapping("/reviewer-invitations")
   public CreateReviewerInvitationResponse createReviewerInvitation(Authentication authentication) {
     return authService.createReviewerInvitation(authentication);

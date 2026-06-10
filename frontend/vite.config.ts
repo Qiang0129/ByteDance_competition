@@ -14,12 +14,13 @@ const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const appBasePath = env.VITE_APP_BASE_PATH ?? '/';
+  const appVersion = env.VITE_APP_VERSION?.trim() || pkg.version;
   return {
     plugins: [react()],
     base: appBasePath,
     define: {
       // 优先使用 .env 中显式指定的版本,缺省回落到 package.json
-      'import.meta.env.VITE_APP_VERSION': JSON.stringify(env.VITE_APP_VERSION ?? pkg.version),
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     },
     server: {
       host: '0.0.0.0',

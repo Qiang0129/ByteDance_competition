@@ -24,17 +24,8 @@ public class OwnerReviewRepository {
           context_assignment.id AS assignment_id,
           context_annotation.id AS annotation_id,
           context_assignment.item_id AS item_id,
-          CASE
-            WHEN context_assignment.id IS NULL THEN NULL
-            ELSE (
-              SELECT COUNT(*)
-              FROM assignments ranked
-              WHERE ranked.task_id = context_assignment.task_id
-                AND ranked.labeler_id = context_assignment.labeler_id
-                AND ranked.status <> 'voided'
-                AND ranked.id <= context_assignment.id
-            )
-          END AS item_index,
+        """ + taskItemIndexExpression("context_assignment") + """
+          AS item_index,
           labeler.name AS labeler_name,
           COALESCE(operator_user.name, 'system') AS operator_name,
           COALESCE(al.operator_role, 'system_agent') AS operator_role,
@@ -506,14 +497,8 @@ public class OwnerReviewRepository {
           SELECT
             an.id AS annotation_id,
             a.item_id,
-            (
-              SELECT COUNT(*)
-              FROM assignments ranked
-              WHERE ranked.task_id = a.task_id
-                AND ranked.labeler_id = a.labeler_id
-                AND ranked.status <> 'voided'
-                AND ranked.id <= a.id
-            ) AS item_index,
+        """ + taskItemIndexExpression("a") + """
+            AS item_index,
             labeler.name AS labeler_name,
             COALESCE(an.submitted_at, an.created_at) AS submitted_at,
             an.status AS annotation_status,
@@ -576,7 +561,7 @@ public class OwnerReviewRepository {
         ) annotation_rows
         WHERE 1 = 1
         """ + statusFilter + """
-        ORDER BY annotation_rows.item_index ASC, annotation_rows.annotation_id ASC
+        ORDER BY annotation_rows.item_index ASC, annotation_rows.labeler_name ASC, annotation_rows.annotation_id ASC
         LIMIT ? OFFSET ?
         """,
         this::mapAnnotation,
@@ -725,6 +710,40 @@ public class OwnerReviewRepository {
       case "disputed" -> "AND LOWER(COALESCE(annotation_rows.human_decision, '')) = 'escalate'";
       default -> "";
     };
+  }
+
+  /**
+   * Owner 侧题号必须表达任务内全局条目顺序,不能使用标注员领取后的本地作业序号。
+   * 新任务以 task_items.position_no 为准;历史任务缺少 task_items 时按任务内 item_id 稳定回退。
+   */
+  private static String taskItemIndexExpression(String assignmentAlias) {
+    return """
+            CASE
+              WHEN %1$s.id IS NULL THEN NULL
+              ELSE COALESCE(
+                (
+                  SELECT ti.position_no
+                  FROM task_items ti
+                  WHERE ti.task_id = %1$s.task_id
+                    AND ti.item_id = %1$s.item_id
+                  LIMIT 1
+                ),
+                NULLIF((
+                  SELECT COUNT(*)
+                  FROM items ranked_item
+                  WHERE ranked_item.task_id = %1$s.task_id
+                    AND ranked_item.id <= %1$s.item_id
+                ), 0),
+                (
+                  SELECT COUNT(DISTINCT ranked.item_id)
+                  FROM assignments ranked
+                  WHERE ranked.task_id = %1$s.task_id
+                    AND ranked.status <> 'voided'
+                    AND ranked.item_id <= %1$s.item_id
+                )
+              )
+            END
+        """.formatted(assignmentAlias);
   }
 
   private TaskRecord mapTask(ResultSet rs, int rowNum) throws SQLException {

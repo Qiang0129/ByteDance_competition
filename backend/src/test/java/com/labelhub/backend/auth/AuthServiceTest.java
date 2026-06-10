@@ -38,6 +38,12 @@ class AuthServiceTest {
   @Mock
   private TurnstileVerificationService turnstileVerificationService;
 
+  @Mock
+  private PasswordResetCodeStore passwordResetCodeStore;
+
+  @Mock
+  private PasswordResetMailService passwordResetMailService;
+
   private AuthProperties authProperties;
   private AuthService authService;
 
@@ -50,7 +56,9 @@ class AuthServiceTest {
         authRepository,
         passwordEncoder,
         tokenService,
-        turnstileVerificationService);
+        turnstileVerificationService,
+        passwordResetCodeStore,
+        passwordResetMailService);
   }
 
   @Test
@@ -178,6 +186,53 @@ class AuthServiceTest {
   }
 
   @Test
+  void passwordResetCodeCanBeSentForActiveUserWithoutEmail() {
+    UserAccount user = new UserAccount(7L, "reviewer1", "Reviewer", null, "hash", "active");
+    when(authRepository.findUserByUsername("reviewer1")).thenReturn(Optional.of(user));
+    when(authRepository.emailBelongsToAnotherUser("reviewer1@example.com", 7L)).thenReturn(false);
+    when(passwordResetCodeStore.isInCooldown("reviewer1")).thenReturn(false);
+
+    PasswordResetCodeResponse response = authService.sendPasswordResetCode(
+        new PasswordResetCodeRequest("reviewer1", "Reviewer1@Example.com", "cf-token"),
+        "127.0.0.1");
+
+    assertThat(response.expiresInSeconds()).isEqualTo(600);
+    verify(turnstileVerificationService).verify("cf-token", "127.0.0.1");
+    verify(passwordResetCodeStore).save(any(PasswordResetCodeRecord.class), any(), any());
+    verify(passwordResetMailService).sendResetCode(eq("reviewer1@example.com"), anyString(), eq(10));
+  }
+
+  @Test
+  void passwordResetConfirmUpdatesPasswordAndBindsMissingEmail() {
+    UserAccount user = new UserAccount(7L, "reviewer1", "Reviewer", null, "hash", "active");
+    PasswordResetCodeRecord record = new PasswordResetCodeRecord(
+        7L,
+        "reviewer1",
+        "reviewer1@example.com",
+        hashPasswordResetCodeForTest("reviewer1", "reviewer1@example.com", "123456"),
+        0);
+
+    when(passwordResetCodeStore.find("reviewer1")).thenReturn(Optional.of(record));
+    when(authRepository.findUserById(7L)).thenReturn(Optional.of(user));
+    when(authRepository.emailBelongsToAnotherUser("reviewer1@example.com", 7L)).thenReturn(false);
+    when(passwordEncoder.encode("newpass123")).thenReturn("encoded-password");
+    when(authRepository.updatePasswordAndBindEmailIfMissing(7L, "encoded-password", "reviewer1@example.com"))
+        .thenReturn(1);
+
+    PasswordResetConfirmResponse response = authService.confirmPasswordReset(
+        new PasswordResetConfirmRequest(
+            "reviewer1",
+            "reviewer1@example.com",
+            "123456",
+            "newpass123",
+            "newpass123"));
+
+    assertThat(response.message()).isEqualTo("password reset successfully");
+    verify(authRepository).updatePasswordAndBindEmailIfMissing(7L, "encoded-password", "reviewer1@example.com");
+    verify(passwordResetCodeStore).delete("reviewer1");
+  }
+
+  @Test
   void nonOwnerCannotCreateOwnerInvitation() {
     assertThatThrownBy(() -> authService.createOwnerInvitation(labelerAuthentication()))
         .isInstanceOf(ApiException.class)
@@ -208,5 +263,16 @@ class AuthServiceTest {
     return new UsernamePasswordAuthenticationToken(
         new AuthenticatedUser(7L, "demo", "Demo User", roles, List.of()),
         null);
+  }
+
+  private String hashPasswordResetCodeForTest(String username, String email, String code) {
+    try {
+      java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+      byte[] hash = digest.digest("%s:%s:%s".formatted(username, email, code)
+          .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      return java.util.HexFormat.of().formatHex(hash);
+    } catch (java.security.NoSuchAlgorithmException error) {
+      throw new IllegalStateException(error);
+    }
   }
 }

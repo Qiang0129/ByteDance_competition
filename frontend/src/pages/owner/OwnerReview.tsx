@@ -1540,9 +1540,24 @@ function TaskDetailDrawer({
     setMobileVisibleAnnotationCount(MOBILE_REVIEW_DETAIL_PAGE_SIZE);
   }, [task?.taskId]);
 
+  const compareAnnotationByTaskItem = useCallback(
+    (a: OwnerReviewAnnotation, b: OwnerReviewAnnotation) => {
+      const itemIndexDiff = (a.itemIndex || 0) - (b.itemIndex || 0);
+      if (itemIndexDiff !== 0) {
+        return itemIndexDiff;
+      }
+      const labelerDiff = (a.labelerName || '').localeCompare(b.labelerName || '');
+      if (labelerDiff !== 0) {
+        return labelerDiff;
+      }
+      return Number(a.annotationId) - Number(b.annotationId);
+    },
+    [],
+  );
+
   const sortedAnnotations = useMemo(
-    () => [...annotations].sort((a, b) => (a.itemIndex || 0) - (b.itemIndex || 0)),
-    [annotations],
+    () => [...annotations].sort(compareAnnotationByTaskItem),
+    [annotations, compareAnnotationByTaskItem],
   );
   const mobileAnnotations = sortedAnnotations.slice(0, mobileVisibleAnnotationCount);
   const hasMoreMobileAnnotations = mobileVisibleAnnotationCount < sortedAnnotations.length;
@@ -1554,7 +1569,7 @@ function TaskDetailDrawer({
       dataIndex: 'itemIndex',
       width: 130,
       defaultSortOrder: 'ascend',
-      sorter: (a, b) => (a.itemIndex || 0) - (b.itemIndex || 0),
+      sorter: compareAnnotationByTaskItem,
       render: (value: number | undefined, row) => {
         const text = row.annotationId;
         const itemIndex = Number(value);
@@ -1707,7 +1722,7 @@ function TaskDetailDrawer({
               className="owner-review-annotation-table"
               rowKey="annotationId"
               columns={columns}
-              dataSource={annotations}
+              dataSource={sortedAnnotations}
               loading={loading}
               size="small"
               locale={{ emptyText: <Empty description="暂无条目" /> }}

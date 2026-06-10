@@ -82,7 +82,7 @@ export interface OwnerReviewTaskRow {
 export interface OwnerReviewAnnotation {
   annotationId: string;
   itemId: string;
-  /** 当前标注员在该任务有效作业中的 1-based 题序,与 Reviewer 工作台 itemIndex 口径一致 */
+  /** 该条目在当前任务范围内的 1-based 全局题序,优先对应 task_items.position_no */
   itemIndex: number;
   labelerName: string;
   submittedAt: string;

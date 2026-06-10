@@ -159,6 +159,35 @@ public class AuthRepository {
     return count != null && count > 0;
   }
 
+  public boolean emailBelongsToAnotherUser(String email, long userId) {
+    Integer count = jdbcTemplate.queryForObject(
+        """
+        SELECT COUNT(*)
+        FROM users
+        WHERE email = ?
+          AND id <> ?
+          AND deleted_at IS NULL
+        """,
+        Integer.class,
+        email,
+        userId);
+    return count != null && count > 0;
+  }
+
+  public int updatePasswordAndBindEmailIfMissing(long userId, String passwordHash, String email) {
+    return jdbcTemplate.update(
+        """
+        UPDATE users
+        SET password_hash = ?,
+            email = COALESCE(NULLIF(email, ''), ?),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND deleted_at IS NULL AND status = 'active'
+        """,
+        passwordHash,
+        email,
+        userId);
+  }
+
   public boolean existsActiveUserByRoleCode(String roleCode) {
     Integer count = jdbcTemplate.queryForObject(
         """

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   KeyOutlined,
-  TeamOutlined,
+  MailOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { App, Button, Form, Input } from 'antd';
@@ -13,31 +13,26 @@ import TurnstileWidget, { type TurnstileWidgetHandle } from '../components/Turns
 import type { LoginRequest, RegisterRequest } from '../types/auth';
 import { resolveLandingPath } from '../utils/authNavigation';
 
-type AuthMode = 'login' | 'signup';
-type DemoLoginSource = 'owner' | 'labeler' | 'reviewer' | 'ai_reviewer' | 'allRoles';
-type LoginSource = 'manual' | DemoLoginSource;
+type AuthMode = 'login' | 'signup' | 'forgot';
+type LandingAuthMode = Exclude<AuthMode, 'forgot'>;
+type PasswordResetStep = 'request' | 'confirm';
 
 type LoginFormValues = Pick<LoginRequest, 'username' | 'password'>;
 type SignupFormValues = Pick<RegisterRequest, 'username' | 'password'>;
+type PasswordResetFormValues = {
+  username: string;
+  email: string;
+  code: string;
+  newPassword: string;
+  confirmPassword: string;
+};
 type LandingAuthTransitionState = {
   fromLandingAuthTransition?: boolean;
-  authTransitionKind?: AuthMode;
+  authTransitionKind?: LandingAuthMode;
 };
 
-const demoAccounts: Array<{
-  source: DemoLoginSource;
-  label: string;
-  username: string;
-  password: string;
-}> = [
-  { source: 'allRoles', label: '全部角色', username: 'demo', password: 'demo123' },
-  { source: 'owner', label: '任务方', username: 'owner', password: 'owner123' },
-  { source: 'labeler', label: '标注员', username: 'labeler', password: 'labeler123' },
-  { source: 'reviewer', label: '人工审核员', username: 'reviewer', password: 'reviewer123' },
-  { source: 'ai_reviewer', label: 'AI 审核员', username: 'ai_reviewer', password: 'ai_reviewer123' },
-];
-
 const SIGNUP_HASH = '#signup';
+const FORGOT_HASH = '#forgot';
 const LOGIN_HASH = '#login';
 const LOGIN_ENTRY_ANIMATION_MS = 560;
 const REVIEWER_INVITE_QUERY_KEY = 'reviewerInvite';
@@ -47,14 +42,20 @@ const TURNSTILE_SITE_KEY =
   import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || DEFAULT_TURNSTILE_SITE_KEY;
 
 function resolveModeFromHash(hash: string): AuthMode {
-  return hash === SIGNUP_HASH ? 'signup' : 'login';
+  if (hash === SIGNUP_HASH) {
+    return 'signup';
+  }
+  if (hash === FORGOT_HASH) {
+    return 'forgot';
+  }
+  return 'login';
 }
 
 function replaceAuthHash(mode: AuthMode) {
   if (typeof window === 'undefined') {
     return;
   }
-  const hash = mode === 'signup' ? SIGNUP_HASH : LOGIN_HASH;
+  const hash = mode === 'signup' ? SIGNUP_HASH : mode === 'forgot' ? FORGOT_HASH : LOGIN_HASH;
   const nextUrl = `${window.location.pathname}${window.location.search}${hash}`;
   window.history.replaceState(window.history.state, '', nextUrl);
 }
@@ -95,20 +96,31 @@ export default function Login() {
   const landingTransitionState = location.state as LandingAuthTransitionState | null;
   const initialEntryKind =
     landingTransitionState?.fromLandingAuthTransition === true
-      ? landingTransitionState.authTransitionKind ?? resolveModeFromHash(window.location.hash)
+      ? landingTransitionState.authTransitionKind ?? (resolveModeFromHash(window.location.hash) === 'signup'
+        ? 'signup'
+        : 'login')
       : null;
   // 登录/注册模式:仅控制翻转动画与左侧标题文案
   const [mode, setMode] = useState<AuthMode>(() => resolveModeFromHash(window.location.hash));
-  const [entryKind, setEntryKind] = useState<AuthMode | null>(initialEntryKind);
+  const [entryKind, setEntryKind] = useState<LandingAuthMode | null>(initialEntryKind);
   // 登录成功后的离场动画状态:开启后页面淡出,过渡结束再跳转
   const [leaving, setLeaving] = useState(false);
-  const [signingIn, setSigningIn] = useState<LoginSource | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
+  const [sendingResetCode, setSendingResetCode] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [passwordResetStep, setPasswordResetStep] = useState<PasswordResetStep>('request');
+  const [passwordResetIdentity, setPasswordResetIdentity] = useState<{
+    username: string;
+    email: string;
+  } | null>(null);
   const [loginTurnstileToken, setLoginTurnstileToken] = useState<string | null>(null);
   const [signupTurnstileToken, setSignupTurnstileToken] = useState<string | null>(null);
+  const [passwordResetTurnstileToken, setPasswordResetTurnstileToken] = useState<string | null>(null);
   const [turnstileSize, setTurnstileSize] =
     useState<'normal' | 'compact'>(resolveTurnstileSize);
   const loginTurnstileRef = useRef<TurnstileWidgetHandle | null>(null);
   const signupTurnstileRef = useRef<TurnstileWidgetHandle | null>(null);
+  const passwordResetTurnstileRef = useRef<TurnstileWidgetHandle | null>(null);
   const reviewerInviteToken = resolveReviewerInviteToken(location.search);
   const ownerInviteToken = resolveOwnerInviteToken(location.search);
 
@@ -247,14 +259,29 @@ export default function Login() {
     signupTurnstileRef.current?.reset();
   };
 
-  const handleLoginFinish = async (values: LoginFormValues, source: LoginSource = 'manual') => {
+  const resetPasswordResetTurnstile = () => {
+    setPasswordResetTurnstileToken(null);
+    passwordResetTurnstileRef.current?.reset();
+  };
+
+  const switchAuthMode = (nextMode: AuthMode) => {
+    replaceAuthHash(nextMode);
+    setMode(nextMode);
+    if (nextMode !== 'forgot') {
+      setPasswordResetStep('request');
+      setPasswordResetIdentity(null);
+      resetPasswordResetTurnstile();
+    }
+  };
+
+  const handleLoginFinish = async (values: LoginFormValues) => {
     if (!loginTurnstileToken) {
       message.warning('请先完成人机验证');
       return;
     }
 
     const turnstileToken = loginTurnstileToken;
-    setSigningIn(source);
+    setSigningIn(true);
     try {
       const response = await authApi.login({
         ...values,
@@ -269,7 +296,7 @@ export default function Login() {
       }, 480);
     } catch (error) {
       message.error(error instanceof Error ? error.message : '登录失败');
-      setSigningIn(null);
+      setSigningIn(false);
       resetLoginTurnstile();
     }
   };
@@ -304,6 +331,64 @@ export default function Login() {
     } catch (error) {
       resetSignupTurnstile();
       message.error(error instanceof Error ? error.message : '注册失败');
+    }
+  };
+
+  const handlePasswordResetCodeFinish = async (
+    values: Pick<PasswordResetFormValues, 'username' | 'email'>,
+  ) => {
+    if (!passwordResetTurnstileToken) {
+      message.warning('请先完成人机验证');
+      return;
+    }
+
+    const username = values.username.trim();
+    const email = values.email.trim();
+    const turnstileToken = passwordResetTurnstileToken;
+    setSendingResetCode(true);
+    try {
+      await authApi.sendPasswordResetCode({
+        username,
+        email,
+        turnstileToken,
+      });
+      setPasswordResetIdentity({ username, email });
+      setPasswordResetStep('confirm');
+      message.success('如果账号信息可验证，验证码将发送到该邮箱');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '验证码发送失败');
+      resetPasswordResetTurnstile();
+    } finally {
+      setSendingResetCode(false);
+    }
+  };
+
+  const handlePasswordResetConfirmFinish = async (
+    values: Pick<PasswordResetFormValues, 'code' | 'newPassword' | 'confirmPassword'>,
+  ) => {
+    if (!passwordResetIdentity) {
+      setPasswordResetStep('request');
+      message.warning('请先发送邮箱验证码');
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      await authApi.confirmPasswordReset({
+        username: passwordResetIdentity.username,
+        email: passwordResetIdentity.email,
+        code: values.code,
+        newPassword: values.newPassword,
+        confirmPassword: values.confirmPassword,
+      });
+      message.success('密码已重置，请使用新密码登录');
+      setPasswordResetStep('request');
+      setPasswordResetIdentity(null);
+      resetPasswordResetTurnstile();
+      switchAuthMode('login');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '密码重置失败');
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -345,12 +430,12 @@ export default function Login() {
             </svg>
           </div>
           <div className="login-side-title">
-            {mode === 'login' ? '账号登录' : '创建账号'}
+            {mode === 'login' ? '账号登录' : mode === 'forgot' ? '找回密码' : '创建账号'}
           </div>
         </div>
 
-        {/* 翻转卡片:正面登录,背面注册 */}
-        <div className={`login-card-flip${mode === 'signup' ? ' is-flipped' : ''}`}>
+        {/* 翻转卡片:正面登录,背面注册/找回密码 */}
+        <div className={`login-card-flip${mode !== 'login' ? ' is-flipped' : ''}`}>
           <div className="login-card-inner">
             {/* 正面:登录 */}
             <section className="login-card login-card-face login-card-face--front">
@@ -415,47 +500,32 @@ export default function Login() {
                   size="large"
                   block
                   className="login-submit"
-                  loading={signingIn === 'manual'}
-                  disabled={!loginTurnstileToken || (!!signingIn && signingIn !== 'manual')}
+                  loading={signingIn}
+                  disabled={!loginTurnstileToken || signingIn}
                 >
                   登录
                 </Button>
               </Form>
 
-              <div className="login-demo-panel">
-                <div className="login-demo-title">演示账号</div>
-                <div className="login-demo-actions">
-                  {demoAccounts.map((account) => (
-                    <Button
-                      key={account.source}
-                      icon={<TeamOutlined />}
-                      className="login-demo-button"
-                      loading={signingIn === account.source}
-                      disabled={!loginTurnstileToken || (!!signingIn && signingIn !== account.source)}
-                      onClick={() => {
-                        void handleLoginFinish(
-                          {
-                            username: account.username,
-                            password: account.password,
-                          },
-                          account.source,
-                        );
-                      }}
-                    >
-                      {account.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
               <div className="login-footer">
+                <a
+                  href="#forgot"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    switchAuthMode('forgot');
+                  }}
+                >
+                  忘记密码
+                </a>
+                <span className="login-footer-separator" aria-hidden>
+                  ·
+                </span>
                 还没有账号？
                 <a
                   href="#signup"
                   onClick={(event) => {
                     event.preventDefault();
-                    replaceAuthHash('signup');
-                    setMode('signup');
+                    switchAuthMode('signup');
                   }}
                 >
                   注册
@@ -463,88 +533,274 @@ export default function Login() {
               </div>
             </section>
 
-            {/* 背面:注册 */}
+            {/* 背面:注册 / 找回密码 */}
             <section className="login-card login-card-face login-card-face--back">
               <div className="login-avatar">
                 <UserOutlined />
               </div>
 
-              <h1 className="login-welcome">创建账号</h1>
+              {mode === 'forgot' ? (
+                <>
+                  <h1 className="login-welcome">
+                    {passwordResetStep === 'request' ? '找回密码' : '重置密码'}
+                  </h1>
 
-              <Form<SignupFormValues>
-                layout="vertical"
-                onFinish={handleSignupFinish}
-                requiredMark={false}
-              >
-                <Form.Item
-                  name="username"
-                  rules={[{ required: true, message: '请输入用户名' }]}
-                >
-                  <Input
-                    className="login-input"
-                    prefix={<UserOutlined />}
-                    placeholder="用户名"
-                    size="large"
-                    autoComplete="username"
-                  />
-                </Form.Item>
+                  {passwordResetStep === 'request' ? (
+                    <Form<Pick<PasswordResetFormValues, 'username' | 'email'>>
+                      layout="vertical"
+                      onFinish={(values) => void handlePasswordResetCodeFinish(values)}
+                      requiredMark={false}
+                    >
+                      <Form.Item
+                        name="username"
+                        rules={[{ required: true, message: '请输入用户名' }]}
+                      >
+                        <Input
+                          className="login-input"
+                          prefix={<UserOutlined />}
+                          placeholder="用户名"
+                          size="large"
+                          autoComplete="username"
+                        />
+                      </Form.Item>
 
-                <Form.Item
-                  name="password"
-                  rules={[{ required: true, message: '请输入密码' }]}
-                >
-                  <Input.Password
-                    className="login-input"
-                    prefix={<KeyOutlined />}
-                    placeholder="密码"
-                    size="large"
-                    autoComplete="new-password"
-                  />
-                </Form.Item>
+                      <Form.Item
+                        name="email"
+                        rules={[
+                          { required: true, message: '请输入邮箱' },
+                          { type: 'email', message: '邮箱格式不正确' },
+                        ]}
+                      >
+                        <Input
+                          className="login-input"
+                          prefix={<MailOutlined />}
+                          placeholder="邮箱"
+                          size="large"
+                          autoComplete="email"
+                        />
+                      </Form.Item>
 
-                <TurnstileWidget
-                  ref={signupTurnstileRef}
-                  siteKey={TURNSTILE_SITE_KEY}
-                  size={turnstileSize}
-                  className="login-turnstile"
-                  onTokenChange={setSignupTurnstileToken}
-                  onExpire={() => {
-                    if (mode === 'signup') {
-                      message.warning('人机验证已过期，请重新验证');
-                    }
-                  }}
-                  onError={() => {
-                    if (mode === 'signup') {
-                      message.warning('人机验证加载失败，请稍后重试');
-                    }
-                  }}
-                />
+                      <TurnstileWidget
+                        ref={passwordResetTurnstileRef}
+                        siteKey={TURNSTILE_SITE_KEY}
+                        size={turnstileSize}
+                        className="login-turnstile"
+                        onTokenChange={setPasswordResetTurnstileToken}
+                        onExpire={() => {
+                          if (mode === 'forgot') {
+                            message.warning('人机验证已过期，请重新验证');
+                          }
+                        }}
+                        onError={() => {
+                          if (mode === 'forgot') {
+                            message.warning('人机验证加载失败，请稍后重试');
+                          }
+                        }}
+                      />
 
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  size="large"
-                  block
-                  className="login-submit"
-                  disabled={!signupTurnstileToken}
-                >
-                  注册
-                </Button>
-              </Form>
+                      <Button
+                        type="primary"
+                        htmlType="submit"
+                        size="large"
+                        block
+                        className="login-submit"
+                        loading={sendingResetCode}
+                        disabled={!passwordResetTurnstileToken || sendingResetCode}
+                      >
+                        发送验证码
+                      </Button>
+                    </Form>
+                  ) : (
+                    <Form<Pick<PasswordResetFormValues, 'code' | 'newPassword' | 'confirmPassword'>>
+                      layout="vertical"
+                      onFinish={(values) => void handlePasswordResetConfirmFinish(values)}
+                      requiredMark={false}
+                    >
+                      <div className="login-reset-target">
+                        <span>{passwordResetIdentity?.username}</span>
+                        <small>{passwordResetIdentity?.email}</small>
+                      </div>
 
-              <div className="login-footer">
-                已有账号？
-                <a
-                  href="#login"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    replaceAuthHash('login');
-                    setMode('login');
-                  }}
-                >
-                  登录
-                </a>
-              </div>
+                      <Form.Item
+                        name="code"
+                        rules={[
+                          { required: true, message: '请输入邮箱验证码' },
+                          { pattern: /^\d{6}$/, message: '请输入 6 位数字验证码' },
+                        ]}
+                      >
+                        <Input
+                          className="login-input"
+                          prefix={<MailOutlined />}
+                          placeholder="邮箱验证码"
+                          size="large"
+                          autoComplete="one-time-code"
+                          inputMode="numeric"
+                          maxLength={6}
+                        />
+                      </Form.Item>
+
+                      <Form.Item
+                        name="newPassword"
+                        rules={[
+                          { required: true, message: '请输入新密码' },
+                          { min: 6, max: 72, message: '密码长度需为 6-72 位' },
+                        ]}
+                      >
+                        <Input.Password
+                          className="login-input"
+                          prefix={<KeyOutlined />}
+                          placeholder="新密码"
+                          size="large"
+                          autoComplete="new-password"
+                        />
+                      </Form.Item>
+
+                      <Form.Item
+                        name="confirmPassword"
+                        dependencies={['newPassword']}
+                        rules={[
+                          { required: true, message: '请再次输入新密码' },
+                          ({ getFieldValue }) => ({
+                            validator(_, value) {
+                              if (!value || getFieldValue('newPassword') === value) {
+                                return Promise.resolve();
+                              }
+                              return Promise.reject(new Error('两次输入的新密码不一致'));
+                            },
+                          }),
+                        ]}
+                      >
+                        <Input.Password
+                          className="login-input"
+                          prefix={<KeyOutlined />}
+                          placeholder="确认新密码"
+                          size="large"
+                          autoComplete="new-password"
+                        />
+                      </Form.Item>
+
+                      <Button
+                        type="primary"
+                        htmlType="submit"
+                        size="large"
+                        block
+                        className="login-submit"
+                        loading={resettingPassword}
+                      >
+                        重置密码
+                      </Button>
+                    </Form>
+                  )}
+
+                  <div className="login-footer">
+                    {passwordResetStep === 'confirm' ? (
+                      <>
+                        <a
+                          href="#forgot"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            setPasswordResetStep('request');
+                            setPasswordResetIdentity(null);
+                            resetPasswordResetTurnstile();
+                          }}
+                        >
+                          重新发送
+                        </a>
+                        <span className="login-footer-separator" aria-hidden>
+                          ·
+                        </span>
+                      </>
+                    ) : null}
+                    <a
+                      href="#login"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        switchAuthMode('login');
+                      }}
+                    >
+                      返回登录
+                    </a>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h1 className="login-welcome">创建账号</h1>
+
+                  <Form<SignupFormValues>
+                    layout="vertical"
+                    onFinish={handleSignupFinish}
+                    requiredMark={false}
+                  >
+                    <Form.Item
+                      name="username"
+                      rules={[{ required: true, message: '请输入用户名' }]}
+                    >
+                      <Input
+                        className="login-input"
+                        prefix={<UserOutlined />}
+                        placeholder="用户名"
+                        size="large"
+                        autoComplete="username"
+                      />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="password"
+                      rules={[{ required: true, message: '请输入密码' }]}
+                    >
+                      <Input.Password
+                        className="login-input"
+                        prefix={<KeyOutlined />}
+                        placeholder="密码"
+                        size="large"
+                        autoComplete="new-password"
+                      />
+                    </Form.Item>
+
+                    <TurnstileWidget
+                      ref={signupTurnstileRef}
+                      siteKey={TURNSTILE_SITE_KEY}
+                      size={turnstileSize}
+                      className="login-turnstile"
+                      onTokenChange={setSignupTurnstileToken}
+                      onExpire={() => {
+                        if (mode === 'signup') {
+                          message.warning('人机验证已过期，请重新验证');
+                        }
+                      }}
+                      onError={() => {
+                        if (mode === 'signup') {
+                          message.warning('人机验证加载失败，请稍后重试');
+                        }
+                      }}
+                    />
+
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      size="large"
+                      block
+                      className="login-submit"
+                      disabled={!signupTurnstileToken}
+                    >
+                      注册
+                    </Button>
+                  </Form>
+
+                  <div className="login-footer">
+                    已有账号？
+                    <a
+                      href="#login"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        switchAuthMode('login');
+                      }}
+                    >
+                      登录
+                    </a>
+                  </div>
+                </>
+              )}
             </section>
           </div>
         </div>

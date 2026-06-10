@@ -1,5 +1,6 @@
 server:
   port: ${LABELHUB_BACKEND_PORT:8080}
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:none}
 
 spring:
   application:
@@ -19,6 +20,19 @@ spring:
       port: ${LABELHUB_REDIS_PORT:6379}
       password: ${LABELHUB_REDIS_PASSWORD:}
       timeout: ${LABELHUB_REDIS_TIMEOUT:3s}
+  mail:
+    host: ${LABELHUB_MAIL_HOST:smtp.qq.com}
+    port: ${LABELHUB_MAIL_PORT:465}
+    username: ${LABELHUB_MAIL_USERNAME:}
+    password: ${LABELHUB_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: ${LABELHUB_MAIL_SSL_ENABLED:true}
+          starttls:
+            enable: ${LABELHUB_MAIL_STARTTLS_ENABLED:false}
 
 labelhub:
   prompts:
@@ -32,6 +46,11 @@ labelhub:
       secret-key: ${LABELHUB_AUTH_TURNSTILE_SECRET_KEY:1x0000000000000000000000000000000AA}
       siteverify-url: ${LABELHUB_AUTH_TURNSTILE_SITEVERIFY_URL:https://challenges.cloudflare.com/turnstile/v0/siteverify}
       timeout-ms: ${LABELHUB_AUTH_TURNSTILE_TIMEOUT_MS:5000}
+    password-reset:
+      code-ttl-seconds: ${LABELHUB_AUTH_PASSWORD_RESET_CODE_TTL_SECONDS:600}
+      resend-cooldown-seconds: ${LABELHUB_AUTH_PASSWORD_RESET_RESEND_COOLDOWN_SECONDS:60}
+      max-attempts: ${LABELHUB_AUTH_PASSWORD_RESET_MAX_ATTEMPTS:5}
+      mail-from: ${LABELHUB_MAIL_FROM:${LABELHUB_MAIL_USERNAME:}}
     demo-users:
       enabled: ${LABELHUB_DEMO_USERS_ENABLED:true}
       owner-password: ${LABELHUB_DEMO_OWNER_PASSWORD:owner123}

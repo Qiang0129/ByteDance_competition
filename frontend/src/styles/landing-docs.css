@@ -922,6 +922,20 @@
   box-shadow: 0 16px 34px var(--lh-primary-bg-10, rgba(47, 123, 255, 0.1));
 }
 
+.landing-docs-folder {
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.86), rgba(239, 246, 255, 0.74));
+}
+
+.landing-docs-folder .landing-docs-resource-icon {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+}
+
+.landing-docs-folder:hover .landing-docs-resource-icon,
+.landing-docs-folder:focus-visible .landing-docs-resource-icon {
+  background: rgba(245, 158, 11, 0.18);
+}
+
 .landing-docs-resource.is-grouped {
   width: calc(100% - 12px);
   margin-left: 12px;

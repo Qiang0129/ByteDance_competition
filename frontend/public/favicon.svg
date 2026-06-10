@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="LabelHub">
+  <defs>
+    <linearGradient id="lh-favicon-gradient" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f7bff" />
+      <stop offset="1" stop-color="#14b8a6" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="url(#lh-favicon-gradient)" />
+  <path
+    d="M19 18.5h6.4v22h12.2V46H19V18.5Zm23.2 0h6.3V46h-6.3V34.7H31.4v-5.4h10.8V18.5Z"
+    fill="#fff"
+  />
+</svg>

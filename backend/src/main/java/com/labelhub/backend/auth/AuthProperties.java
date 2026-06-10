@@ -13,6 +13,7 @@ public class AuthProperties {
   private InitialOwner initialOwner = new InitialOwner();
   private SystemAgent systemAgent = new SystemAgent();
   private Turnstile turnstile = new Turnstile();
+  private PasswordReset passwordReset = new PasswordReset();
   private Cors cors = new Cors();
   private String serviceLoginToken = "labelhub-local-service-login-token";
 
@@ -54,6 +55,14 @@ public class AuthProperties {
 
   public void setTurnstile(Turnstile turnstile) {
     this.turnstile = turnstile;
+  }
+
+  public PasswordReset getPasswordReset() {
+    return passwordReset;
+  }
+
+  public void setPasswordReset(PasswordReset passwordReset) {
+    this.passwordReset = passwordReset;
   }
 
   public Cors getCors() {
@@ -114,6 +123,45 @@ public class AuthProperties {
 
     public void setAllowedOriginPatterns(String allowedOriginPatterns) {
       this.allowedOriginPatterns = allowedOriginPatterns;
+    }
+  }
+
+  public static class PasswordReset {
+    private int codeTtlSeconds = 600;
+    private int resendCooldownSeconds = 60;
+    private int maxAttempts = 5;
+    private String mailFrom = "";
+
+    public int getCodeTtlSeconds() {
+      return codeTtlSeconds;
+    }
+
+    public void setCodeTtlSeconds(int codeTtlSeconds) {
+      this.codeTtlSeconds = codeTtlSeconds;
+    }
+
+    public int getResendCooldownSeconds() {
+      return resendCooldownSeconds;
+    }
+
+    public void setResendCooldownSeconds(int resendCooldownSeconds) {
+      this.resendCooldownSeconds = resendCooldownSeconds;
+    }
+
+    public int getMaxAttempts() {
+      return maxAttempts;
+    }
+
+    public void setMaxAttempts(int maxAttempts) {
+      this.maxAttempts = maxAttempts;
+    }
+
+    public String getMailFrom() {
+      return mailFrom;
+    }
+
+    public void setMailFrom(String mailFrom) {
+      this.mailFrom = mailFrom;
     }
   }
 
