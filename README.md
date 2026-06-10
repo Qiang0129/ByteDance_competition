@@ -18,15 +18,16 @@ Owner 创建任务、模板和数据集
 ## 主要能力
 
 1. Owner 工作台
+
    - 任务管理、模板设计、数据集导入、AI 预审规则、审核管理、数据看板和结果导出。
-
 2. Labeler 工作台
+
    - 任务市场、我的任务、结构化答题、草稿保存、批量提交、打回返工和问题上报。
-
 3. Reviewer 工作台
-   - AI 审核队列、三栏审核工作台、人工裁决、争议样本和审核时间线。
 
+   - AI 审核队列、三栏审核工作台、人工裁决、争议样本和审核时间线。
 4. AI Review Agent
+
    - 登录后端、领取预审 Job、调用 OpenAI-compatible LLM，并把结构化审核结果写回后端。
 
 ## 技术栈
@@ -129,12 +130,10 @@ Vite preview: http://localhost:4173
 后端默认启用演示账号：
 
 ```text
-owner / owner123
-labeler / labeler123
-reviewer / reviewer123
+labelhub_owner / abelhub_owner
+labeler1 / labeler1123
+reviewer2 / reviewer2123
 ai_reviewer / ai_reviewer123
-system_agent / agent123
-demo / demo123
 ```
 
 `demo` 账号拥有多角色，适合快速切换前端视角。`system_agent` 主要供 Agent 使用，不建议作为普通 Web 用户登录。
