@@ -66,6 +66,47 @@ function normalizeAiReviewRulePage(page: AiReviewPageResult<AiReviewRule>) {
   };
 }
 
+function normalizeAiReviewJob(job: AiReviewJob): AiReviewJob {
+  return {
+    ...job,
+    taskTitle: normalizeRuleText(job.taskTitle) ?? job.taskTitle,
+    ruleName: normalizeRuleText(job.ruleName),
+    lastError: normalizeRuleText(job.lastError),
+    errorSummary: normalizeRuleText(job.errorSummary),
+  };
+}
+
+function normalizeAiReviewJobPage(page: AiReviewPageResult<AiReviewJob>) {
+  return {
+    ...page,
+    items: page.items.map(normalizeAiReviewJob),
+  };
+}
+
+function normalizeAiReviewResult(result: AiReviewResult): AiReviewResult {
+  return {
+    ...result,
+    scores: Object.fromEntries(
+      Object.entries(result.scores ?? {}).map(([key, value]) => [repairUtf8Mojibake(key), value]),
+    ),
+    comment: repairUtf8Mojibake(result.comment ?? ''),
+    risk_flags: (result.risk_flags ?? []).map(repairUtf8Mojibake),
+    evidence: (result.evidence ?? []).map(repairUtf8Mojibake),
+    promptSnapshot: normalizeRuleText(result.promptSnapshot),
+    modelName: normalizeRuleText(result.modelName),
+    version: normalizeRuleText(result.version),
+  };
+}
+
+function normalizeAiReviewTimeline(items: AiReviewJobTimelineItem[]) {
+  return items.map((item) => ({
+    ...item,
+    title: repairUtf8Mojibake(item.title),
+    status: repairUtf8Mojibake(item.status),
+    message: normalizeRuleText(item.message),
+  }));
+}
+
 export const aiReviewApi = {
   async listRules(query: ListAiReviewRulesQuery = {}): Promise<AiReviewPageResult<AiReviewRule>> {
     const page = await apiRequest<AiReviewPageResult<AiReviewRule>>(
@@ -107,16 +148,18 @@ export const aiReviewApi = {
     return normalizeAiReviewRule(rule);
   },
 
-  listJobs(query: ListAiReviewJobsQuery = {}): Promise<AiReviewPageResult<AiReviewJob>> {
-    return apiRequest<AiReviewPageResult<AiReviewJob>>(
+  async listJobs(query: ListAiReviewJobsQuery = {}): Promise<AiReviewPageResult<AiReviewJob>> {
+    const page = await apiRequest<AiReviewPageResult<AiReviewJob>>(
       `/ai-review/jobs${buildQuery(query as Record<string, unknown>)}`,
     );
+    return normalizeAiReviewJobPage(page);
   },
 
-  retryJob(jobId: string): Promise<AiReviewJob> {
-    return apiRequest<AiReviewJob>(`/ai-review/jobs/${jobId}/retry`, {
+  async retryJob(jobId: string): Promise<AiReviewJob> {
+    const job = await apiRequest<AiReviewJob>(`/ai-review/jobs/${jobId}/retry`, {
       method: 'POST',
     });
+    return normalizeAiReviewJob(job);
   },
 
   /** 批量删除作业(按 jobId 列表) */
@@ -127,19 +170,22 @@ export const aiReviewApi = {
     });
   },
 
-  cancelJob(jobId: string, reason = 'manual cancel and requeue'): Promise<AiReviewJob> {
-    return apiRequest<AiReviewJob>(`/ai-review/jobs/${jobId}/cancel`, {
+  async cancelJob(jobId: string, reason = 'manual cancel and requeue'): Promise<AiReviewJob> {
+    const job = await apiRequest<AiReviewJob>(`/ai-review/jobs/${jobId}/cancel`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
+    return normalizeAiReviewJob(job);
   },
 
-  getJobResult(annotationId: string): Promise<AiReviewResult> {
-    return apiRequest<AiReviewResult>(`/ai-review/results/${annotationId}`);
+  async getJobResult(annotationId: string): Promise<AiReviewResult> {
+    const result = await apiRequest<AiReviewResult>(`/ai-review/results/${annotationId}`);
+    return normalizeAiReviewResult(result);
   },
 
-  getJobTimeline(jobId: string): Promise<AiReviewJobTimelineItem[]> {
-    return apiRequest<AiReviewJobTimelineItem[]>(`/ai-review/jobs/${jobId}/timeline`);
+  async getJobTimeline(jobId: string): Promise<AiReviewJobTimelineItem[]> {
+    const items = await apiRequest<AiReviewJobTimelineItem[]>(`/ai-review/jobs/${jobId}/timeline`);
+    return normalizeAiReviewTimeline(items);
   },
 
   /** 兼容旧接口:获取当前激活的单个配置(Agent 运行时使用) */

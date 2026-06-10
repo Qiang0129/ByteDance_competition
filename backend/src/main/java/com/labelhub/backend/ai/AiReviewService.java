@@ -675,11 +675,11 @@ public class AiReviewService {
   private AiReviewRuleResponse toRuleResponse(AiReviewRepository.AiReviewRuleRecord record) {
     return new AiReviewRuleResponse(
         Long.toString(record.id()),
-        record.name(),
+        normalizeDisplayText(record.name()),
         record.scopeTaskId() == null ? null : Long.toString(record.scopeTaskId()),
-        record.scopeTaskTitle(),
-        record.promptTemplate(),
-        readDimensions(record.dimensionsJson()),
+        normalizeDisplayText(record.scopeTaskTitle()),
+        normalizeDisplayText(record.promptTemplate()),
+        normalizeDimensionsText(readDimensions(record.dimensionsJson())),
         record.passThreshold(),
         record.needHumanThreshold(),
         record.maxRetry(),
@@ -687,7 +687,7 @@ public class AiReviewService {
         record.status(),
         record.version(),
         formatDateTime(record.updatedAt()),
-        record.createdByName());
+        normalizeDisplayText(record.createdByName()));
   }
 
   private AiReviewJobResponse toResponse(AiReviewRepository.AiReviewJobRecord record) {
@@ -695,9 +695,9 @@ public class AiReviewService {
         Long.toString(record.id()),
         Long.toString(record.annotationId()),
         Long.toString(record.taskId()),
-        record.taskTitle(),
+        normalizeDisplayText(record.taskTitle()),
         record.ruleId() == null ? null : Long.toString(record.ruleId()),
-        record.ruleName(),
+        normalizeDisplayText(record.ruleName()),
         normalizeFrontendJobStatus(record.status()),
         record.decision(),
         record.totalScore(),
@@ -705,7 +705,7 @@ public class AiReviewService {
         record.itemIndex(),
         record.itemTotal(),
         record.retryCount(),
-        record.errorSummary(),
+        normalizeDisplayText(record.errorSummary()),
         formatDateTime(record.createdAt()),
         formatDateTime(record.availableAt()),
         formatDateTime(record.startedAt()),
@@ -717,12 +717,12 @@ public class AiReviewService {
         readMap(record.scoresJson()),
         record.totalScore() == null ? 0 : record.totalScore(),
         record.decision(),
-        record.comment(),
-        readStringList(record.riskFlagsJson()),
-        readStringList(record.evidenceJson()),
-        record.promptSnapshot(),
+        normalizeDisplayText(record.comment()),
+        normalizeDisplayTexts(readStringList(record.riskFlagsJson())),
+        normalizeDisplayTexts(readStringList(record.evidenceJson())),
+        normalizeDisplayText(record.promptSnapshot()),
         readJson(record.responseJson()),
-        record.modelName(),
+        normalizeDisplayText(record.modelName()),
         record.latencyMs());
   }
 
@@ -773,7 +773,7 @@ public class AiReviewService {
           null,
           record.errorSummary() == null || record.errorSummary().isBlank()
               ? "AI 预审失败，未返回详细错误"
-              : record.errorSummary(),
+              : normalizeDisplayText(record.errorSummary()),
           formatDateTime(record.finishedAt())));
     }
     return items;
@@ -784,13 +784,15 @@ public class AiReviewService {
     String availableText = record.availableAt() == null ? "" : " · 可执行时间 " + formatDateTime(record.availableAt());
     String cancelText = record.cancelReason() == null || record.cancelReason().isBlank()
         ? ""
-        : " · 上次取消原因: " + record.cancelReason();
+        : " · 上次取消原因: " + normalizeDisplayText(record.cancelReason());
     return "进入 AI 预审队列" + retryText + availableText + cancelText;
   }
 
   private String buildVerdictMessage(AiReviewRepository.AiReviewJobTimelineRecord record) {
     String score = record.totalScore() == null ? "-" : String.format(Locale.ROOT, "%.2f", record.totalScore());
-    String comment = record.comment() == null || record.comment().isBlank() ? "" : " · " + record.comment();
+    String comment = record.comment() == null || record.comment().isBlank()
+        ? ""
+        : " · " + normalizeDisplayText(record.comment());
     return "结论: " + record.decision() + " · 分数 " + score + comment;
   }
 
@@ -999,18 +1001,21 @@ public class AiReviewService {
         : objectMapper.createObjectNode();
     String promptTemplate = snapshot.path("promptTemplate").asText("");
     if (!promptTemplate.isBlank()) {
+      promptTemplate = normalizeDisplayText(promptTemplate);
       snapshot.put("promptTemplate", promptTemplate
           .replace("每项 0~5", "每项 0~100")
           .replace("每项 0-5", "每项 0-100")
           .replace("0~5 分", "0~100 分")
           .replace("0-5 分", "0-100 分"));
     }
+    normalizeSnapshotTextField(snapshot, "name");
+    normalizeSnapshotTextField(snapshot, "scopeTaskTitle");
     JsonNode dimensions = snapshot.path("dimensions");
     if (dimensions.isArray()) {
       try {
         List<AiReviewDimension> normalized = normalizeDimensionsToHundredScale(
             objectMapper.readValue(objectMapper.treeAsTokens(dimensions), DIMENSION_LIST));
-        snapshot.set("dimensions", objectMapper.valueToTree(normalized));
+        snapshot.set("dimensions", objectMapper.valueToTree(normalizeDimensionsText(normalized)));
       } catch (Exception exception) {
         throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AI_REVIEW_RULE", "rule dimensions are invalid");
       }
@@ -1082,6 +1087,33 @@ public class AiReviewService {
       return null;
     }
     return writeJson(node);
+  }
+
+  private void normalizeSnapshotTextField(ObjectNode snapshot, String fieldName) {
+    JsonNode value = snapshot.get(fieldName);
+    if (value != null && value.isTextual()) {
+      snapshot.put(fieldName, normalizeDisplayText(value.asText()));
+    }
+  }
+
+  private List<AiReviewDimension> normalizeDimensionsText(List<AiReviewDimension> dimensions) {
+    return dimensions.stream()
+        .map(dimension -> new AiReviewDimension(
+            dimension.key(),
+            normalizeDisplayText(dimension.label()),
+            dimension.weight(),
+            dimension.maxScore()))
+        .toList();
+  }
+
+  private List<String> normalizeDisplayTexts(List<String> values) {
+    return values.stream()
+        .map(this::normalizeDisplayText)
+        .toList();
+  }
+
+  private String normalizeDisplayText(String value) {
+    return AiReviewTextNormalizer.repairUtf8Mojibake(value);
   }
 
   private String formatDateTime(LocalDateTime dateTime) {

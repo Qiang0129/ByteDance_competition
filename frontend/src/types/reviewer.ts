@@ -136,6 +136,8 @@ export interface AiReviewResult {
   /** AI 规则/模型版本标识(如 v2.3 · doubao-pro-32k),展示用 */
   version?: string;
   modelName?: string;
+  /** Agent 完成本轮审核时使用的规则快照,AI Reviewer 详情页展示用 */
+  promptSnapshot?: string;
 }
 
 /** 提交审核结论的请求体 */

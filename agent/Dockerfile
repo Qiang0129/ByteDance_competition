@@ -12,7 +12,8 @@ RUN --mount=type=cache,target=/root/.m2 cd agent && mvn -B -DskipTests package
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-RUN addgroup -S labelhub \
+RUN apk add --no-cache tzdata \
+  && addgroup -S labelhub \
   && adduser -S -G labelhub labelhub \
   && mkdir -p /app/agent/prompts \
   && chown -R labelhub:labelhub /app
@@ -20,7 +21,9 @@ RUN addgroup -S labelhub \
 COPY --from=build --chown=labelhub:labelhub /workspace/agent/target/labelhub-agent-*.jar /app/app.jar
 COPY --chown=labelhub:labelhub agent/prompts /app/agent/prompts
 
-ENV LABELHUB_PROMPTS_DIR=/app/agent/prompts
+ENV LABELHUB_PROMPTS_DIR=/app/agent/prompts \
+    TZ=Asia/Shanghai \
+    JAVA_TOOL_OPTIONS=-Duser.timezone=Asia/Shanghai
 
 EXPOSE 8091
 USER labelhub

@@ -77,6 +77,16 @@ const evidenceKindMeta: Record<EvidenceKind, { label: string; color: string }> =
   safety: { label: '安全', color: 'green' },
   evidence: { label: '依据', color: 'default' },
 };
+
+const defaultPromptSnapshot =
+  '你是电商商品标题审核员，请基于以下维度为提交内容打分（0-100）：\n'
+  + '[相关性] 标注结果与原始数据是否对齐\n'
+  + '[准确性] 关键词与商品实际是否一致\n'
+  + '[格式合规] 是否满足模板字段格式要求\n'
+  + '[安全性] 是否包含敏感信息\n\n'
+  + '请通过 function_call 返回 JSON:\n'
+  + '{"scores": {...}, "verdict": "pass"|"reject"|"manual", "reason": "..."}';
+
 const MOBILE_PRE_REVIEW_QUEUE_PAGE_SIZE = 5;
 
 export default function AiPreReviewQueue() {
@@ -541,6 +551,7 @@ function JobDetailPanel({
 }) {
   const decision = job.decision ? decisionMeta[job.decision] : null;
   const roundTag = renderRoundTag(job.roundNo, 'detail');
+  const promptSnapshot = result?.promptSnapshot?.trim() || defaultPromptSnapshot;
 
   return (
     <div className="ai-queue-detail" ref={rightRef}>
@@ -673,7 +684,7 @@ function JobDetailPanel({
               }
             >
               <pre className="ai-queue-prompt">
-                {`你是电商商品标题审核员，请基于以下维度为提交内容打分（0-100）：\n[相关性] 标注结果与原始数据是否对齐\n[准确性] 关键词与商品实际是否一致\n[格式合规] 是否满足模板字段格式要求\n[安全性] 是否包含敏感信息\n\n请通过 function_call 返回 JSON:\n{"scores": {...}, "verdict": "pass"|"reject"|"manual", "reason": "..."}`}
+                {promptSnapshot}
               </pre>
             </Card>
 

@@ -11,6 +11,7 @@ services:
       - --max-connections=80
       - --innodb-buffer-pool-size=256M
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MYSQL_ROOT_PASSWORD: ${LABELHUB_MYSQL_ROOT_PASSWORD:?set LABELHUB_MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: labelhub
       MYSQL_USER: ${LABELHUB_DB_USERNAME:-labelhub}
@@ -61,7 +62,8 @@ services:
     ports:
       - "127.0.0.1:${LABELHUB_BACKEND_HOST_PORT:-8080}:8080"
     environment:
-      JAVA_OPTS: ${LABELHUB_BACKEND_JAVA_OPTS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
+      TZ: ${TZ:-Asia/Shanghai}
+      JAVA_OPTS: ${LABELHUB_BACKEND_JAVA_OPTS:--Duser.timezone=Asia/Shanghai -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
       LABELHUB_BACKEND_PORT: 8080
       SERVER_FORWARD_HEADERS_STRATEGY: ${SERVER_FORWARD_HEADERS_STRATEGY:-framework}
       LABELHUB_DB_URL: jdbc:mysql://mysql:3306/labelhub?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
@@ -113,7 +115,8 @@ services:
       backend:
         condition: service_started
     environment:
-      JAVA_OPTS: ${LABELHUB_AGENT_JAVA_OPTS:--XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
+      TZ: ${TZ:-Asia/Shanghai}
+      JAVA_OPTS: ${LABELHUB_AGENT_JAVA_OPTS:--Duser.timezone=Asia/Shanghai -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError}
       LABELHUB_AGENT_PORT: 8091
       LABELHUB_BACKEND_BASE_URL: http://backend:8080
       LABELHUB_AGENT_USERNAME: ${LABELHUB_SYSTEM_AGENT_USERNAME:-system_agent}
@@ -153,6 +156,7 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MYSQL_ROOT_PASSWORD: ${LABELHUB_MYSQL_ROOT_PASSWORD:?set LABELHUB_MYSQL_ROOT_PASSWORD}
       LABELHUB_DEMO_USERS_ENABLED: ${LABELHUB_DEMO_USERS_ENABLED:-false}
     volumes:
