@@ -72,8 +72,9 @@ public class DatasetController {
       @PathVariable long datasetId,
       @RequestParam(required = false) String keyword,
       @RequestParam(required = false) Integer page,
-      @RequestParam(required = false) Integer pageSize) {
-    return datasetService.listItemOptions(authentication, datasetId, keyword, page, pageSize);
+      @RequestParam(required = false) Integer pageSize,
+      @RequestParam(required = false) Long excludeTaskId) {
+    return datasetService.listItemOptions(authentication, datasetId, keyword, page, pageSize, excludeTaskId);
   }
 
   @DeleteMapping("/datasets/{datasetId}")

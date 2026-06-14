@@ -5120,6 +5120,19 @@ html.lh-public-page body {
   color: #475569;
 }
 
+.owner-task-item-usage-tag.ant-tag {
+  width: fit-content;
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.owner-task-item-usage-row {
+  display: block;
+  max-width: 280px;
+  overflow-wrap: anywhere;
+}
+
 .owner-allocation-editor {
   display: flex;
   flex-direction: column;

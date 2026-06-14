@@ -4,6 +4,8 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -285,6 +287,51 @@ public class DatasetRepository {
     return count == null ? 0L : count;
   }
 
+  public Map<Long, List<ItemUsedTaskRecord>> listPublishedItemUsedTasks(
+      long ownerId,
+      List<Long> itemIds,
+      Long excludeTaskId) {
+    if (itemIds.isEmpty()) {
+      return Map.of();
+    }
+    List<Object> args = new ArrayList<>();
+    args.add(ownerId);
+    if (excludeTaskId != null) {
+      args.add(excludeTaskId);
+    }
+    args.addAll(itemIds);
+    String placeholders = String.join(",", java.util.Collections.nCopies(itemIds.size(), "?"));
+    String excludeFilter = excludeTaskId == null ? "" : "AND t.id <> ?\n";
+    List<ItemUsedTaskRecord> records = jdbcTemplate.query(
+        """
+        SELECT
+          ti.item_id,
+          t.id AS task_id,
+          t.title,
+          t.status
+        FROM task_items ti
+        JOIN tasks t ON t.id = ti.task_id
+        WHERE t.owner_id = ?
+          AND t.deleted_at IS NULL
+          AND t.status IN ('published', 'paused', 'ended')
+          """ + excludeFilter + """
+          AND ti.item_id IN (""" + placeholders + """
+          )
+        ORDER BY ti.item_id ASC, t.published_at DESC, t.created_at DESC, t.id DESC
+        """,
+        (rs, rowNum) -> new ItemUsedTaskRecord(
+            rs.getLong("item_id"),
+            rs.getLong("task_id"),
+            rs.getString("title"),
+            rs.getString("status")),
+        args.toArray());
+    Map<Long, List<ItemUsedTaskRecord>> grouped = new HashMap<>();
+    for (ItemUsedTaskRecord record : records) {
+      grouped.computeIfAbsent(record.itemId(), ignored -> new ArrayList<>()).add(record);
+    }
+    return grouped;
+  }
+
   public void insertItems(Long taskId, long datasetId, List<DatasetItemPayload> items) {
     if (items.isEmpty()) {
       return;
@@ -419,4 +466,10 @@ public class DatasetRepository {
       String itemKey,
       String mediaType,
       String rawPayloadJson) {}
+
+  public record ItemUsedTaskRecord(
+      long itemId,
+      long taskId,
+      String title,
+      String state) {}
 }

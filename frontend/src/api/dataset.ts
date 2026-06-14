@@ -19,12 +19,13 @@ export const datasetApi = {
 
   listItemOptions(
     datasetId: string,
-    params: { keyword?: string; page?: number; pageSize?: number } = {},
+    params: { keyword?: string; page?: number; pageSize?: number; excludeTaskId?: string } = {},
   ): Promise<PageResult<DatasetItemOption>> {
     const search = new URLSearchParams();
     if (params.keyword) search.set('keyword', params.keyword);
     if (params.page) search.set('page', String(params.page));
     if (params.pageSize) search.set('pageSize', String(params.pageSize));
+    if (params.excludeTaskId) search.set('excludeTaskId', params.excludeTaskId);
     const qs = search.toString();
     return apiRequest<PageResult<DatasetItemOption>>(
       `/datasets/${datasetId}/item-options${qs ? `?${qs}` : ''}`,

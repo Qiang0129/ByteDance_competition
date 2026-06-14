@@ -63,7 +63,6 @@ const MOBILE_JOB_PAGE_SIZE = 10;
 const DEFAULT_DIMENSION_MAX_SCORE = 100;
 const DEFAULT_PASS_THRESHOLD = 80;
 const DEFAULT_NEED_HUMAN_THRESHOLD = 70;
-const DEFAULT_AI_REVIEW_PROMPT = `![1780232335079](image/OwnerAiReview/1780232335079.png)`;
 
 const decisionMeta: Record<AiDecision, { label: string; color: string }> = {
   PASS: { label: 'PASS', color: 'success' },
@@ -173,7 +172,7 @@ export function RulesPanel() {
     form.resetFields();
     form.setFieldsValue({
       name: '',
-      promptTemplate: DEFAULT_AI_REVIEW_PROMPT,
+      promptTemplate: '',
       dimensions: [
         { key: 'relevance', label: '相关性', weight: 0.3, maxScore: DEFAULT_DIMENSION_MAX_SCORE },
         { key: 'accuracy', label: '准确性', weight: 0.4, maxScore: DEFAULT_DIMENSION_MAX_SCORE },

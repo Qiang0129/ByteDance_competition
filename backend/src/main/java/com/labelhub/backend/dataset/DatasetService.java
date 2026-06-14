@@ -66,15 +66,22 @@ public class DatasetService {
       long datasetId,
       String keyword,
       Integer page,
-      Integer pageSize) {
+      Integer pageSize,
+      Long excludeTaskId) {
     AuthenticatedUser owner = requireOwner(authentication);
     ensureDataset(owner.id(), datasetId);
+    ensureTaskOwner(owner.id(), excludeTaskId);
     int safePage = page == null || page < 1 ? 1 : page;
     int safePageSize = pageSize == null || pageSize < 1 ? 20 : Math.min(pageSize, 100);
-    List<DatasetItemOptionResponse> items = datasetRepository
-        .listItemOptions(owner.id(), datasetId, keyword, safePageSize, (safePage - 1) * safePageSize)
-        .stream()
-        .map(this::toItemOptionResponse)
+    List<DatasetRepository.DatasetItemOptionRecord> records = datasetRepository
+        .listItemOptions(owner.id(), datasetId, keyword, safePageSize, (safePage - 1) * safePageSize);
+    Map<Long, List<DatasetRepository.ItemUsedTaskRecord>> usedTasks = datasetRepository
+        .listPublishedItemUsedTasks(
+            owner.id(),
+            records.stream().map(DatasetRepository.DatasetItemOptionRecord::itemId).toList(),
+            excludeTaskId);
+    List<DatasetItemOptionResponse> items = records.stream()
+        .map(record -> toItemOptionResponse(record, usedTasks.getOrDefault(record.itemId(), List.of())))
         .toList();
     return new PageResponse<>(
         items,
@@ -260,7 +267,9 @@ public class DatasetService {
         record.errorSummary());
   }
 
-  private DatasetItemOptionResponse toItemOptionResponse(DatasetRepository.DatasetItemOptionRecord record) {
+  private DatasetItemOptionResponse toItemOptionResponse(
+      DatasetRepository.DatasetItemOptionRecord record,
+      List<DatasetRepository.ItemUsedTaskRecord> usedTasks) {
     JsonNode raw = readJson(record.rawPayloadJson());
     String label = text(raw, "id");
     if (label == null || label.isBlank()) {
@@ -274,7 +283,14 @@ public class DatasetService {
         record.itemKey(),
         label,
         record.mediaType(),
-        summarizeItem(raw));
+        summarizeItem(raw),
+        usedTasks.size(),
+        usedTasks.stream()
+            .map(task -> new DatasetItemOptionResponse.UsedTaskResponse(
+                Long.toString(task.taskId()),
+                task.title(),
+                task.state()))
+            .toList());
   }
 
   private String summarizeItem(JsonNode raw) {

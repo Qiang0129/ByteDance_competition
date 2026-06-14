@@ -196,6 +196,13 @@ const labelingStatusMeta: Record<LabelingStatus, { label: string; color: string;
   ended: { label: '已结束', color: 'default', icon: <span className="state-dot dot-ended" /> },
 };
 
+function resolveTaskStateLabel(state?: string) {
+  if (state && state in labelingStatusMeta) {
+    return labelingStatusMeta[state as LabelingStatus].label;
+  }
+  return state || '未知状态';
+}
+
 const reviewStatusMeta: Record<OwnerTaskReviewStatus, { label: string; color: string }> = {
   not_started: { label: '未开始', color: 'default' },
   ai_prereviewing: { label: 'AI预审中', color: 'processing' },
@@ -544,7 +551,7 @@ export default function OwnerTasks() {
       return;
     }
     void loadDatasetItemOptions(selectedDatasetId, itemOptionPage, itemOptionKeyword);
-  }, [drawerOpen, selectedDatasetId, selectedItemSelectionMode, itemOptionPage, itemOptionKeyword]);
+  }, [activeRow?.taskId, drawerOpen, selectedDatasetId, selectedItemSelectionMode, itemOptionPage, itemOptionKeyword]);
 
   useEffect(() => {
     if (!drawerOpen || activeRow) {
@@ -834,6 +841,7 @@ export default function OwnerTasks() {
         page,
         pageSize: DATASET_ITEM_PAGE_SIZE,
         keyword: keyword.trim() || undefined,
+        excludeTaskId: activeRow?.taskId,
       });
       setDatasetItemOptions(response.items);
       setItemOptionPage(response.page);
@@ -843,6 +851,32 @@ export default function OwnerTasks() {
     } finally {
       setItemOptionLoading(false);
     }
+  }
+
+  function renderItemUsageHint(item: DatasetItemOption) {
+    const usedTaskCount = item.usedTaskCount ?? item.usedTasks?.length ?? 0;
+    if (usedTaskCount <= 0) {
+      return null;
+    }
+    const usedTasks = item.usedTasks ?? [];
+    const overlay = usedTasks.length ? (
+      <Space direction="vertical" size={4}>
+        {usedTasks.map((task) => (
+          <span key={task.taskId} className="owner-task-item-usage-row">
+            {task.title || `任务 #${task.taskId}`}（#{task.taskId} · {resolveTaskStateLabel(task.state)}）
+          </span>
+        ))}
+      </Space>
+    ) : (
+      <span>该题目已在发布类任务中使用</span>
+    );
+    return (
+      <Tooltip title={overlay} placement="topLeft">
+        <Tag color="warning" className="owner-task-item-usage-tag">
+          已在 {usedTaskCount} 个任务中发布
+        </Tag>
+      </Tooltip>
+    );
   }
 
   function inferDatasetId(row?: OwnerTaskRow) {
@@ -1280,6 +1314,7 @@ export default function OwnerTasks() {
               <span className="owner-task-mobile-item-main">
                 <span className="owner-task-mobile-item-title">{item.label}</span>
                 <span className="owner-task-mobile-item-id">#{item.itemId}</span>
+                {renderItemUsageHint(item)}
                 <span className="owner-task-mobile-item-summary">{item.summary}</span>
                 <Tag>{item.mediaType}</Tag>
               </span>
@@ -1827,6 +1862,7 @@ export default function OwnerTasks() {
                                 <Space direction="vertical" size={2}>
                                   <Typography.Text strong>{label}</Typography.Text>
                                   <Typography.Text type="secondary">#{record.itemId}</Typography.Text>
+                                  {renderItemUsageHint(record)}
                                 </Space>
                               ),
                             },

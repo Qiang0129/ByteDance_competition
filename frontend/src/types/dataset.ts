@@ -52,6 +52,14 @@ export interface DatasetItemOption {
   label: string;
   mediaType: MediaType | string;
   summary: string;
+  usedTaskCount?: number;
+  usedTasks?: DatasetItemUsedTask[];
+}
+
+export interface DatasetItemUsedTask {
+  taskId: string;
+  title: string;
+  state: string;
 }
 
 /** 数据集元数据(列表卡用) */
